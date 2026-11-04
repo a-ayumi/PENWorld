@@ -5,7 +5,12 @@ import { psx } from './psx'
 export const PAD = 2
 type Draw = (g: CanvasRenderingContext2D) => void
 
-export function pixelSprite(w: number, h: number, draw: Draw, outline = '#1a1530'): HTMLCanvasElement {
+export interface PixelOpts {
+  /** 左上から光が当たる想定で、ふちに明暗・網点の影・足元の暗がりを自動で付ける */
+  shade?: boolean
+}
+
+export function pixelSprite(w: number, h: number, draw: Draw, outline = '#1a1530', opts: PixelOpts = {}): HTMLCanvasElement {
   const c = document.createElement('canvas')
   c.width = w + PAD * 2
   c.height = h + PAD * 2
@@ -23,6 +28,24 @@ export function pixelSprite(w: number, h: number, draw: Draw, outline = '#1a1530
       d[i * 4 + 3] = 255
     } else d[i * 4 + 3] = 0
   }
+  const S = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H && solid[y * W + x] === 1
+  if (opts.shade) {
+    const src = new Uint8ClampedArray(d)
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x
+        if (!solid[i]) continue
+        let k = 1
+        // 左上のふち = 光が当たる
+        if (!S(x - 1, y - 1) || !S(x - 2, y - 2)) k *= 1.16
+        // 右下のふち = 影（2px）、その内側は網点で影をぼかす
+        if (!S(x + 1, y + 1) || !S(x + 2, y + 2)) k *= 0.74
+        else if ((!S(x + 3, y + 3) || !S(x + 4, y + 4)) && (x + y) % 2 === 0) k *= 0.84
+        // 足元の暗がり
+        if (!S(x, y + 2) && S(x, y - 2)) k *= 0.88
+        if (k !== 1) for (let ch = 0; ch < 3; ch++) d[i * 4 + ch] = src[i * 4 + ch] * k
+      }
+  }
   if (outline) {
     const n = parseInt(outline.slice(1), 16)
     const or = (n >> 16) & 255
@@ -32,12 +55,19 @@ export function pixelSprite(w: number, h: number, draw: Draw, outline = '#1a1530
       for (let x = 0; x < W; x++) {
         const i = y * W + x
         if (solid[i]) continue
-        if ((x > 0 && solid[i - 1]) || (x < W - 1 && solid[i + 1]) || (y > 0 && solid[i - W]) || (y < H - 1 && solid[i + W])) {
+        const nb = [i - 1, i + 1, i - W, i + W].find((j, q) => (q === 0 ? x > 0 : q === 1 ? x < W - 1 : q === 2 ? y > 0 : y < H - 1) && solid[j])
+        if (nb === undefined) continue
+        if (opts.shade) {
+          // 色付きの輪郭：隣の色を暗くして基本の輪郭色と混ぜる
+          d[i * 4] = d[nb * 4] * 0.3 + or * 0.5
+          d[i * 4 + 1] = d[nb * 4 + 1] * 0.3 + og * 0.5
+          d[i * 4 + 2] = d[nb * 4 + 2] * 0.3 + ob * 0.5
+        } else {
           d[i * 4] = or
           d[i * 4 + 1] = og
           d[i * 4 + 2] = ob
-          d[i * 4 + 3] = 255
         }
+        d[i * 4 + 3] = 255
       }
   }
   g.putImageData(img, 0, 0)

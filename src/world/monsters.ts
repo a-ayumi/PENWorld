@@ -1,4 +1,4 @@
-import { buildSheet, pixelSprite, type Sheet } from './sprites'
+import { SpriteAnim, buildSheet, pixelSprite, type Sheet } from './sprites'
 
 /**
  * オリジナルのモンスター 8 種。すべてコードで描く 2.5D ドット絵（色・陰影・アウトライン付き）。
@@ -69,7 +69,8 @@ type G = CanvasRenderingContext2D
 const fill = (g: G, c: string) => (g.fillStyle = c)
 const rect = (g: G, c: string, x: number, y: number, w: number, h: number) => {
   fill(g, c)
-  g.fillRect(Math.round(x), Math.round(y), w, h)
+  // 2 倍の解像度で描くので 0.5 刻みまで使える
+  g.fillRect(Math.round(x * 2) / 2, Math.round(y * 2) / 2, w, h)
 }
 const ell = (g: G, c: string, x: number, y: number, rx: number, ry: number) => {
   fill(g, c)
@@ -106,6 +107,7 @@ const eyes = (g: G, xs: number[], y: number, mode: Pose['eye'], color = '#1a1530
     } else {
       rect(g, color, x - 1, y - 1, 2, 3)
       rect(g, '#ffffff', x - 1, y - 1, 1, 1)
+      rect(g, '#ffffff', x + 0.5, y + 1, 0.5, 0.5)
       if (mode === 'angry') rect(g, color, x - 2, y - 3, 4, 1)
     }
   }
@@ -189,50 +191,59 @@ const DRAW: Record<SpeciesId, (g: G, p: Pose, f: number) => void> = {
     if (p.mouth) rect(g, '#7a1f3d', cx + 3, cy + 2, 2, 2)
   },
   giaru(g, p) {
+    // 丸い頭 + ゴーグルの目 + 角ばった胴体のロボット（3D 版と同じデザイン）
     const cx = 16 + p.lean
     const cy = 21 + p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
     // プラグのしっぽ
-    rect(g, '#3d2a8a', cx - 10, cy + 2, 4, 1)
-    rect(g, '#3d2a8a', cx - 12, cy, 2, 3)
-    rect(g, '#ffd23f', cx - 15, cy - 1, 3, 4)
-    rect(g, '#c9ced6', cx - 17, cy, 2, 1)
-    rect(g, '#c9ced6', cx - 17, cy + 2, 2, 1)
-    rect(g, '#3d2a8a', cx - 5 + p.step, cy + 6, 4, 3)
-    rect(g, '#3d2a8a', cx + 1 - p.step, cy + 6, 4, 3)
-    // からだ
-    fill(g, '#5b3fc9')
-    g.beginPath()
-    g.roundRect(cx - 7, cy - 8 + p.sq, 15, 15 - p.sq, 4)
-    g.fill()
-    fill(g, '#8e6cff')
-    g.beginPath()
-    g.roundRect(cx - 7, cy - 8 + p.sq, 14, 12 - p.sq, 4)
-    g.fill()
-    rect(g, '#c3b2ff', cx - 5, cy - 7 + p.sq, 3, 2)
+    rect(g, '#3d2a8a', cx - 9, cy + 3, 3, 1)
+    rect(g, '#3d2a8a', cx - 11, cy + 1, 2, 3)
+    rect(g, '#ffd23f', cx - 14, cy, 3, 4)
+    rect(g, '#c9ced6', cx - 16, cy + 0.5, 2, 1)
+    rect(g, '#c9ced6', cx - 16, cy + 2.5, 2, 1)
+    // あし
+    rect(g, '#3d2a8a', cx - 5 + p.step, cy + 6, 4, 4)
+    rect(g, '#3d2a8a', cx + 1 - p.step, cy + 6, 4, 4)
+    // 胴体（角ばった箱）+ 胸のパネル
+    rect(g, '#5b3fc9', cx - 6, cy - 2 + p.sq, 12, 9 - p.sq)
+    rect(g, '#8e6cff', cx - 6, cy - 2 + p.sq, 12, 6 - p.sq)
+    rect(g, '#2a1a5e', cx - 3, cy + 1, 6, 3)
+    rect(g, '#5ef2ff', cx - 2, cy + 2, 4, 1)
     // うで
-    rect(g, '#5b3fc9', cx - 9, cy - 1 + p.flap, 2, 5)
-    rect(g, '#5b3fc9', cx + 7 + (p.lean > 1 ? 2 : 0), cy - 1 - p.flap, 3, 4)
-    // はぐるまの耳
-    const ex = cx - 4
-    const ey = cy - 10 + p.sq
-    for (const [dx, dy] of [[0, -4], [0, 3], [-4, 0], [3, 0]]) rect(g, '#9aa1ab', ex + dx, ey + dy, 2, 2)
-    ell(g, '#c9ced6', ex + 1, ey + 1, 3, 3)
-    rect(g, '#3d2a8a', ex, ey, 2, 2)
+    rect(g, '#5b3fc9', cx - 8, cy - 1 + p.flap, 2, 5)
+    rect(g, '#c9ced6', cx - 8, cy + 4 + p.flap, 2, 1.5)
+    rect(g, '#5b3fc9', cx + 6 + (p.lean > 1 ? 2 : 0), cy - 1 - p.flap, 2.5, 4.5)
+    // 頭（丸）
+    const hy = cy - 8 + p.sq * 0.5
+    blob(g, cx + 0.5, hy, 6.5, 5.5, '#a58cff', '#6f55d8', '#d6caff')
+    // はぐるまの耳（頭の左）
+    for (const [dx, dy] of [[0, -3], [0, 2], [-3, -0.5], [2, -0.5]]) rect(g, '#9aa1ab', cx - 6.5 + dx, hy - 1 + dy, 1.5, 1.5)
+    ell(g, '#c9ced6', cx - 6, hy - 0.3, 2.2, 2.2)
+    rect(g, '#3d2a8a', cx - 6.5, hy - 0.8, 1, 1)
     // アンテナ
-    rect(g, '#c9ced6', cx + 4, ey - 2, 1, 4)
-    rect(g, '#ff4d6d', cx + 3, ey - 4, 3, 2)
-    // バイザー
-    const vy = cy - 5 + p.sq
-    rect(g, p.eye === 'closed' ? '#7a2033' : '#ff4d6d', cx - 4, vy, 12, 4)
-    rect(g, '#ffb3c1', cx - 4, vy, 12, 1)
-    if (p.eye === 'open' || p.eye === 'angry') {
-      rect(g, '#ffffff', cx + 1, vy + 1, 2, 2)
-      rect(g, '#ffffff', cx + 5, vy + 1, 2, 2)
-    } else if (p.eye === 'happy') {
-      rect(g, '#ffffff', cx + 1, vy + 2, 2, 1)
-      rect(g, '#ffffff', cx + 5, vy + 2, 2, 1)
-    } else if (p.eye === 'hurt') rect(g, '#ffffff', cx, vy + 2, 8, 1)
-    if (p.mouth) rect(g, '#2a1a5e', cx + 2, vy + 6, 4, 2)
+    rect(g, '#c9ced6', cx + 3, hy - 8, 1, 3)
+    rect(g, '#ffd23f', cx + 2.5, hy - 9.5, 2, 1.5)
+    // ゴーグルの目
+    for (const ex of [cx - 1.5, cx + 3.5]) {
+      ell(g, '#c9ced6', ex, hy, 2.3, 2.3)
+      if (p.eye === 'closed') rect(g, '#7a2033', ex - 1.5, hy, 3, 0.5)
+      else if (p.eye === 'happy') {
+        rect(g, '#ff4d6d', ex - 1.5, hy, 1, 0.5)
+        rect(g, '#ff4d6d', ex - 0.5, hy - 0.5, 1, 0.5)
+        rect(g, '#ff4d6d', ex + 0.5, hy, 1, 0.5)
+      } else if (p.eye === 'hurt') {
+        rect(g, '#ff4d6d', ex - 1, hy - 1, 0.5, 0.5)
+        rect(g, '#ff4d6d', ex + 0.5, hy - 1, 0.5, 0.5)
+        rect(g, '#ff4d6d', ex - 0.25, hy - 0.25, 0.5, 0.5)
+        rect(g, '#ff4d6d', ex - 1, hy + 0.5, 0.5, 0.5)
+        rect(g, '#ff4d6d', ex + 0.5, hy + 0.5, 0.5, 0.5)
+      } else {
+        ell(g, '#ff4d6d', ex, hy, 1.4, 1.4)
+        rect(g, '#ffffff', ex - 1, hy - 1, 0.5, 0.5)
+        if (p.eye === 'angry') rect(g, '#2a1a5e', ex - 2, hy - 3, 4, 0.5)
+      }
+    }
+    // くちのグリル
+    if (p.mouth) for (let i = 0; i < 3; i++) rect(g, '#2a1a5e', cx - 0.5 + i * 1.5, hy + 3, 1, 1)
   },
   hireru(g, p) {
     const cx = 16 + p.lean
@@ -319,9 +330,45 @@ const cache = new Map<SpeciesId, Sheet>()
 export function sheetFor(id: SpeciesId): Sheet {
   let s = cache.get(id)
   if (!s) {
-    const frames = POSES.map((p, i) => pixelSprite(34, 32, (g) => DRAW[id](g, p, i)))
+    // 2 倍の解像度（68×64）で描き、自動陰影と色付き輪郭をかける
+    const frames = POSES.map((p, i) =>
+      pixelSprite(68, 64, (g) => {
+        g.scale(2, 2)
+        DRAW[id](g, p, i)
+      }, '#1a1530', { shade: true }),
+    )
     s = buildSheet(frames, ANIMS)
     cache.set(id, s)
   }
   return s
+}
+
+/** 箱庭のキャラの見た目（2.5D のドット絵 / 3D モデル）に共通の口 */
+export interface MonsterView {
+  readonly sprite: import('three').Object3D
+  facing: 1 | -1
+  play(name: string): void
+  update(dt: number): void
+  setHeight(h: number): void
+  setSpecies(id: SpeciesId, height: number): void
+  dispose(): void
+}
+
+/** 2.5D のドット絵キャラ（やられた時は赤く色づく） */
+export class SpriteMonster extends SpriteAnim implements MonsterView {
+  private cur = 'idle'
+  constructor(id: SpeciesId, height: number) {
+    super(sheetFor(id), height, 'idle')
+  }
+  setSpecies(id: SpeciesId, height: number) {
+    this.setSheet(sheetFor(id), height)
+  }
+  play(name: string, restart = false) {
+    this.cur = name
+    super.play(name, restart)
+  }
+  update(dt: number) {
+    super.update(dt)
+    this.material.color.set(this.cur === 'hurt' ? '#ff9a9a' : '#ffffff')
+  }
 }

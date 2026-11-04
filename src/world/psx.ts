@@ -7,10 +7,15 @@ import * as THREE from 'three'
  * - 15bit カラー（各色 5bit）+ 4×4 Bayer ディザ
  * - テクスチャは Nearest（ぼかさない）
  */
+/** HUD（文字・アイコン）のキャンバス解像度 */
 export const RES = { w: 320, h: 240 }
+/** 箱庭を描く解像度（ドット絵の細かさを出すため HUD の 1.5 倍） */
+export const SCENE = { w: 480, h: 360 }
+/** 最終出力（HUD の 3 倍・箱庭の 2 倍 = どちらもドットが均等に拡大される） */
+export const OUT = { w: 960, h: 720 }
 
 /** 頂点スナップの格子（小さいほど揺れが強い） */
-const snap = { value: new THREE.Vector2(RES.w / 2, RES.h / 2) }
+const snap = { value: new THREE.Vector2(SCENE.w / 2, SCENE.h / 2) }
 
 /** 任意の three 標準マテリアルに頂点スナップを足す */
 export function psx<T extends THREE.Material>(m: T): T {
@@ -39,7 +44,7 @@ export function makePostMaterial(scene: THREE.Texture, hud: THREE.Texture) {
   return new THREE.ShaderMaterial({
     uniforms: {
       tScene: { value: scene }, tHud: { value: hud }, glitch: { value: 0 }, flash: { value: 0 }, time: { value: 0 },
-      res: { value: new THREE.Vector2(RES.w, RES.h) },
+      res: { value: new THREE.Vector2(SCENE.w, SCENE.h) },
     },
     depthTest: false,
     depthWrite: false,

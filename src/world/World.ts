@@ -1,8 +1,8 @@
 import * as THREE from 'three'
-import { RES, makePostMaterial, psx } from './psx'
+import { OUT, RES, SCENE, makePostMaterial, psx } from './psx'
 import { SpriteAnim, iconSheet } from './sprites'
 import { MonsterModel } from './models'
-import { BRANCH, SPECIES, type Care, type Species, type SpeciesId } from './monsters'
+import { BRANCH, SPECIES, SpriteMonster, type Care, type MonsterView, type Species, type SpeciesId } from './monsters'
 import { HALF, STAGES, type Stage } from './stages'
 
 /**
@@ -18,7 +18,7 @@ type State =
   | 'happy' | 'faint' | 'dead' | 'train' | 'come'
 
 interface Creature {
-  sp: Species; team: Team; anim: MonsterModel; shadow: THREE.Mesh
+  sp: Species; team: Team; anim: MonsterView; shadow: THREE.Mesh
   x: number; z: number; jy: number; vy: number; kx: number; kz: number
   hp: number; maxHp: number; atk: number; hunger: number; energy: number
   state: State; t: number; tx: number; tz: number; foe: Creature | null; food: Food | null
@@ -91,8 +91,8 @@ const MAX_FRIENDS = 5
 export class World {
   readonly scene = new THREE.Scene()
   readonly camera = new THREE.PerspectiveCamera(42, RES.w / RES.h, 0.1, 160)
-  private readonly rtScene = new THREE.WebGLRenderTarget(RES.w, RES.h, { magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter })
-  private readonly rtOut = new THREE.WebGLRenderTarget(RES.w, RES.h, { magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter })
+  private readonly rtScene = new THREE.WebGLRenderTarget(SCENE.w, SCENE.h, { magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter })
+  private readonly rtOut = new THREE.WebGLRenderTarget(OUT.w, OUT.h, { magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter })
   private readonly hud = document.createElement('canvas')
   private readonly hudCtx: CanvasRenderingContext2D
   private readonly hudTex: THREE.CanvasTexture
@@ -142,7 +142,8 @@ export class World {
   stats = { trains: 0, wins: 0, mood: 80, born: Date.now(), children: 0 }
   onSfx: (s: Sfx) => void = () => {}
 
-  constructor() {
+  constructor(style: 'sprite' | 'model' = 'sprite') {
+    this.style = style
     this.hud.width = RES.w
     this.hud.height = RES.h
     this.hudCtx = this.hud.getContext('2d')!
@@ -221,7 +222,7 @@ export class World {
   // ================= 生き物 =================
   private spawn(id: SpeciesId, team: Team, x: number, z: number, grow = 0): Creature {
     const sp = SPECIES[id]
-    const anim = new MonsterModel(id, sp.height)
+    const anim = this.makeView(id, sp.height)
     const shadow = new THREE.Mesh(this.shadowGeo, this.shadowMat)
     this.scene.add(anim.sprite, shadow)
     const c: Creature = {
@@ -233,6 +234,25 @@ export class World {
     this.creatures.push(c)
     this.burst(x, this.ground(c) + 0.5, z, 'cube', 8, 2)
     return c
+  }
+
+  /** キャラの見た目：'sprite' = 2.5D ドット絵 / 'model' = 3D ポリゴン */
+  style: 'sprite' | 'model' = 'sprite'
+  private makeView(id: SpeciesId, h: number): MonsterView {
+    return this.style === 'model' ? new MonsterModel(id, h) : new SpriteMonster(id, h)
+  }
+  setStyle(style: 'sprite' | 'model') {
+    if (style === this.style) return
+    this.style = style
+    for (const c of this.creatures) {
+      const old = c.anim
+      this.scene.remove(old.sprite)
+      old.dispose()
+      c.anim = this.makeView(c.sp.id, this.size(c))
+      c.anim.facing = old.facing
+      c.anim.sprite.visible = old.sprite.visible
+      this.scene.add(c.anim.sprite)
+    }
   }
 
   private remove(c: Creature) {

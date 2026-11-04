@@ -69,7 +69,15 @@ const dust = dustParticles(140)
 scene.add(dust)
 
 // ---------------- 本体 ----------------
-const world = new World()
+// キャラの見た目（2.5D ドット / 3D ポリゴン）は保存しておく
+const CHARA = { sprite: { name: 'ドット（2.5D）' }, model: { name: 'ポリゴン（3D）' } }
+let charaStyle: 'sprite' | 'model' = 'sprite'
+try {
+  if (localStorage.getItem('pulsar-chara') === 'model') charaStyle = 'model'
+} catch {
+  /* noop */
+}
+const world = new World(charaStyle)
 const device = buildDevice(world.texture)
 scene.add(device.group)
 const beeper = new Beeper()
@@ -194,6 +202,11 @@ chips(document.getElementById('place-list')!, PLACES, () => placeId, (id) => {
   placeId = id as PlaceId
   save('pulsar-place', id)
   rebuildPlace()
+})
+chips(document.getElementById('chara-list')!, CHARA, () => charaStyle, (id) => {
+  charaStyle = id as 'sprite' | 'model'
+  save('pulsar-chara', id)
+  world.setStyle(charaStyle)
 })
 dressBtn.addEventListener('click', () => {
   dressPanel.hidden = !dressPanel.hidden
