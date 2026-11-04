@@ -17,19 +17,26 @@ export interface Species {
   /** calm = 平和に暮らす / wild = 近くの相手に襲いかかる */
   temper: 'calm' | 'wild'
   float?: boolean
-  /** 育成で進化する先 */
-  next?: SpeciesId
+  /** 進化の段階（1 = 幼年期、2 = 成長期、3 = 成熟期、0 = 敵） */
+  tier: 0 | 1 | 2 | 3
+}
+
+/** 進化分岐：育て方の傾向（ちから / まもり / こころ）でつぎの姿が決まる */
+export type Care = 'power' | 'guard' | 'spirit'
+export const BRANCH: Record<1 | 2, Record<Care, SpeciesId>> = {
+  1: { power: 'pikori', guard: 'gorota', spirit: 'mofuru' },
+  2: { power: 'giaru', guard: 'hireru', spirit: 'fuwari' },
 }
 
 export const SPECIES: Record<SpeciesId, Species> = {
-  mebu: { id: 'mebu', name: 'メブ', kind: 'めばえ型', height: 1.22, hp: 30, atk: 5, speed: 1.4, temper: 'calm', next: 'pikori' },
-  pikori: { id: 'pikori', name: 'ピコリ', kind: 'でんきゅう鳥型', height: 1.35, hp: 45, atk: 8, speed: 1.8, temper: 'calm', next: 'giaru' },
-  gorota: { id: 'gorota', name: 'ゴロタ', kind: 'けっしょう甲羅型', height: 1.35, hp: 70, atk: 7, speed: 0.9, temper: 'calm' },
-  fuwari: { id: 'fuwari', name: 'フワリ', kind: 'くもくらげ型', height: 1.49, hp: 40, atk: 6, speed: 1.2, temper: 'calm', float: true },
-  giaru: { id: 'giaru', name: 'ギアル', kind: 'はぐるまロボ型', height: 1.69, hp: 80, atk: 13, speed: 1.7, temper: 'calm' },
-  hireru: { id: 'hireru', name: 'ヒレル', kind: 'なみのり魚型', height: 1.4, hp: 42, atk: 7, speed: 1.6, temper: 'calm', float: true },
-  mofuru: { id: 'mofuru', name: 'モフル', kind: 'わたゆき獣型', height: 1.4, hp: 60, atk: 6, speed: 1.0, temper: 'calm' },
-  noiz: { id: 'noiz', name: 'ノイズ', kind: 'こわれたデータ', height: 1.35, hp: 38, atk: 7, speed: 1.5, temper: 'wild' },
+  mebu: { id: 'mebu', name: 'メブ', kind: 'めばえ型', height: 1.22, hp: 30, atk: 5, speed: 1.4, temper: 'calm', tier: 1 },
+  pikori: { id: 'pikori', name: 'ピコリ', kind: 'でんきゅう鳥型', height: 1.35, hp: 45, atk: 8, speed: 1.8, temper: 'calm', tier: 2 },
+  gorota: { id: 'gorota', name: 'ゴロタ', kind: 'けっしょう甲羅型', height: 1.35, hp: 70, atk: 7, speed: 0.9, temper: 'calm', tier: 2 },
+  fuwari: { id: 'fuwari', name: 'フワリ', kind: 'くもくらげ型', height: 1.49, hp: 72, atk: 11, speed: 1.3, temper: 'calm', float: true, tier: 3 },
+  giaru: { id: 'giaru', name: 'ギアル', kind: 'はぐるまロボ型', height: 1.69, hp: 80, atk: 13, speed: 1.7, temper: 'calm', tier: 3 },
+  hireru: { id: 'hireru', name: 'ヒレル', kind: 'なみのり魚型', height: 1.4, hp: 76, atk: 12, speed: 1.7, temper: 'calm', float: true, tier: 3 },
+  mofuru: { id: 'mofuru', name: 'モフル', kind: 'わたゆき獣型', height: 1.4, hp: 60, atk: 6, speed: 1.0, temper: 'calm', tier: 2 },
+  noiz: { id: 'noiz', name: 'ノイズ', kind: 'こわれたデータ', height: 1.35, hp: 38, atk: 7, speed: 1.5, temper: 'wild', tier: 0 },
 }
 
 interface Pose {

@@ -217,6 +217,9 @@ const SFX: Record<Sfx, () => void> = {
   warp: () => [800, 1200, 1800, 2700, 4000].forEach((f, i) => beeper.beep(f, 0.05, i * 0.06)),
   evolve: () => [1047, 1319, 1568, 2093, 2637, 3136].forEach((f, i) => beeper.beep(f, 0.09, i * 0.1)),
   train: () => beeper.beep(1700, 0.03),
+  coin: () => (beeper.beep(2637, 0.03), beeper.beep(3520, 0.05, 0.04)),
+  friend: () => [1319, 1568, 2093].forEach((f, i) => beeper.beep(f, 0.07, i * 0.08)),
+  egg: () => [1568, 1319, 1568, 2093].forEach((f, i) => beeper.beep(f, 0.08, i * 0.1)),
 }
 world.onSfx = (k) => SFX[k]()
 

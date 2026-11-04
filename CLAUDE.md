@@ -1,6 +1,7 @@
 # PULSAR — 3D の液晶ペット（PWA）
 
-Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本体の液晶に、PS1 風の 2.5D 箱庭が映り、モンスターが自分で暮らす（歩く・食べる・眠る・戦う）。
+Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本体の液晶に、PS1 風の 2.5D 箱庭が映り、モンスターが自分で暮らす（歩く・食べる・眠る・遊ぶ・戦う・仲間になる・たまごを産む）。
+人は直接操作せず「環境」を用意して見守る（ショップで食べ物・置き物を買う、きせかえで本体と場所を選ぶ）。
 作成技法の解説は `docs/TECHNIQUES.md`、作業手順はスキル `.claude/skills/retro-diorama-threejs/` を参照。
 
 ## コマンド
@@ -11,10 +12,11 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 
 ## 構成
 - `src/main.ts` — レンダラー、ライト、ポストエフェクト、ボタン操作、ループ
-- `src/device.ts` — 本体の 3D モデル（シェル・フェイスプレート・液晶・ボタン・リング）
-- `src/world/World.ts` — 箱庭本体：生き物の AI・バトル・食べ物・HUD・ボタン処理・描画パイプライン
+- `src/device.ts` — 本体の 3D モデルと、きせかえ用の柄 `SKINS`（7 種）
+- `src/places.ts` — 本体の後ろの「人間側」の場所 6 種（机・電車・通学路・教室・バーガーショップ・公園）。実在の店や施設は描かない
+- `src/world/World.ts` — 箱庭本体：生き物の AI・バトル・食べ物・置き物・仲間・たまご・進化・コイン/ショップ・セーブ・HUD・描画パイプライン
 - `src/world/stages.ts` — ステージ 5 種（はじまりの森 / ガラスの砂丘 / さんごの入り江 / わたゆきの原 / こおりの回路峰）。水場は `water: true` の障害物（浮く種族だけ入れる）
-- `src/world/monsters.ts` — モンスター 8 種（メブ / ピコリ / ゴロタ / フワリ / ギアル / ヒレル / モフル / ノイズ）の能力値とドット絵
+- `src/world/monsters.ts` — 進化分岐 `BRANCH`（ちから/まもり/こころ）、モンスター 8 種（メブ / ピコリ / ゴロタ / フワリ / ギアル / ヒレル / モフル / ノイズ）の能力値とドット絵
 - `src/world/psx.ts` — PS1 風の表現（頂点スナップ・ディザ・15bit カラー・グリッチ）
 - `src/world/sprites.ts` / `textures.ts` — ドット絵スプライト生成、手続きテクスチャ
 - `src/scene.ts` — 時間帯の雰囲気（MOODS）、机の木目、背景の玉ボケ、ほこり粒子、仕上げシェーダー
@@ -28,4 +30,5 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - 画質「低」ではボケとブルームを切る（スマホの既定）。新しい重い効果は必ず `applyQuality()` で切り替え可能にする
 - 色は `scene.ts` の MOODS と `device.ts` 先頭の定数に集約する
 - 見た目の変更はスクリーンショット（1280×800 と 390×844）で確認してから完了とする
+- セーブは localStorage の `pulsar-save-v1`（10 秒ごと + 画面を離れた時）。項目を増やしたら `save()` と `load()` の両方を直す
 - テストは `window.__pulsar.press('A')` / `.state()` / `.setMood('night')`、箱庭は `.world.run(i)` と `.world.update(1/30)` の早送りで確認する

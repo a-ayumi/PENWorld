@@ -37,12 +37,19 @@ const smooth = (e0: number, e1: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)))
   return t * t * (3 - 2 * t)
 }
+/** なだらかな丘（ガウス状のこぶ）をいくつか重ねる */
+function mounds(x: number, z: number, list: [number, number, number, number][]) {
+  let h = 0
+  for (const [cx, cz, r, height] of list) h += height * Math.exp(-((x - cx) ** 2 + (z - cz) ** 2) / (r * r))
+  return h
+}
 /** 箱庭のふちに向かって平らにする */
 const edge = (x: number, z: number) => smooth(SIZE / 2, SIZE / 2 - 2.5, Math.max(Math.abs(x), Math.abs(z)))
 
 // ---------- 共通パーツ ----------
 function terrain(heightAt: (x: number, z: number) => number, map: THREE.Texture, tint: [string, string]) {
-  const geo = new THREE.PlaneGeometry(SIZE, SIZE, SIZE, SIZE).rotateX(-Math.PI / 2)
+  // 起伏をなめらかに見せるため 1 マスを 2 分割（PS1 っぽさは頂点スナップで残る）
+  const geo = new THREE.PlaneGeometry(SIZE, SIZE, SIZE * 2, SIZE * 2).rotateX(-Math.PI / 2)
   const pos = geo.attributes.position
   const colors: number[] = []
   const a = new THREE.Color(tint[0])
@@ -199,7 +206,7 @@ function placer(seed: number, obstacles: Obstacle[], avoid: { x: number; z: numb
 function seedGrove(): Stage {
   const spring = { x: 4.5, z: -3.5, r: 1.6 }
   const heightAt = (x: number, z: number) => {
-    let h = 0.25 + (Math.sin(x * 0.42) * Math.cos(z * 0.36) * 0.55 + Math.sin(x * 0.9 + z * 0.7) * 0.18) * edge(x, z)
+    let h = 0.25 + (Math.sin(x * 0.42) * Math.cos(z * 0.36) * 0.6 + Math.sin(x * 0.9 + z * 0.7) * 0.2 + mounds(x, z, [[-5, -5, 2.6, 1.6], [5.5, 4, 2.2, 1.2], [-6, 5, 1.8, 0.9]])) * edge(x, z)
     const ds = Math.hypot(x - spring.x, z - spring.z)
     h = THREE.MathUtils.lerp(0.24, h, smooth(spring.r, spring.r + 1.2, ds))
     return Math.max(0.24, h)
@@ -331,7 +338,7 @@ function seedGrove(): Stage {
 // =====================================================================
 function glassDunes(): Stage {
   const heightAt = (x: number, z: number) =>
-    0.26 + (Math.pow(Math.sin(x * 0.28 + z * 0.17), 2) * 1.1 + Math.sin(z * 0.6 + x * 0.2) * 0.2) * edge(x, z)
+    0.26 + (Math.pow(Math.sin(x * 0.28 + z * 0.17), 2) * 1.6 + Math.sin(z * 0.6 + x * 0.2) * 0.25 + mounds(x, z, [[5, -5, 2.4, 1.4]])) * edge(x, z)
   const group = new THREE.Group()
   group.add(terrain(heightAt, Tex.sand(), ['#ffffff', '#ffe2c4']), base('sand'))
   const obstacles: Obstacle[] = []
@@ -413,8 +420,8 @@ function glassDunes(): Stage {
 // =====================================================================
 function frostCircuit(): Stage {
   const heightAt = (x: number, z: number) => {
-    const hill = Math.max(0, 1.6 - Math.hypot(x + 3, z + 3) * 0.35)
-    return 0.3 + (hill + Math.sin(x * 0.5) * Math.sin(z * 0.45) * 0.25) * edge(x, z)
+    const hill = Math.max(0, 2.4 - Math.hypot(x + 3, z + 3) * 0.45)
+    return 0.3 + (hill + Math.sin(x * 0.5) * Math.sin(z * 0.45) * 0.35 + mounds(x, z, [[5, 5, 2.2, 1.3], [5.5, -4, 1.6, 0.8]])) * edge(x, z)
   }
   const group = new THREE.Group()
   group.add(terrain(heightAt, Tex.snow(), ['#ffffff', '#dfe9ff']), base('snow'))
@@ -538,7 +545,7 @@ function coralCove(): Stage {
     { x: -5.2, z: 4.4, r: 1.9 },
   ]
   const heightAt = (x: number, z: number) => {
-    let h = 0.36 + (Math.sin(x * 0.4 + 1) * Math.cos(z * 0.33) * 0.22 + Math.sin(z * 0.8) * 0.06) * edge(x, z)
+    let h = 0.36 + (Math.sin(x * 0.4 + 1) * Math.cos(z * 0.33) * 0.3 + Math.sin(z * 0.8) * 0.08 + mounds(x, z, [[-5, -1, 2.4, 1.2], [5, 5, 2.0, 0.9]])) * edge(x, z)
     for (const p of pools) h = THREE.MathUtils.lerp(0.24, h, smooth(p.r - 0.3, p.r + 1.0, Math.hypot(x - p.x, z - p.z)))
     return Math.max(0.24, h)
   }
@@ -693,7 +700,7 @@ function coralCove(): Stage {
 function cottonField(): Stage {
   const lake = { x: -2.2, z: 2.2, r: 2.8 }
   const heightAt = (x: number, z: number) => {
-    const h = 0.3 + (Math.sin(x * 0.35) * Math.sin(z * 0.3 + 1) * 0.4 + Math.cos(x * 0.8 + z * 0.5) * 0.08) * edge(x, z)
+    const h = 0.3 + (Math.sin(x * 0.35) * Math.sin(z * 0.3 + 1) * 0.5 + Math.cos(x * 0.8 + z * 0.5) * 0.1 + mounds(x, z, [[5, 4, 2.6, 1.5], [4, -5, 2.0, 1.0], [-6, -5, 1.8, 1.1]])) * edge(x, z)
     return Math.max(0.24, THREE.MathUtils.lerp(0.26, h, smooth(lake.r, lake.r + 1.2, Math.hypot(x - lake.x, z - lake.z))))
   }
   const group = new THREE.Group()
