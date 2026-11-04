@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { RES, makePostMaterial, psx } from './psx'
-import { SpriteAnim, iconSheet, type Sheet } from './sprites'
-import { BRANCH, SPECIES, sheetFor, type Care, type Species, type SpeciesId } from './monsters'
+import { SpriteAnim, iconSheet } from './sprites'
+import { MonsterModel } from './models'
+import { BRANCH, SPECIES, type Care, type Species, type SpeciesId } from './monsters'
 import { HALF, STAGES, type Stage } from './stages'
 
 /**
@@ -17,7 +18,7 @@ type State =
   | 'happy' | 'faint' | 'dead' | 'train' | 'come'
 
 interface Creature {
-  sp: Species; team: Team; anim: SpriteAnim; shadow: THREE.Mesh
+  sp: Species; team: Team; anim: MonsterModel; shadow: THREE.Mesh
   x: number; z: number; jy: number; vy: number; kx: number; kz: number
   hp: number; maxHp: number; atk: number; hunger: number; energy: number
   state: State; t: number; tx: number; tz: number; foe: Creature | null; food: Food | null
@@ -220,7 +221,7 @@ export class World {
   // ================= 生き物 =================
   private spawn(id: SpeciesId, team: Team, x: number, z: number, grow = 0): Creature {
     const sp = SPECIES[id]
-    const anim = new SpriteAnim(sheetFor(id), sp.height, 'idle')
+    const anim = new MonsterModel(id, sp.height)
     const shadow = new THREE.Mesh(this.shadowGeo, this.shadowMat)
     this.scene.add(anim.sprite, shadow)
     const c: Creature = {
@@ -502,7 +503,7 @@ export class World {
     c.maxHp = Math.max(c.maxHp + 10, sp.hp)
     c.hp = c.maxHp
     c.atk = Math.max(c.atk + 2, sp.atk)
-    c.anim.setSheet(sheetFor(to) as Sheet, this.size(c))
+    c.anim.setSpecies(to, this.size(c))
     this.flash = 1
     this.burst(c.x, this.ground(c) + 0.6, c.z, 'spark', 18, 3)
     this.say(`${from}は ${sp.name}に しんかした！`)

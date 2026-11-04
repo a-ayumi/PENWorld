@@ -17,6 +17,7 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - `src/world/World.ts` — 箱庭本体：生き物の AI・バトル・食べ物・置き物・仲間・たまご・進化・コイン/ショップ・セーブ・HUD・描画パイプライン
 - `src/world/stages.ts` — ステージ 5 種（はじまりの森 / ガラスの砂丘 / さんごの入り江 / わたゆきの原 / こおりの回路峰）。水場は `water: true` の障害物（浮く種族だけ入れる）
 - `src/world/monsters.ts` — 進化分岐 `BRANCH`（ちから/まもり/こころ）、モンスター 8 種（メブ / ピコリ / ゴロタ / フワリ / ギアル / ヒレル / モフル / ノイズ）の能力値とドット絵
+- `src/world/models.ts` — モンスターの 3D モデル（球・円柱・円錐の組み合わせ + 手続きアニメ）。World のキャラはこれを使う
 - `src/world/psx.ts` — PS1 風の表現（頂点スナップ・ディザ・15bit カラー・グリッチ）
 - `src/world/sprites.ts` / `textures.ts` — ドット絵スプライト生成、手続きテクスチャ
 - `src/scene.ts` — 時間帯の雰囲気（MOODS）、机の木目、背景の玉ボケ、ほこり粒子、仕上げシェーダー
