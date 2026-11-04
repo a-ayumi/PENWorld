@@ -1,7 +1,18 @@
 /** 圧電ブザー風の電子音（矩形波の短いビープ） */
+/** 音量の段階（0 = 消音） */
+export const VOLUMES = [0, 0.04, 0.08, 0.14]
+export const VOLUME_NAMES = ['切', '小', '中', '大']
+
 export class Beeper {
   private ctx?: AudioContext
   private out?: GainNode
+  /** VOLUMES の添字 */
+  level = 2
+
+  setLevel(level: number) {
+    this.level = Math.max(0, Math.min(VOLUMES.length - 1, level))
+    if (this.out) this.out.gain.value = VOLUMES[this.level]
+  }
 
   unlock() {
     if (!this.ctx) {
@@ -9,7 +20,7 @@ export class Beeper {
       if (!AC) return
       this.ctx = new AC()
       this.out = this.ctx.createGain()
-      this.out.gain.value = 0.08
+      this.out.gain.value = VOLUMES[this.level]
       // 小さなスピーカーっぽく低音を削る
       const hp = this.ctx.createBiquadFilter()
       hp.type = 'highpass'

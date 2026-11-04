@@ -140,6 +140,11 @@ export class World {
   care: Record<Care, number> = { power: 0, guard: 0, spirit: 0 }
   xp = 0
   stats = { trains: 0, wins: 0, mood: 80, born: Date.now(), children: 0 }
+  /** 視点：top = 見下ろし / behind = ペットの少し後ろ / eye = ペットの目線 */
+  view: 'top' | 'behind' | 'eye' = 'top'
+  private petYaw = 0
+  private camYaw = 0
+  private petLast = new THREE.Vector2()
   onSfx: (s: Sfx) => void = () => {}
 
   constructor(style: 'sprite' | 'model' = 'sprite') {
@@ -1293,16 +1298,104 @@ export class World {
 
   private updateCamera(dt: number) {
     const p = this.pet
-    const target = new THREE.Vector3(p.x, 0, p.z)
-    if (p.state === 'fight' && p.foe) target.set((p.x + p.foe.x) / 2, 0, (p.z + p.foe.z) / 2)
-    const lim = HALF - 3
-    target.x = THREE.MathUtils.clamp(target.x, -lim, lim)
-    target.z = THREE.MathUtils.clamp(target.z, -lim, lim + 1)
-    // 起伏に合わせて見る高さも変える
-    target.y = this.stage.heightAt(target.x, target.z) + 0.4
-    this.look.lerp(target, 1 - Math.exp(-dt * 2.5))
-    this.camera.position.copy(this.look).add(CAM_OFF)
+    // ペットの向き：動いた方向から求める（止まっている時は前の向きのまま）
+    const mx = p.x - this.petLast.x
+    const mz = p.z - this.petLast.y
+    this.petLast.set(p.x, p.z)
+    if (Math.hypot(mx, mz) > dt * 0.4 && Math.hypot(mx, mz) < 1) this.petYaw = Math.atan2(mx, mz)
+    if (p.state === 'fight' && p.foe) this.petYaw = Math.atan2(p.foe.x - p.x, p.foe.z - p.z)
+    let d = this.petYaw - this.camYaw
+    d = Math.atan2(Math.sin(d), Math.cos(d))
+    this.camYaw += d * Math.min(1, dt * (this.view === 'eye' ? 4 : 2))
+    const fx = Math.sin(this.camYaw)
+    const fz = Math.cos(this.camYaw)
+    const gy = this.ground(p)
+
+    if (this.view === 'top') {
+      const target = new THREE.Vector3(p.x, 0, p.z)
+      if (p.state === 'fight' && p.foe) target.set((p.x + p.foe.x) / 2, 0, (p.z + p.foe.z) / 2)
+      const lim = HALF - 3
+      target.x = THREE.MathUtils.clamp(target.x, -lim, lim)
+      target.z = THREE.MathUtils.clamp(target.z, -lim, lim + 1)
+      // 起伏に合わせて見る高さも変える
+      target.y = this.stage.heightAt(target.x, target.z) + 0.4
+      this.look.lerp(target, 1 - Math.exp(-dt * 2.5))
+      this.camera.position.copy(this.look).add(CAM_OFF)
+      this.camera.lookAt(this.look)
+      return
+    }
+    // 主人公視点：ペットの後ろ / 目線
+    const back = this.view === 'behind' ? 3.3 : -0.15
+    const up = this.view === 'behind' ? 2.0 : this.size(p) * 0.7
+    const want = new THREE.Vector3(p.x - fx * back, gy + up, p.z - fz * back)
+    // 箱庭の外（デジタル空間）へカメラが出ないように
+    want.x = THREE.MathUtils.clamp(want.x, -HALF - 0.5, HALF + 0.5)
+    want.z = THREE.MathUtils.clamp(want.z, -HALF - 0.5, HALF + 0.5)
+    // 地面にめりこまないように
+    want.y = Math.max(want.y, this.stage.heightAt(want.x, want.z) + 0.35)
+    // うしろ視点はペットが画面の中ほどに来るよう、少し手前の低い所を見る
+    const ahead = this.view === 'behind' ? 1.4 : 3
+    const lookAt = new THREE.Vector3(p.x + fx * ahead, gy + (this.view === 'behind' ? 0.25 : up - 0.15), p.z + fz * ahead)
+    this.camera.position.lerp(want, 1 - Math.exp(-dt * 6))
+    this.look.lerp(lookAt, 1 - Math.exp(-dt * 6))
     this.camera.lookAt(this.look)
+  }
+
+  setView(v: 'top' | 'behind' | 'eye') {
+    this.view = v
+    // カメラのすぐ前にある木や仲間で画面がふさがらないよう、近くは描かない
+    this.camera.near = v === 'behind' ? 1.2 : v === 'eye' ? 0.35 : 0.1
+    this.camera.updateProjectionMatrix()
+    this.camYaw = this.petYaw
+    // 切り替え直後に遠くから飛んでこないよう、すぐ近くへ置く
+    const p = this.pet
+    if (v === 'top') this.look.set(p.x, this.stage.heightAt(p.x, p.z) + 0.4, p.z)
+    else {
+      this.camera.position.set(p.x - Math.sin(this.camYaw) * 2.8, this.ground(p) + 1.5, p.z - Math.cos(this.camYaw) * 2.8)
+      this.look.set(p.x, this.ground(p) + 0.6, p.z)
+    }
+    this.say(v === 'top' ? 'してん：みおろし' : v === 'behind' ? `してん：${p.sp.name}の うしろ` : `してん：${p.sp.name}の めせん`)
+  }
+
+  /**
+   * 画面のタップ（u, v は 0〜1、v は下が 0）。アイコン・ショップ・ステータスをタッチで操作する。
+   * 戻り値 true = HUD で使った
+   */
+  tap(u: number, v: number): boolean {
+    if (this.warp > 0) return true
+    const x = u * RES.w
+    const y = (1 - v) * RES.h
+    if (this.shopOpen) {
+      const wx = 24
+      const wy = 28
+      const ww = RES.w - 48
+      if (x < wx || x > wx + ww || y < wy || y > wy + 150) {
+        this.shopOpen = false
+        this.onSfx('cancel')
+        return true
+      }
+      const row = Math.floor((y - (wy + 24)) / 14)
+      if (row >= 0 && row < SHOP.length) {
+        if (row === this.shopCursor) this.buy(SHOP[row])
+        else {
+          this.shopCursor = row
+          this.onSfx('select')
+        }
+      }
+      return true
+    }
+    if (this.showStatus) {
+      this.showStatus = false
+      this.onSfx('cancel')
+      return true
+    }
+    if (y < 24 || y > RES.h - 24) {
+      const i = (y < 24 ? 0 : 4) + Math.min(3, Math.floor(x / 80))
+      this.cursor = i
+      this.run(i)
+      return true
+    }
+    return false
   }
 
   private freePos(minFromPet: number, cx = 0, cz = 0, radius = 99) {
@@ -1485,6 +1578,7 @@ export class World {
       if (c.state === 'dead') continue
       const top = this.project(new THREE.Vector3(c.x, this.ground(c) + c.jy + this.size(c) + 0.15, c.z))
       if (!top.on) continue
+      if (c.team === 'pet' && this.view === 'eye') continue
       if (c.team === 'pet') {
         const by = top.y - 9 + Math.round(Math.sin(this.time * 5) * 1.5)
         g.fillStyle = '#10122a'
@@ -1584,7 +1678,16 @@ export class World {
   render(renderer: THREE.WebGLRenderer) {
     const prev = renderer.getRenderTarget()
     renderer.setRenderTarget(this.rtScene)
+    // 目線モードでは自分の体は映さない
+    const self = this.pet.anim.sprite
+    const was = self.visible
+    if (this.view === 'eye') {
+      self.visible = false
+      this.pet.shadow.visible = false
+    }
     renderer.render(this.scene, this.camera)
+    self.visible = was
+    this.pet.shadow.visible = true
     renderer.setRenderTarget(this.rtOut)
     renderer.render(this.postScene, this.postCam)
     renderer.setRenderTarget(prev)

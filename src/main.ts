@@ -12,7 +12,7 @@ import { buildDevice } from './device'
 import { FinishShader, MOODS, dustParticles, moodForHour, type Mood } from './scene'
 import { PLACES, buildPlace, type PlaceId, type PlaceInst } from './places'
 import { SKINS, type SkinId } from './device'
-import { Beeper } from './beep'
+import { Beeper, VOLUME_NAMES } from './beep'
 
 // ---------------- レンダラー ----------------
 const canvas = document.getElementById('scene') as HTMLCanvasElement
@@ -203,6 +203,46 @@ chips(document.getElementById('place-list')!, PLACES, () => placeId, (id) => {
   save('pulsar-place', id)
   rebuildPlace()
 })
+// ---------------- 視点・音量 ----------------
+const VIEWS = { top: 'みおろし', behind: 'うしろ', eye: 'めせん' } as const
+type ViewId = keyof typeof VIEWS
+const viewBtn = document.getElementById('view-btn') as HTMLButtonElement
+const volBtn = document.getElementById('vol-btn') as HTMLButtonElement
+let viewId: ViewId = load('pulsar-view', 'top', VIEWS)
+const showView = () => (viewBtn.textContent = `視点: ${VIEWS[viewId]}`)
+world.setView(viewId)
+showView()
+viewBtn.addEventListener('click', () => {
+  const order = Object.keys(VIEWS) as ViewId[]
+  viewId = order[(order.indexOf(viewId) + 1) % order.length]
+  save('pulsar-view', viewId)
+  world.setView(viewId)
+  showView()
+  beeper.unlock()
+  beeper.beep(2200, 0.04)
+})
+try {
+  const v = Number(localStorage.getItem('pulsar-vol'))
+  if (localStorage.getItem('pulsar-vol') !== null && v >= 0 && v < VOLUME_NAMES.length) beeper.setLevel(v)
+} catch {
+  /* noop */
+}
+const showVol = () => {
+  volBtn.textContent = `音: ${VOLUME_NAMES[beeper.level]}`
+  volBtn.setAttribute('aria-label', `音量 ${VOLUME_NAMES[beeper.level]}（押すと切り替え）`)
+}
+showVol()
+volBtn.addEventListener('click', () => {
+  beeper.unlock()
+  beeper.setLevel((beeper.level + 1) % VOLUME_NAMES.length)
+  save('pulsar-vol', String(beeper.level))
+  showVol()
+  beeper.beep(2600, 0.06)
+})
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyV' && !e.repeat) viewBtn.click()
+})
+
 chips(document.getElementById('chara-list')!, CHARA, () => charaStyle, (id) => {
   charaStyle = id as 'sprite' | 'model'
   save('pulsar-chara', id)
@@ -308,13 +348,39 @@ function hitButton(e: PointerEvent): 'A' | 'B' | 'C' | null {
   return (o?.userData.key as 'A' | 'B' | 'C') ?? null
 }
 let drag: { id: number; x: number; y: number } | null = null
+/** 液晶（本体の画面 / 全画面）へのタップを箱庭の HUD に伝える */
+function tapScreen(e: PointerEvent): boolean {
+  const r = canvas.getBoundingClientRect()
+  const nx = ((e.clientX - r.left) / r.width) * 2 - 1
+  const ny = -((e.clientY - r.top) / r.height) * 2 + 1
+  let uv: { x: number; y: number } | null = null
+  if (mode === 'inside') {
+    const u = (nx / diveQuad.scale.x + 1) / 2
+    const v = (ny / diveQuad.scale.y + 1) / 2
+    if (u >= 0 && u <= 1 && v >= 0 && v <= 1) uv = { x: u, y: v }
+  } else if (mode === 'device') {
+    ndc.set(nx, ny)
+    ray.setFromCamera(ndc, camera)
+    const hit = ray.intersectObject(device.screen)[0]
+    if (hit?.uv) uv = hit.uv
+  }
+  if (!uv) return false
+  beeper.unlock()
+  return world.tap(uv.x, uv.y)
+}
+
 canvas.addEventListener('pointerdown', (e) => {
+  if (mode === 'inside') {
+    tapScreen(e)
+    return
+  }
   if (mode !== 'device') return
   const k = hitButton(e)
   if (k) {
     press(k)
     return
   }
+  if (tapScreen(e)) return
   drag = { id: e.pointerId, x: e.clientX, y: e.clientY }
   canvas.setPointerCapture(e.pointerId)
 })
