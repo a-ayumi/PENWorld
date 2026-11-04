@@ -9,7 +9,9 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { World, type Sfx } from './world/World'
 import { buildDevice } from './device'
-import { FinishShader, MOODS, dustParticles, moodForHour, paintWall, woodTexture, type Mood } from './scene'
+import { FinishShader, MOODS, dustParticles, moodForHour, type Mood } from './scene'
+import { PLACES, buildPlace, type PlaceId, type PlaceInst } from './places'
+import { SKINS, type SkinId } from './device'
 import { Beeper } from './beep'
 
 // ---------------- レンダラー ----------------
@@ -28,18 +30,12 @@ scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnviron
 scene.environmentIntensity = 0.55
 
 // ---------------- 背景（壁・机） ----------------
-const wallCanvas = document.createElement('canvas')
-wallCanvas.width = 1600
-wallCanvas.height = 900
-const wallTex = new THREE.CanvasTexture(wallCanvas)
-wallTex.colorSpace = THREE.SRGBColorSpace
-const wall = new THREE.Mesh(new THREE.PlaneGeometry(32, 18), new THREE.MeshBasicMaterial({ map: wallTex }))
-wall.position.set(0, 4, -9)
-scene.add(wall)
+// 背景の「場所」（机・電車・通学路…）は places.ts。ここでは差し替え口だけ持つ
+let place: PlaceInst | null = null
 
 const desk = new THREE.Mesh(
   new THREE.PlaneGeometry(40, 24),
-  new THREE.MeshStandardMaterial({ map: woodTexture(), roughness: 0.55, metalness: 0 }),
+  new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0 }),
 )
 desk.rotation.x = -Math.PI / 2
 desk.position.y = -2.05
@@ -83,7 +79,7 @@ const composer = new EffectComposer(renderer)
 composer.addPass(new RenderPass(scene, camera))
 const bokeh = new BokehPass(scene, camera, { focus: 9, aperture: 0.0025, maxblur: 0.012 })
 composer.addPass(bokeh)
-const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.25, 0.4, 0.97)
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.2, 0.4, 1.0)
 composer.addPass(bloom)
 const finish = new ShaderPass(FinishShader)
 composer.addPass(finish)
@@ -120,6 +116,38 @@ qualityBtn.addEventListener('click', () => {
 
 // ---------------- 時間帯 ----------------
 let currentMood = ''
+// ---------------- きせかえ（本体の柄・場所）----------------
+const load = <T extends string>(k: string, fallback: T, valid: object): T => {
+  try {
+    const v = localStorage.getItem(k)
+    if (v && v in valid) return v as T
+  } catch {
+    /* noop */
+  }
+  return fallback
+}
+const save = (k: string, v: string) => {
+  try {
+    localStorage.setItem(k, v)
+  } catch {
+    /* noop */
+  }
+}
+let placeId: PlaceId = load('pulsar-place', 'desk', PLACES)
+let skinId: SkinId = load('pulsar-skin', 'teal', SKINS)
+function rebuildPlace() {
+  if (!currentMood) return
+  if (place) {
+    scene.remove(place.group)
+    place.dispose()
+  }
+  place = buildPlace(placeId, currentMood as keyof typeof MOODS)
+  scene.add(place.group)
+  const dm = desk.material as THREE.MeshStandardMaterial
+  dm.map = place.surface
+  dm.needsUpdate = true
+  ;(dust.material as THREE.ShaderMaterial).uniforms.color.value.set(place.dust)
+}
 function applyMood(name: keyof typeof MOODS) {
   if (name === currentMood) return
   currentMood = name
@@ -133,11 +161,48 @@ function applyMood(name: keyof typeof MOODS) {
   rim.intensity = m.lamp > 1 ? 0.6 : 1.4
   renderer.toneMappingExposure = m.exposure
   ;(dust.material as THREE.ShaderMaterial).uniforms.strength.value = m.lamp > 1 ? 0.25 : 0.55
-  paintWall(wallCanvas, m)
-  wallTex.needsUpdate = true
+  rebuildPlace()
 }
 const moodOverride = new URLSearchParams(location.search).get('mood') as keyof typeof MOODS | null
 applyMood(moodOverride && MOODS[moodOverride] ? moodOverride : moodForHour(new Date().getHours()))
+device.setSkin(skinId)
+
+// きせかえパネル
+const dressBtn = document.getElementById('dress') as HTMLButtonElement
+const dressPanel = document.getElementById('dress-panel') as HTMLElement
+function chips(el: HTMLElement, items: Record<string, { name: string }>, current: () => string, pick: (id: string) => void) {
+  el.innerHTML = ''
+  for (const [id, it] of Object.entries(items)) {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.className = 'chip'
+    b.textContent = it.name
+    b.setAttribute('aria-pressed', String(current() === id))
+    b.addEventListener('click', () => {
+      pick(id)
+      el.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c === b)))
+    })
+    el.appendChild(b)
+  }
+}
+chips(document.getElementById('skin-list')!, SKINS, () => skinId, (id) => {
+  skinId = id as SkinId
+  save('pulsar-skin', id)
+  device.setSkin(skinId)
+})
+chips(document.getElementById('place-list')!, PLACES, () => placeId, (id) => {
+  placeId = id as PlaceId
+  save('pulsar-place', id)
+  rebuildPlace()
+})
+dressBtn.addEventListener('click', () => {
+  dressPanel.hidden = !dressPanel.hidden
+  dressBtn.setAttribute('aria-expanded', String(!dressPanel.hidden))
+})
+document.getElementById('dress-close')!.addEventListener('click', () => {
+  dressPanel.hidden = true
+  dressBtn.setAttribute('aria-expanded', 'false')
+})
 
 // ---------------- 箱庭の効果音 ----------------
 const SFX: Record<Sfx, () => void> = {
@@ -171,6 +236,8 @@ function setMode(m: Mode) {
   modeT = 0
   pad.hidden = m !== 'inside'
   qualityBtn.hidden = m === 'inside'
+  dressBtn.hidden = m === 'inside'
+  if (m === 'inside') dressPanel.hidden = true
   document.getElementById('hint')!.hidden = m === 'inside'
 }
 
@@ -259,13 +326,15 @@ function resize() {
   camera.aspect = w / h
   // 液晶（幅 1.48）+ ボタンが画面いっぱいに収まる距離に。本体の縁や背景ははみ出してよい
   const halfV = THREE.MathUtils.degToRad(camera.fov / 2)
-  const needH = 2.45 / 2 / Math.tan(halfV)
-  const needW = 1.72 / 2 / (Math.tan(halfV) * camera.aspect)
+  // 少し引いて、本体の形と背景の場所も見えるように
+  const needH = 4.3 / 2 / Math.tan(halfV)
+  const needW = 2.8 / 2 / (Math.tan(halfV) * camera.aspect)
   const dist = Math.max(needH, needW)
   camera.position.set(0, LOOK.y + 0.12 + dist * 0.03, dist + 0.5)
   camera.lookAt(LOOK)
   camera.updateProjectionMatrix()
-  ;(bokeh.uniforms as Record<string, THREE.IUniform>).focus.value = dist
+  // ピントは本体の位置に合わせる（カメラ距離 = dist + 0.5）
+  ;(bokeh.uniforms as Record<string, THREE.IUniform>).focus.value = dist + 0.5
   baseCam.copy(camera.position)
   // 全画面モード：4:3 を画面に収める（ドットは整数倍に近いサイズで）
   const a = w / h
@@ -295,8 +364,15 @@ renderer.setAnimationLoop((t) => {
   tilt.y += tilt.vy * dt
   tilt.x = THREE.MathUtils.clamp(tilt.x, -0.6, 0.6)
   tilt.y = THREE.MathUtils.clamp(tilt.y, -0.8, 0.8)
-  device.group.position.y = Math.sin(elapsed * 1.1) * 0.05
-  device.group.rotation.set(-0.08 + tilt.x + Math.sin(elapsed * 0.7) * 0.015, tilt.y + Math.sin(elapsed * 0.5) * 0.06, Math.sin(elapsed * 0.6) * 0.01)
+  // 場所ごとの揺れ（電車・歩き）+ ふわふわ
+  place?.update(elapsed, dt)
+  const sw = place ? place.sway(elapsed) : { y: 0, rx: 0, rz: 0 }
+  device.group.position.y = Math.sin(elapsed * 1.1) * 0.05 + sw.y
+  device.group.rotation.set(
+    -0.08 + tilt.x + Math.sin(elapsed * 0.7) * 0.015 + sw.rx,
+    tilt.y + Math.sin(elapsed * 0.5) * 0.06,
+    Math.sin(elapsed * 0.6) * 0.01 + sw.rz,
+  )
 
   // ボタンの押し込み
   for (const b of buttonList) {
@@ -351,6 +427,8 @@ renderer.setAnimationLoop((t) => {
   world,
   device,
   setMood: (m: keyof typeof MOODS) => applyMood(m),
+  setPlace: (id: PlaceId) => ((placeId = id), rebuildPlace()),
+  setSkin: (id: SkinId) => device.setSkin(id),
 }
 
 // ---------------- PWA ----------------

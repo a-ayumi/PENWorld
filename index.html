@@ -20,6 +20,14 @@
       <span class="touch-only">A えらぶ ・ B けってい ・ C もどる / 画面に入る</span>
     </div>
     <button id="quality" aria-label="画質切替">画質: 高</button>
+    <button id="dress" aria-expanded="false" aria-controls="dress-panel">きせかえ</button>
+    <section id="dress-panel" hidden aria-label="きせかえ">
+      <div class="dress-head"><h2>きせかえ</h2><button id="dress-close" aria-label="閉じる">とじる</button></div>
+      <h3>本体のがら</h3>
+      <div id="skin-list" class="chips"></div>
+      <h3>いる場所</h3>
+      <div id="place-list" class="chips"></div>
+    </section>
     <div id="pad" hidden>
       <button id="pad-exit" class="pad-exit" aria-label="本体にもどる">本体にもどる</button>
       <div class="pad-btns">

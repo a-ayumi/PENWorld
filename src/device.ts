@@ -8,12 +8,101 @@ export interface Device {
   group: THREE.Group
   buttons: Record<'A' | 'B' | 'C', THREE.Mesh>
   screen: THREE.Mesh
+  /** きせかえ（本体の色・柄） */
+  setSkin(id: SkinId): void
 }
 
-const SHELL = '#2f6f73'
-const PLATE = '#efe6d2'
-const BUTTON = '#f2b134'
 const BEZEL = '#2b2d2f'
+
+// ---------------- きせかえ（本体の柄）----------------
+export type SkinId = 'teal' | 'sakura' | 'midnight' | 'clear' | 'dots' | 'camo' | 'soda'
+interface Skin {
+  name: string
+  shell: string
+  plate: string
+  button: string
+  ink: string
+  groove: string
+  /** シェルの柄（無地なら undefined） */
+  pattern?: () => THREE.Texture
+  /** 透明プラスチック */
+  clear?: boolean
+}
+
+function patternTexture(draw: (g: CanvasRenderingContext2D, s: number) => void) {
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const g = c.getContext('2d')!
+  draw(g, 256)
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  t.wrapS = t.wrapT = THREE.RepeatWrapping
+  t.repeat.set(1.6, 1.6)
+  t.anisotropy = 8
+  return t
+}
+
+export const SKINS: Record<SkinId, Skin> = {
+  teal: { name: 'ティール', shell: '#2f6f73', plate: '#efe6d2', button: '#f2b134', ink: '#3b3a36', groove: '#244f52' },
+  sakura: { name: 'さくら', shell: '#f2a5bd', plate: '#f6e6eb', button: '#ff6f91', ink: '#7a3a4e', groove: '#d07f99' },
+  midnight: { name: 'ミッドナイト', shell: '#1d2033', plate: '#343a52', button: '#ffd166', ink: '#e8ecff', groove: '#121426' },
+  clear: { name: 'クリア', shell: '#9fd8ff', plate: '#e2edf6', button: '#5ef2ff', ink: '#2a4a6a', groove: '#6fb2d8', clear: true },
+  dots: {
+    name: 'ドット', shell: '#ffffff', plate: '#f2ead8', button: '#ff5e5e', ink: '#3b3a36', groove: '#d9a800',
+    pattern: () =>
+      patternTexture((g, s) => {
+        g.fillStyle = '#ffd23f'
+        g.fillRect(0, 0, s, s)
+        g.fillStyle = '#ffffff'
+        for (const [x, y] of [[0, 0], [s, 0], [0, s], [s, s], [s / 2, s / 2]]) {
+          g.beginPath()
+          g.arc(x, y, s * 0.16, 0, Math.PI * 2)
+          g.fill()
+        }
+      }),
+  },
+  camo: {
+    name: 'めいさい', shell: '#ffffff', plate: '#e3dcc2', button: '#6b8e23', ink: '#3a3a2a', groove: '#3d4a2a',
+    pattern: () =>
+      patternTexture((g, s) => {
+        g.fillStyle = '#7a8b5a'
+        g.fillRect(0, 0, s, s)
+        const cols = ['#4f5d36', '#a59c74', '#3a3326', '#6b7d48']
+        let seed = 3
+        const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+        for (let i = 0; i < 26; i++) {
+          g.fillStyle = cols[i % cols.length]
+          const x = rnd() * s
+          const y = rnd() * s
+          // 端をまたぐ形もタイルするよう 9 方向に描く
+          for (const dx of [-s, 0, s])
+            for (const dy of [-s, 0, s]) {
+              g.beginPath()
+              g.ellipse(x + dx, y + dy, 18 + rnd() * 26, 10 + rnd() * 16, rnd() * 3, 0, Math.PI * 2)
+              g.fill()
+            }
+        }
+      }),
+  },
+  soda: {
+    name: 'ソーダ', shell: '#ffffff', plate: '#e3f0f5', button: '#ff8fb1', ink: '#2a5a7a', groove: '#4fb3d9',
+    pattern: () =>
+      patternTexture((g, s) => {
+        const grad = g.createLinearGradient(0, 0, 0, s)
+        grad.addColorStop(0, '#7fe0ff')
+        grad.addColorStop(1, '#4fb3d9')
+        g.fillStyle = grad
+        g.fillRect(0, 0, s, s)
+        g.strokeStyle = 'rgba(255,255,255,0.8)'
+        g.lineWidth = 4
+        for (const [x, y, r] of [[40, 60, 18], [150, 30, 10], [200, 150, 22], [90, 190, 12], [230, 230, 8], [20, 230, 9]]) {
+          g.beginPath()
+          g.arc(x, y, r, 0, Math.PI * 2)
+          g.stroke()
+        }
+      }),
+  },
+}
 
 function roundedRect(w: number, h: number, r: number) {
   const s = new THREE.Shape()
@@ -32,13 +121,13 @@ function roundedRect(w: number, h: number, r: number) {
 }
 
 /** フェイスプレートに印刷する文字・マーク */
-function printTexture() {
+function printTexture(ink = '#3b3a36') {
   const c = document.createElement('canvas')
   c.width = 1024
   c.height = 512
   const g = c.getContext('2d')!
   g.clearRect(0, 0, c.width, c.height)
-  g.fillStyle = '#3b3a36'
+  g.fillStyle = ink
   g.textAlign = 'center'
   g.textBaseline = 'middle'
   // ボタン下のラベル
@@ -50,7 +139,7 @@ function printTexture() {
   g.fillText('PULSAR', 520, 360)
   g.letterSpacing = '6px'
   g.font = '600 30px system-ui, sans-serif'
-  g.fillStyle = '#6f6a5f'
+  g.globalAlpha = 0.7
   g.fillText('POCKET LIFE MONITOR', 516, 436)
   const tex = new THREE.CanvasTexture(c)
   tex.colorSpace = THREE.SRGBColorSpace
@@ -71,7 +160,7 @@ export function buildDevice(screenTexture: THREE.Texture): Device {
   })
   shellGeo.translate(0, 0, -DEPTH / 2)
   const shellMat = new THREE.MeshPhysicalMaterial({
-    color: SHELL, roughness: 0.42, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.25, sheen: 0.3, sheenColor: '#7fc4c0',
+    color: '#2f6f73', roughness: 0.42, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.25, sheen: 0.3, sheenColor: '#ffffff',
   })
   const shell = new THREE.Mesh(shellGeo, shellMat)
   shell.castShadow = true
@@ -95,7 +184,7 @@ export function buildDevice(screenTexture: THREE.Texture): Device {
   const plateGeo = new THREE.ExtrudeGeometry(roundedRect(PW, PH, 0.82), {
     depth: 0.03, bevelEnabled: true, bevelThickness: 0.025, bevelSize: 0.025, bevelSegments: 4, curveSegments: 48,
   })
-  const plateMat = new THREE.MeshPhysicalMaterial({ color: PLATE, roughness: 0.55, clearcoat: 0.3, clearcoatRoughness: 0.4 })
+  const plateMat = new THREE.MeshPhysicalMaterial({ color: '#efe6d2', roughness: 0.55, clearcoat: 0.3, clearcoatRoughness: 0.4 })
   const plate = new THREE.Mesh(plateGeo, plateMat)
   plate.position.z = front - 0.03
   plate.receiveShadow = true
@@ -141,10 +230,8 @@ export function buildDevice(screenTexture: THREE.Texture): Device {
   group.add(lamp)
 
   // ---- 印刷 ----
-  const print = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.9, 0.95),
-    new THREE.MeshStandardMaterial({ map: printTexture(), transparent: true, roughness: 0.6, depthWrite: false }),
-  )
+  const printMat = new THREE.MeshStandardMaterial({ map: printTexture(), transparent: true, roughness: 0.6, depthWrite: false })
+  const print = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.95), printMat)
   print.position.set(0, -0.86, pz + 0.003)
   group.add(print)
 
@@ -160,7 +247,7 @@ export function buildDevice(screenTexture: THREE.Texture): Device {
     }
 
   // ---- ボタン ----
-  const buttonMat = new THREE.MeshPhysicalMaterial({ color: BUTTON, roughness: 0.32, clearcoat: 0.8, clearcoatRoughness: 0.15 })
+  const buttonMat = new THREE.MeshPhysicalMaterial({ color: '#f2b134', roughness: 0.32, clearcoat: 0.8, clearcoatRoughness: 0.15 })
   const ringMat = new THREE.MeshStandardMaterial({ color: '#cfc4ab', roughness: 0.6 })
   const buttons = {} as Device['buttons']
   ;(['A', 'B', 'C'] as const).forEach((k, i) => {
@@ -197,5 +284,23 @@ export function buildDevice(screenTexture: THREE.Texture): Device {
   ring.castShadow = true
   group.add(ring)
 
-  return { group, buttons, screen }
+  const setSkin = (id: SkinId) => {
+    const sk = SKINS[id] ?? SKINS.teal
+    shellMat.map?.dispose()
+    shellMat.map = sk.pattern ? sk.pattern() : null
+    shellMat.color.set(sk.shell)
+    // 透明シェル：中が少し透けるプラスチック
+    shellMat.transmission = sk.clear ? 0.75 : 0
+    shellMat.thickness = sk.clear ? 0.6 : 0
+    shellMat.roughness = sk.clear ? 0.12 : 0.42
+    shellMat.sheenColor.set(sk.shell).lerp(new THREE.Color('#ffffff'), 0.5)
+    shellMat.needsUpdate = true
+    plateMat.color.set(sk.plate)
+    buttonMat.color.set(sk.button)
+    grooveMat.color.set(sk.groove)
+    printMat.map?.dispose()
+    printMat.map = printTexture(sk.ink)
+    printMat.needsUpdate = true
+  }
+  return { group, buttons, screen, setSkin }
 }
