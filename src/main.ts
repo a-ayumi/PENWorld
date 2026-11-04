@@ -22,7 +22,8 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap
 
 const scene = new THREE.Scene()
 const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 60)
-const LOOK = new THREE.Vector3(0, 0.15, 0)
+/** 液晶とボタンの中心あたりを見る（本体全体ではなく「遊ぶ部分」を大きく映す） */
+const LOOK = new THREE.Vector3(0, 0.08, 0)
 scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture
 scene.environmentIntensity = 0.55
 
@@ -256,12 +257,12 @@ function resize() {
   renderer.setSize(w, h, false)
   composer.setSize(w, h)
   camera.aspect = w / h
-  // 本体（約 3.9×2.9）が画面に収まる距離に
+  // 液晶（幅 1.48）+ ボタンが画面いっぱいに収まる距離に。本体の縁や背景ははみ出してよい
   const halfV = THREE.MathUtils.degToRad(camera.fov / 2)
-  const needH = 4.6 / 2 / Math.tan(halfV)
-  const needW = 3.6 / 2 / (Math.tan(halfV) * camera.aspect)
+  const needH = 2.45 / 2 / Math.tan(halfV)
+  const needW = 1.72 / 2 / (Math.tan(halfV) * camera.aspect)
   const dist = Math.max(needH, needW)
-  camera.position.set(0, 0.55 + dist * 0.06, dist)
+  camera.position.set(0, LOOK.y + 0.12 + dist * 0.03, dist + 0.5)
   camera.lookAt(LOOK)
   camera.updateProjectionMatrix()
   ;(bokeh.uniforms as Record<string, THREE.IUniform>).focus.value = dist
@@ -272,6 +273,8 @@ function resize() {
 }
 window.addEventListener('resize', resize)
 applyQuality()
+// 操作ヒントは最初だけ表示
+setTimeout(() => document.getElementById('hint')?.classList.add('fade'), 7000)
 
 // ---------------- ループ ----------------
 const timer = new THREE.Timer()

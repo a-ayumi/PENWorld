@@ -199,6 +199,7 @@ export class World {
     let ux = dx / d
     let uz = dz / d
     for (const o of this.stage.obstacles) {
+      if (o.water && c.sp.float) continue
       const vx = o.x - c.x
       const vz = o.z - c.z
       const ahead = vx * ux + vz * uz
@@ -226,6 +227,7 @@ export class World {
 
   private collide(c: Creature) {
     for (const o of this.stage.obstacles) {
+      if (o.water && c.sp.float) continue
       const dx = c.x - o.x
       const dz = c.z - o.z
       const min = o.r + 0.3
@@ -389,6 +391,18 @@ export class World {
       x = THREE.MathUtils.clamp(s.x + Math.cos(a) * (0.7 + Math.random() * 0.6), -HALF, HALF)
       z = THREE.MathUtils.clamp(s.z + Math.sin(a) * (0.7 + Math.random() * 0.6), -HALF, HALF)
     }
+    // 水の上に落ちたら岸へずらす
+    for (const o of this.stage.obstacles) {
+      if (!o.water) continue
+      const d = Math.hypot(x - o.x, z - o.z)
+      if (d < o.r + 0.4) {
+        const k = (o.r + 0.5) / (d || 1)
+        x = o.x + (x - o.x) * k
+        z = o.z + (z - o.z) * k
+      }
+    }
+    x = THREE.MathUtils.clamp(x, -HALF, HALF)
+    z = THREE.MathUtils.clamp(z, -HALF, HALF)
     const mesh = this.makeFoodMesh()
     const y = this.stage.heightAt(x, z) + from
     mesh.position.set(x, y, z)

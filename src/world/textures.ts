@@ -71,6 +71,36 @@ export const Tex = {
       g.fillRect(6, 28, 6, 6)
       g.fillRect(36, 28, 6, 6)
     }, 64, 7, [5, 5]),
+  beach: () =>
+    make((g, s, r) => {
+      speckle(g, s, r, ['#f3dfb0', '#ecd3a0', '#f7e7c2', '#e6c890'])
+      for (let i = 0; i < 6; i++) {
+        g.fillStyle = ['#ffb3c8', '#ffffff', '#ffd9a8'][i % 3]
+        const x = Math.floor(r() * 30) * 2
+        const y = Math.floor(r() * 30) * 2
+        g.fillRect(x, y, 3, 2)
+      }
+      grid(g, s, 'rgba(120,220,255,0.35)')
+    }, 64, 13, [6, 6]),
+  powder: () =>
+    make((g, s, r) => {
+      speckle(g, s, r, ['#f6f9ff', '#eef4ff', '#e2ebfb', '#ffffff'])
+      for (let i = 0; i < 8; i++) {
+        g.fillStyle = 'rgba(150,200,255,0.9)'
+        g.fillRect(Math.floor(r() * 31) * 2, Math.floor(r() * 31) * 2, 1, 1)
+      }
+      grid(g, s, 'rgba(160,190,255,0.35)')
+    }, 64, 17, [6, 6]),
+  blocks: () =>
+    make((g, s) => {
+      g.fillStyle = '#f4f8ff'
+      g.fillRect(0, 0, s, s)
+      g.fillStyle = '#c9d8ee'
+      for (let y = 0; y < s; y += 8) {
+        g.fillRect(0, y, s, 1)
+        for (let x = (y / 8) % 2 ? 0 : 8; x < s; x += 16) g.fillRect(x, y, 1, 8)
+      }
+    }, 32, 1, [3, 2]),
   side: (kind: 'grass' | 'sand' | 'snow') =>
     make((g, s, r) => {
       const top = { grass: ['#5fae3e', '#4f9a34'], sand: ['#f0b16c', '#dc8f4c'], snow: ['#f4f8ff', '#cfdcf3'] }[kind]

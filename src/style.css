@@ -28,3 +28,6 @@ kbd { display: inline-block; min-width: 18px; margin: 0 2px; padding: 0 4px; bor
   color: #3a2a00; background: radial-gradient(circle at 35% 30%, #ffe08a, #f2b134 60%, #c98a14); box-shadow: 0 4px 0 rgba(0,0,0,.35); cursor: pointer; }
 .pad-btns button:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0,0,0,.35); }
 .pad-btns button:focus-visible, .pad-exit:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+#hint { transition: opacity .8s; }
+#hint.fade { opacity: 0; }

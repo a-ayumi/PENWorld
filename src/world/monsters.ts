@@ -1,10 +1,10 @@
 import { buildSheet, pixelSprite, type Sheet } from './sprites'
 
 /**
- * オリジナルのモンスター 6 種。すべてコードで描く 2.5D ドット絵（色・陰影・アウトライン付き）。
+ * オリジナルのモンスター 8 種。すべてコードで描く 2.5D ドット絵（色・陰影・アウトライン付き）。
  * 1 種につき 12 コマ：idle×2 / walk×4 / happy / eat×2 / sleep / attack / hurt
  */
-export type SpeciesId = 'mebu' | 'pikori' | 'gorota' | 'fuwari' | 'giaru' | 'noiz'
+export type SpeciesId = 'mebu' | 'pikori' | 'gorota' | 'fuwari' | 'giaru' | 'noiz' | 'hireru' | 'mofuru'
 
 export interface Species {
   id: SpeciesId
@@ -27,6 +27,8 @@ export const SPECIES: Record<SpeciesId, Species> = {
   gorota: { id: 'gorota', name: 'ゴロタ', kind: 'けっしょう甲羅型', height: 1.35, hp: 70, atk: 7, speed: 0.9, temper: 'calm' },
   fuwari: { id: 'fuwari', name: 'フワリ', kind: 'くもくらげ型', height: 1.49, hp: 40, atk: 6, speed: 1.2, temper: 'calm', float: true },
   giaru: { id: 'giaru', name: 'ギアル', kind: 'はぐるまロボ型', height: 1.69, hp: 80, atk: 13, speed: 1.7, temper: 'calm' },
+  hireru: { id: 'hireru', name: 'ヒレル', kind: 'なみのり魚型', height: 1.4, hp: 42, atk: 7, speed: 1.6, temper: 'calm', float: true },
+  mofuru: { id: 'mofuru', name: 'モフル', kind: 'わたゆき獣型', height: 1.4, hp: 60, atk: 6, speed: 1.0, temper: 'calm' },
   noiz: { id: 'noiz', name: 'ノイズ', kind: 'こわれたデータ', height: 1.35, hp: 38, atk: 7, speed: 1.5, temper: 'wild' },
 }
 
@@ -224,6 +226,57 @@ const DRAW: Record<SpeciesId, (g: G, p: Pose, f: number) => void> = {
       rect(g, '#ffffff', cx + 5, vy + 2, 2, 1)
     } else if (p.eye === 'hurt') rect(g, '#ffffff', cx, vy + 2, 8, 1)
     if (p.mouth) rect(g, '#2a1a5e', cx + 2, vy + 6, 4, 2)
+  },
+  hireru(g, p) {
+    const cx = 16 + p.lean
+    const cy = 17 + p.bob
+    // しっぽ（後ろ = 左側）
+    const tw = p.step * 1.5
+    poly(g, '#e8743f', [cx - 8, cy, cx - 14, cy - 5 + tw, cx - 13, cy + 5 + tw])
+    poly(g, '#ff9f6b', [cx - 8, cy, cx - 13, cy - 4 + tw, cx - 12, cy + 3 + tw])
+    // 背びれ
+    poly(g, '#e8743f', [cx - 4, cy - 6, cx + 1, cy - 13 - p.flap, cx + 4, cy - 6])
+    poly(g, '#ff9f6b', [cx - 3, cy - 6, cx + 1, cy - 12 - p.flap, cx + 1, cy - 6])
+    blob(g, cx, cy, 10 + p.sq * 0.5, 7 - p.sq * 0.5, '#3fc1c9', '#1f8a9a', '#b8f3f5')
+    ell(g, '#eafcff', cx + 2, cy + 3, 6, 3)
+    // むなびれ
+    ell(g, '#1f8a9a', cx - 1, cy + 2 + p.flap * 0.5, 3, 2)
+    // ほっぺのウロコ模様
+    rect(g, '#9ae6ea', cx - 4, cy - 2, 2, 2)
+    rect(g, '#9ae6ea', cx - 6, cy + 1, 2, 2)
+    eyes(g, [cx + 4, cx + 8], cy - 2, p.eye)
+    if (p.mouth) {
+      rect(g, '#7a1f3d', cx + 9, cy + 2, 2, 2)
+      ell(g, '#e8ffff', cx + 13, cy - 3, 1.6, 1.6)
+      ell(g, '#e8ffff', cx + 15, cy - 7, 1, 1)
+    } else rect(g, '#1a1530', cx + 9, cy + 2, 2, 1)
+  },
+  mofuru(g, p) {
+    const cx = 16 + p.lean
+    const ry = 9 - p.sq * 0.7
+    const rx = 10 + p.sq * 0.7
+    const cy = 29 - ry + p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
+    rect(g, '#9fb4d6', cx - 5 + p.step, 28, 3, 3)
+    rect(g, '#9fb4d6', cx + 2 - p.step, 28, 3, 3)
+    // もこもこの外周（小さな丸をぐるりと並べる）
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2
+      ell(g, '#c9d8ee', cx + Math.cos(a) * (rx - 1) + 0.6, cy + Math.sin(a) * (ry - 1) + 0.6, 3, 3)
+    }
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2
+      ell(g, '#fbfdff', cx + Math.cos(a) * (rx - 1.5), cy + Math.sin(a) * (ry - 1.5), 2.6, 2.6)
+    }
+    ell(g, '#fbfdff', cx, cy, rx - 2, ry - 2)
+    ell(g, '#ffffff', cx - 4, cy - 4, 3, 2)
+    // 青い耳の房
+    poly(g, '#5b8fe0', [cx - 6, cy - ry + 2, cx - 8, cy - ry - 5 + p.flap, cx - 3, cy - ry + 1])
+    poly(g, '#7fb2ff', [cx + 3, cy - ry + 1, cx + 6, cy - ry - 6 - p.flap, cx + 7, cy - ry + 3])
+    eyes(g, [cx + 2, cx + 6], cy - 1, p.eye, '#2a3a6a')
+    ell(g, '#ffb3c8', cx + 8, cy + 2, 1.6, 1)
+    ell(g, '#ffb3c8', cx, cy + 2, 1.6, 1)
+    if (p.mouth) rect(g, '#7a1f3d', cx + 3, cy + 3, 2, 2)
+    else rect(g, '#2a3a6a', cx + 3, cy + 3, 2, 1)
   },
   noiz(g, p, f) {
     const cx = 16 + p.lean

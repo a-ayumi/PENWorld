@@ -4,13 +4,14 @@ import { Tex, rng } from './textures'
 import type { SpeciesId } from './monsters'
 
 /**
- * オリジナルのステージ 3 種。どれも「デジタル空間に浮かぶ四角い箱庭」。
+ * オリジナルのステージ 5 種。どれも「デジタル空間に浮かぶ四角い箱庭」。
  * 地形・小物はローポリ + Gouraud（頂点ライティング）+ Nearest テクスチャで PS1 風に。
  */
 export const SIZE = 20
 export const HALF = SIZE / 2 - 0.8
 
-export interface Obstacle { x: number; z: number; r: number }
+/** water = 水場（泳げる/浮けるモンスターだけ入れる） */
+export interface Obstacle { x: number; z: number; r: number; water?: boolean }
 export interface FoodSpot { x: number; z: number }
 
 export interface Stage {
@@ -506,6 +507,318 @@ function frostCircuit(): Stage {
   }
 }
 
+
+/** 波打つ水面（PS1 風に色数少なめ、ふちに白波） */
+function waterMat(deep: string, shallow: string) {
+  return new THREE.ShaderMaterial({
+    uniforms: { time: { value: 0 }, deep: { value: new THREE.Color(deep) }, shallow: { value: new THREE.Color(shallow) }, uSnap: snapUniform },
+    vertexShader: `${SNAP_GLSL} uniform float time; varying vec2 vUv;
+      void main(){ vUv = uv; vec3 p = position; p.z += sin(p.x * 2.0 + time * 1.5) * 0.03;
+        gl_Position = psxSnap(projectionMatrix * modelViewMatrix * vec4(p, 1.0)); }`,
+    fragmentShader: /* glsl */ `
+      uniform float time; uniform vec3 deep; uniform vec3 shallow; varying vec2 vUv;
+      void main(){
+        float d = distance(vUv, vec2(0.5)) * 2.0;
+        vec2 q = floor(vUv * 48.0) / 48.0;
+        float w = sin(q.x * 30.0 + time * 1.2) * sin(q.y * 26.0 - time * 0.9);
+        vec3 c = mix(deep, shallow, smoothstep(0.2, 0.95, d));
+        c += step(0.82, w) * 0.22;
+        c = mix(c, vec3(0.95, 1.0, 1.0), step(0.9, d + sin(atan(vUv.y - 0.5, vUv.x - 0.5) * 9.0 + time * 2.0) * 0.03));
+        gl_FragColor = vec4(c, 1.0);
+      }`,
+  })
+}
+
+// =====================================================================
+// 4. さんごの入り江（Coral Cove）— 海ゾーン
+// =====================================================================
+function coralCove(): Stage {
+  const pools = [
+    { x: 1.8, z: -1.8, r: 3.6 },
+    { x: -5.2, z: 4.4, r: 1.9 },
+  ]
+  const heightAt = (x: number, z: number) => {
+    let h = 0.36 + (Math.sin(x * 0.4 + 1) * Math.cos(z * 0.33) * 0.22 + Math.sin(z * 0.8) * 0.06) * edge(x, z)
+    for (const p of pools) h = THREE.MathUtils.lerp(0.24, h, smooth(p.r - 0.3, p.r + 1.0, Math.hypot(x - p.x, z - p.z)))
+    return Math.max(0.24, h)
+  }
+  const group = new THREE.Group()
+  group.add(terrain(heightAt, Tex.beach(), ['#ffffff', '#ffeccc']), base('sand'))
+  const obstacles: Obstacle[] = pools.map((p) => ({ x: p.x, z: p.z, r: p.r - 0.25, water: true }))
+  const foodSpots: FoodSpot[] = []
+  const put = placer(51, obstacles)
+
+  const water = waterMat('#1d7fd1', '#5fe0e8')
+  for (const p of pools) {
+    const m = new THREE.Mesh(new THREE.CircleGeometry(p.r + 0.2, 14).rotateX(-Math.PI / 2), water)
+    m.position.set(p.x, 0.34, p.z)
+    group.add(m)
+  }
+  // さんご（水から顔を出す）
+  const coralMats = ['#ff7aa8', '#ff9f43', '#b48cff', '#ff5e7a'].map((c) => lambert(c, { emissive: c, emissiveIntensity: 0.12 }))
+  const r = rng(77)
+  for (let i = 0; i < 9; i++) {
+    const a = r() * Math.PI * 2
+    const pool = pools[i < 7 ? 0 : 1]
+    const d = pool.r * (0.35 + r() * 0.5)
+    const cx = pool.x + Math.cos(a) * d
+    const cz = pool.z + Math.sin(a) * d
+    const g = new THREE.Group()
+    const mat = coralMats[i % coralMats.length]
+    for (let k = 0; k < 4; k++) {
+      const h = 0.3 + r() * 0.5
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.07, h, 5), mat)
+      b.position.set((r() - 0.5) * 0.3, 0.3 + h / 2, (r() - 0.5) * 0.3)
+      b.rotation.set((r() - 0.5) * 0.9, 0, (r() - 0.5) * 0.9)
+      const tip = new THREE.Mesh(new THREE.IcosahedronGeometry(0.07, 0), mat)
+      tip.position.y = h / 2
+      b.add(tip)
+      g.add(b)
+    }
+    g.position.set(cx, 0.1, cz)
+    group.add(g)
+  }
+  // ヤシの木（実がなる）
+  const trunkMat = lambert('#a0703f', { map: Tex.bark() })
+  const palmMat = lambert('#3fae5a')
+  const palmMat2 = lambert('#5ccf6e')
+  const nutMat = lambert('#8a5a2b')
+  for (let i = 0; i < 7; i++) {
+    const p = put(0.5)
+    if (!p) break
+    const t = new THREE.Group()
+    const lean = (p.r() - 0.5) * 0.6
+    let top = new THREE.Vector3()
+    for (let k = 0; k < 5; k++) {
+      const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 0.5, 6), trunkMat)
+      seg.position.set(lean * k * k * 0.06, 0.25 + k * 0.48, 0)
+      seg.rotation.z = -lean * k * 0.12
+      t.add(seg)
+      top = seg.position.clone().add(new THREE.Vector3(0, 0.25, 0))
+    }
+    for (let k = 0; k < 7; k++) {
+      const a = (k / 7) * Math.PI * 2
+      const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.16, 1.3, 4), k % 2 ? palmMat : palmMat2)
+      leaf.scale.z = 0.25
+      leaf.position.copy(top).add(new THREE.Vector3(Math.cos(a) * 0.5, -0.12, Math.sin(a) * 0.5))
+      leaf.lookAt(top.clone().add(new THREE.Vector3(Math.cos(a) * 2, -1.4, Math.sin(a) * 2)))
+      leaf.rotateX(Math.PI / 2)
+      t.add(leaf)
+    }
+    for (let k = 0; k < 3; k++) {
+      const n = new THREE.Mesh(new THREE.IcosahedronGeometry(0.1, 0), nutMat)
+      n.position.copy(top).add(new THREE.Vector3(Math.cos(k * 2.1) * 0.14, -0.15, Math.sin(k * 2.1) * 0.14))
+      t.add(n)
+    }
+    t.position.set(p.x, heightAt(p.x, p.z) - 0.05, p.z)
+    t.rotation.y = p.r() * Math.PI * 2
+    group.add(t)
+    obstacles.push({ x: p.x, z: p.z, r: 0.3 })
+    foodSpots.push({ x: p.x, z: p.z })
+  }
+  // 貝がら・岩
+  const shellMats = [lambert('#ffd6e0'), lambert('#fff6e8')]
+  for (let i = 0; i < 12; i++) {
+    const p = put(0.1, 1)
+    if (!p) break
+    const sh = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.1, 6), shellMats[i % 2])
+    sh.position.set(p.x, heightAt(p.x, p.z) + 0.04, p.z)
+    group.add(sh)
+  }
+  const stoneMat = lambert('#8a919b', { map: Tex.rock() })
+  for (let i = 0; i < 4; i++) {
+    const p = put(0.5)
+    if (!p) break
+    const s = 0.35 + p.r() * 0.3
+    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(1, 0), stoneMat)
+    rock.scale.set(s * 1.3, s * 0.7, s)
+    rock.position.set(p.x, heightAt(p.x, p.z) + s * 0.25, p.z)
+    group.add(rock)
+    obstacles.push({ x: p.x, z: p.z, r: s })
+  }
+  // 打ち上げられた古い船
+  const wood = lambert('#7a4e2d', { map: Tex.bark() })
+  const boat = new THREE.Group()
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.45, 0.8), wood)
+  hull.position.y = 0.25
+  const bow = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.7, 4), wood)
+  bow.rotation.z = -Math.PI / 2
+  bow.rotation.x = Math.PI / 4
+  bow.position.set(1.3, 0.25, 0)
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.6, 5), wood)
+  mast.position.set(-0.2, 0.9, 0)
+  mast.rotation.z = 0.35
+  boat.add(hull, bow, mast)
+  boat.position.set(-4.4, heightAt(-4.4, -4.2), -4.2)
+  boat.rotation.set(0.12, 0.7, 0.15)
+  group.add(boat)
+  obstacles.push({ x: -4.4, z: -4.2, r: 1.1 })
+  // 光るブイ
+  const buoy = new THREE.Group()
+  const bb = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.5, 8), lambert('#ff4d6d'))
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.235, 0.235, 0.12, 8), lambert('#ffffff'))
+  const light = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), new THREE.MeshBasicMaterial({ color: '#5ef2ff' }))
+  light.position.y = 0.36
+  buoy.add(bb, band, light)
+  buoy.position.set(pools[0].x + 0.6, 0.45, pools[0].z - 0.4)
+  group.add(buoy)
+
+  const sky = skyDome(['#2f8ff0', '#bfeeff', '#123a6a'], 0)
+  const vs = voidSpace('#5fe0e8')
+  const bubbles = motes('#e8ffff', 50)
+  group.add(sky.mesh, vs.group, bubbles)
+  return {
+    id: 3, name: 'さんごの入り江', sub: 'CORAL COVE', group, heightAt, obstacles, foodSpots,
+    food: { name: 'なみのみ', color: '#ffd166', leaf: '#3fae5a' },
+    residents: ['hireru', 'hireru', 'mebu', 'noiz'],
+    fog: '#bfe9ff', sky: ['#2f8ff0', '#bfeeff', '#123a6a'],
+    sun: { color: '#fff6e0', intensity: 2.4, dir: [3, 10, 5] }, hemi: ['#dff6ff', '#c9a070', 1.4],
+    update(t, night) {
+      water.uniforms.time.value = t
+      sky.mat.uniforms.time.value = t
+      sky.mat.uniforms.night.value = night
+      ;(bubbles.material as THREE.ShaderMaterial).uniforms.time.value = t
+      buoy.position.y = 0.45 + Math.sin(t * 1.6) * 0.06
+      buoy.rotation.z = Math.sin(t * 1.1) * 0.12
+      light.visible = Math.floor(t * 2) % 2 === 0
+      vs.update(t)
+    },
+    dispose: () => disposeTree(group),
+  }
+}
+
+// =====================================================================
+// 5. わたゆきの原（Cotton Snowfield）— 雪ゾーン（昼）
+// =====================================================================
+function cottonField(): Stage {
+  const lake = { x: -2.2, z: 2.2, r: 2.8 }
+  const heightAt = (x: number, z: number) => {
+    const h = 0.3 + (Math.sin(x * 0.35) * Math.sin(z * 0.3 + 1) * 0.4 + Math.cos(x * 0.8 + z * 0.5) * 0.08) * edge(x, z)
+    return Math.max(0.24, THREE.MathUtils.lerp(0.26, h, smooth(lake.r, lake.r + 1.2, Math.hypot(x - lake.x, z - lake.z))))
+  }
+  const group = new THREE.Group()
+  group.add(terrain(heightAt, Tex.powder(), ['#ffffff', '#e8f0ff']), base('snow'))
+  const obstacles: Obstacle[] = []
+  const foodSpots: FoodSpot[] = []
+  const put = placer(63, obstacles, [{ ...lake, r: lake.r }])
+
+  // 凍った湖（上を歩ける）
+  const iceMat = new THREE.ShaderMaterial({
+    uniforms: { time: { value: 0 }, uSnap: snapUniform },
+    vertexShader: `${SNAP_GLSL} varying vec2 vUv; void main(){ vUv = uv; gl_Position = psxSnap(projectionMatrix * modelViewMatrix * vec4(position,1.0)); }`,
+    fragmentShader: /* glsl */ `
+      uniform float time; varying vec2 vUv;
+      void main(){
+        vec2 q = floor(vUv * 40.0) / 40.0;
+        float streak = step(0.93, fract((q.x + q.y) * 6.0 + time * 0.05));
+        float crack = step(0.985, fract(sin(dot(floor(q * 10.0), vec2(12.9898, 78.233))) * 43758.5));
+        vec3 c = mix(vec3(0.62, 0.82, 0.98), vec3(0.85, 0.95, 1.0), q.y);
+        c += streak * 0.15 + crack * 0.2;
+        gl_FragColor = vec4(c, 1.0);
+      }`,
+  })
+  const ice = new THREE.Mesh(new THREE.CircleGeometry(lake.r, 14).rotateX(-Math.PI / 2), iceMat)
+  ice.position.set(lake.x, 0.28, lake.z)
+  group.add(ice)
+
+  // わたゆきの木（実がなる）
+  const trunk = lambert('#6d4c41', { map: Tex.bark() })
+  const fluffA = lambert('#f4f8ff')
+  const fluffB = lambert('#d6e4fa')
+  const berry = lambert('#ff9ecb', { emissive: '#ff6fae', emissiveIntensity: 0.2 })
+  for (let i = 0; i < 7; i++) {
+    const p = put(0.55)
+    if (!p) break
+    const t = new THREE.Group()
+    const tr = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 0.9, 6), trunk)
+    tr.position.y = 0.45
+    t.add(tr)
+    for (const [x, y, z, s, m] of [[0, 1.3, 0, 0.7, fluffA], [0.35, 1.7, 0.1, 0.45, fluffB], [-0.3, 1.6, -0.15, 0.5, fluffA]] as const) {
+      const f = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 0), m)
+      f.position.set(x, y, z)
+      t.add(f)
+    }
+    for (let k = 0; k < 3; k++) {
+      const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.09, 0), berry)
+      b.position.set(Math.cos(k * 2.2) * 0.6, 1.15 + k * 0.12, Math.sin(k * 2.2) * 0.6)
+      t.add(b)
+    }
+    const s = 0.9 + p.r() * 0.5
+    t.scale.setScalar(s)
+    t.position.set(p.x, heightAt(p.x, p.z) - 0.05, p.z)
+    group.add(t)
+    obstacles.push({ x: p.x, z: p.z, r: 0.35 * s })
+    foodSpots.push({ x: p.x, z: p.z })
+  }
+  // 雪だまのオブジェ（2 段の雪玉 + 小枝）
+  const snowMat = lambert('#fbfdff')
+  const twig = lambert('#6d4c41')
+  for (let i = 0; i < 3; i++) {
+    const p = put(0.5)
+    if (!p) break
+    const g = new THREE.Group()
+    const a = new THREE.Mesh(new THREE.IcosahedronGeometry(0.42, 1), snowMat)
+    a.position.y = 0.38
+    const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28, 1), snowMat)
+    b.position.y = 0.92
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.6, 4), twig)
+    arm.position.set(0.35, 0.6, 0)
+    arm.rotation.z = -1
+    g.add(a, b, arm)
+    g.position.set(p.x, heightAt(p.x, p.z), p.z)
+    g.rotation.y = p.r() * 6
+    group.add(g)
+    obstacles.push({ x: p.x, z: p.z, r: 0.45 })
+  }
+  // かまくらの遺跡
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(1.1, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2), psx(new THREE.MeshLambertMaterial({ map: Tex.blocks() })))
+  const door = new THREE.Mesh(new THREE.CircleGeometry(0.4, 8, 0, Math.PI), new THREE.MeshBasicMaterial({ color: '#2a3a6a' }))
+  door.position.set(0, 0.02, 1.08)
+  const domeG = new THREE.Group()
+  domeG.add(dome, door)
+  domeG.position.set(4.2, heightAt(4.2, -3.8) - 0.05, -3.8)
+  domeG.rotation.y = -0.5
+  group.add(domeG)
+  obstacles.push({ x: 4.2, z: -3.8, r: 1.15 })
+  // 灯りの柱（デジタルのランタン）
+  const post = lambert('#7c8794')
+  const lamps: THREE.Mesh[] = []
+  for (const [x, z] of [[-0.5, -1.5], [1.8, 3.6], [-5.5, -2.5]] as const) {
+    const g = new THREE.Group()
+    const pole = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.2, 0.1), post)
+    pole.position.y = 0.6
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.24, 0.24), new THREE.MeshBasicMaterial({ color: '#ffd27a' }))
+    lamp.position.y = 1.3
+    lamps.push(lamp)
+    g.add(pole, lamp)
+    g.position.set(x, heightAt(x, z), z)
+    group.add(g)
+    obstacles.push({ x, z, r: 0.2 })
+  }
+
+  const sky = skyDome(['#7fb2ff', '#e6f0ff', '#3a4a7a'], 0)
+  const vs = voidSpace('#bcd4ff')
+  const flakes = motes('#ffffff', 110, true)
+  group.add(sky.mesh, vs.group, flakes)
+  return {
+    id: 4, name: 'わたゆきの原', sub: 'COTTON SNOWFIELD', group, heightAt, obstacles, foodSpots,
+    food: { name: 'ゆきいちご', color: '#ff9ecb', leaf: '#7cf29b' },
+    residents: ['mofuru', 'mofuru', 'fuwari', 'noiz'],
+    fog: '#e8f0ff', sky: ['#7fb2ff', '#e6f0ff', '#3a4a7a'],
+    sun: { color: '#fff8ee', intensity: 2.0, dir: [-4, 9, 5] }, hemi: ['#eef4ff', '#8a9ac0', 1.5],
+    update(t, night) {
+      iceMat.uniforms.time.value = t
+      sky.mat.uniforms.time.value = t
+      sky.mat.uniforms.night.value = night
+      ;(flakes.material as THREE.ShaderMaterial).uniforms.time.value = t
+      const glow = 0.85 + Math.sin(t * 3) * 0.15
+      lamps.forEach((l) => (l.material as THREE.MeshBasicMaterial).color.setRGB(1 * glow, 0.82 * glow, 0.48 * glow))
+      vs.update(t)
+    },
+    dispose: () => disposeTree(group),
+  }
+}
+
 function disposeTree(o: THREE.Object3D) {
   o.traverse((c) => {
     const m = c as THREE.Mesh
@@ -518,4 +831,5 @@ function disposeTree(o: THREE.Object3D) {
   })
 }
 
-export const STAGES = [seedGrove, glassDunes, frostCircuit]
+/** ワープで巡る順番 */
+export const STAGES = [seedGrove, glassDunes, coralCove, cottonField, frostCircuit]
