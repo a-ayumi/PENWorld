@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh api -X PUT repos/a-ayumi/PENWorld/pulls/*/merge *)",
+      "Bash(gh pr merge *)"
+    ]
+  }
+}
