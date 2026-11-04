@@ -72,7 +72,8 @@ class Kit {
 }
 
 // ---------------------------------------------------------------------
-const BUILD: Record<SpeciesId, (k: Kit) => Omit<Rig, 'root' | 'mats'>> = {
+/** 3D モデルがある種族（無い種族は World 側でドット絵にする） */
+const BUILD: Partial<Record<SpeciesId, (k: Kit) => Omit<Rig, "root" | "mats">>> = {
   mebu(k) {
     const body = new THREE.Group()
     body.add(k.sph(0.42, '#6fd26a', [0, 0.42, 0], [1.05, 0.9, 1]))
@@ -303,6 +304,8 @@ const BUILD: Record<SpeciesId, (k: Kit) => Omit<Rig, 'root' | 'mats'>> = {
   },
 }
 
+export const hasModel = (id: SpeciesId) => id in BUILD
+
 export class MonsterModel {
   /** World から位置・表示を操作するためのルート（SpriteAnim と同じ名前） */
   readonly sprite = new THREE.Group()
@@ -320,7 +323,7 @@ export class MonsterModel {
 
   private build() {
     const k = new Kit()
-    const parts = BUILD[this.id](k)
+    const parts = (BUILD[this.id] ?? BUILD.mebu!)(k)
     const root = new THREE.Group()
     root.add(parts.body, ...parts.legs)
     this.rig = { ...parts, root, mats: k.mats }
