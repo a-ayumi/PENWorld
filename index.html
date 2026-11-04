@@ -8,15 +8,26 @@
     <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./icons/icon-192.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" />
     <title>PULSAR</title>
   </head>
   <body>
     <canvas id="scene" aria-label="液晶ペット本体。A・B・C のボタンを押して操作"></canvas>
     <div id="hint">
-      <span class="kbd-only"><kbd>A</kbd><kbd>B</kbd><kbd>C</kbd> または本体のボタンをクリック ・ ドラッグで傾ける</span>
-      <span class="touch-only">ボタンをタップ ・ ドラッグで傾ける</span>
+      <span class="kbd-only"><kbd>A</kbd>えらぶ <kbd>B</kbd>けってい <kbd>C</kbd>もどる / 画面に入る ・ ドラッグで傾ける</span>
+      <span class="touch-only">A えらぶ ・ B けってい ・ C もどる / 画面に入る</span>
     </div>
     <button id="quality" aria-label="画質切替">画質: 高</button>
+    <div id="pad" hidden>
+      <button id="pad-exit" class="pad-exit" aria-label="本体にもどる">本体にもどる</button>
+      <div class="pad-btns">
+        <button data-key="A" aria-label="A ボタン">A</button>
+        <button data-key="B" aria-label="B ボタン">B</button>
+        <button data-key="C" aria-label="C ボタン">C</button>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -58,7 +58,7 @@ function printTexture() {
   return tex
 }
 
-export function buildDevice(lcdTexture: THREE.Texture): Device {
+export function buildDevice(screenTexture: THREE.Texture): Device {
   const group = new THREE.Group()
 
   // ---- シェル ----
@@ -102,25 +102,27 @@ export function buildDevice(lcdTexture: THREE.Texture): Device {
   group.add(plate)
   const pz = front + 0.026
 
-  // ---- 液晶 ----
-  const SCREEN_Y = 0.42
+  // ---- 液晶（4:3 のカラー液晶）----
+  const SCREEN_Y = 0.43
   const bezel = new THREE.Mesh(
-    new THREE.ShapeGeometry(roundedRect(1.66, 1.2, 0.14), 16),
+    new THREE.ShapeGeometry(roundedRect(1.66, 1.32, 0.14), 16),
     new THREE.MeshStandardMaterial({ color: BEZEL, roughness: 0.6 }),
   )
   bezel.position.set(0, SCREEN_Y, pz + 0.002)
   group.add(bezel)
 
   const screen = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.44, 0.98),
-    new THREE.MeshStandardMaterial({ map: lcdTexture, roughness: 0.9, emissive: '#ffffff', emissiveMap: lcdTexture, emissiveIntensity: 0.06 }),
+    new THREE.PlaneGeometry(1.48, 1.11),
+    // バックライト付きのカラー液晶なのでライティングの影響を受けない
+    // 少しだけ暗くして、ブルームで白飛びしないようにする
+    new THREE.MeshBasicMaterial({ map: screenTexture, color: '#c4c4c4' }),
   )
   screen.position.set(0, SCREEN_Y, pz + 0.004)
   group.add(screen)
 
   // 液晶カバー（映り込み用のガラス）
   const glass = new THREE.Mesh(
-    new THREE.ShapeGeometry(roundedRect(1.62, 1.16, 0.12), 16),
+    new THREE.ShapeGeometry(roundedRect(1.62, 1.28, 0.12), 16),
     new THREE.MeshPhysicalMaterial({
       color: '#ffffff', roughness: 0.04, metalness: 0, transparent: true, opacity: 0.08, clearcoat: 1, envMapIntensity: 1.6,
       depthWrite: false,
@@ -134,7 +136,7 @@ export function buildDevice(lcdTexture: THREE.Texture): Device {
     new THREE.SphereGeometry(0.035, 16, 8),
     new THREE.MeshStandardMaterial({ color: '#ff6b4a', emissive: '#ff4a2a', emissiveIntensity: 2.2, roughness: 0.2 }),
   )
-  lamp.position.set(0.68, SCREEN_Y + 0.72, pz + 0.01)
+  lamp.position.set(0.55, SCREEN_Y + 0.79, pz + 0.01)
   lamp.name = 'lamp'
   group.add(lamp)
 
@@ -153,7 +155,7 @@ export function buildDevice(lcdTexture: THREE.Texture): Device {
     for (let j = 0; j < 3; j++) {
       if ((i + j) % 2) continue
       const h = new THREE.Mesh(holeGeo, holeMat)
-      h.position.set(-0.78 + i * 0.07, SCREEN_Y + 0.7 + j * 0.07 - 0.07, pz + 0.003)
+      h.position.set(0.62 + i * 0.07, -1.0 + j * 0.07 - 0.07, pz + 0.003)
       group.add(h)
     }
 
@@ -163,7 +165,7 @@ export function buildDevice(lcdTexture: THREE.Texture): Device {
   const buttons = {} as Device['buttons']
   ;(['A', 'B', 'C'] as const).forEach((k, i) => {
     const x = (i - 1) * 0.52
-    const y = -0.48 - (i === 1 ? 0.06 : 0)
+    const y = -0.56 - (i === 1 ? 0.05 : 0)
     // くぼみのリング
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.025, 10, 40), ringMat)
     ring.position.set(x, y, pz + 0.005)

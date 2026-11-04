@@ -1,6 +1,7 @@
 # PULSAR — 3D の液晶ペット（PWA）
 
-Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本体と、その中のドットマトリクス液晶でペットが動く。
+Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本体の液晶に、PS1 風の 2.5D 箱庭が映り、モンスターが自分で暮らす（歩く・食べる・眠る・戦う）。
+作成技法の解説は `docs/TECHNIQUES.md`、作業手順はスキル `.claude/skills/retro-diorama-threejs/` を参照。
 
 ## コマンド
 - `npm run dev` — 開発サーバー（`--host` 付き）
@@ -11,16 +12,19 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 ## 構成
 - `src/main.ts` — レンダラー、ライト、ポストエフェクト、ボタン操作、ループ
 - `src/device.ts` — 本体の 3D モデル（シェル・フェイスプレート・液晶・ボタン・リング）
-- `src/lcd.ts` — 32×16 ドット液晶 + 上下 8 アイコン（残像・ドットの影つき）。`blit()` でビットマップを描く
-- `src/pet.ts` — 液晶内のペット「メブ」（16×16、2 コマ）
+- `src/world/World.ts` — 箱庭本体：生き物の AI・バトル・食べ物・HUD・ボタン処理・描画パイプライン
+- `src/world/stages.ts` — ステージ 3 種（はじまりの森 / ガラスの砂丘 / こおりの回路峰）
+- `src/world/monsters.ts` — モンスター 6 種（メブ / ピコリ / ゴロタ / フワリ / ギアル / ノイズ）の能力値とドット絵
+- `src/world/psx.ts` — PS1 風の表現（頂点スナップ・ディザ・15bit カラー・グリッチ）
+- `src/world/sprites.ts` / `textures.ts` — ドット絵スプライト生成、手続きテクスチャ
 - `src/scene.ts` — 時間帯の雰囲気（MOODS）、机の木目、背景の玉ボケ、ほこり粒子、仕上げシェーダー
 - `src/beep.ts` — 圧電ブザー風の効果音
 
 ## ルール
 - **デザインはすべてオリジナル**。実在する製品・ゲームの本体形状、キャラ、ロゴ、アイコン、効果音を再現しない
-- 液晶の解像度は 32×16 固定。ドット絵は `'#'` / `'.'` の文字列ビットマップで書く
-- ボタンは A（選択）/ B（決定）/ C（キャンセル・時計）。キー A/B/C・Z/X・1/2/3 でも押せる
+- 箱庭の解像度は 320×240 固定。世界のマテリアルは `psx()` で包む
+- ボタンは A（アイコン選択）/ B（決定・何も選んでいなければステータス）/ C（キャンセル、何も無ければ画面に入る/出る）。キー A/B/C・Z/X・1/2/3 でも押せる
 - 画質「低」ではボケとブルームを切る（スマホの既定）。新しい重い効果は必ず `applyQuality()` で切り替え可能にする
 - 色は `scene.ts` の MOODS と `device.ts` 先頭の定数に集約する
 - 見た目の変更はスクリーンショット（1280×800 と 390×844）で確認してから完了とする
-- テストは `window.__pulsar.press('A')` / `.state()` / `.setMood('night')` を使う
+- テストは `window.__pulsar.press('A')` / `.state()` / `.setMood('night')`、箱庭は `.world.run(i)` と `.world.update(1/30)` の早送りで確認する

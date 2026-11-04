@@ -7,8 +7,7 @@ import { BokehPass } from 'three/addons/postprocessing/BokehPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
-import { LCD } from './lcd'
-import { Pet } from './pet'
+import { World, type Sfx } from './world/World'
 import { buildDevice } from './device'
 import { FinishShader, MOODS, dustParticles, moodForHour, paintWall, woodTexture, type Mood } from './scene'
 import { Beeper } from './beep'
@@ -73,9 +72,8 @@ const dust = dustParticles(140)
 scene.add(dust)
 
 // ---------------- 本体 ----------------
-const lcd = new LCD()
-const pet = new Pet()
-const device = buildDevice(lcd.texture)
+const world = new World()
+const device = buildDevice(world.texture)
 scene.add(device.group)
 const beeper = new Beeper()
 
@@ -140,31 +138,39 @@ function applyMood(name: keyof typeof MOODS) {
 const moodOverride = new URLSearchParams(location.search).get('mood') as keyof typeof MOODS | null
 applyMood(moodOverride && MOODS[moodOverride] ? moodOverride : moodForHour(new Date().getHours()))
 
-// ---------------- 液晶の中身 ----------------
-type View = 'pet' | 'clock'
-let view: View = 'pet'
-let cursor = -1
-let flash = 0
-let attention = 0
+// ---------------- 箱庭の効果音 ----------------
+const SFX: Record<Sfx, () => void> = {
+  select: () => beeper.beep(2200, 0.04),
+  ok: () => beeper.beep(2600, 0.05),
+  cancel: () => beeper.beep(1500, 0.05),
+  hit: () => beeper.beep(900, 0.04),
+  crit: () => (beeper.beep(1800, 0.04), beeper.beep(700, 0.08, 0.05)),
+  win: () => [1568, 1976, 2349, 3136].forEach((f, i) => beeper.beep(f, 0.08, i * 0.09)),
+  lose: () => [1200, 900, 700].forEach((f, i) => beeper.beep(f, 0.12, i * 0.14)),
+  eat: () => (beeper.beep(2000, 0.04), beeper.beep(2400, 0.04, 0.12)),
+  warp: () => [800, 1200, 1800, 2700, 4000].forEach((f, i) => beeper.beep(f, 0.05, i * 0.06)),
+  evolve: () => [1047, 1319, 1568, 2093, 2637, 3136].forEach((f, i) => beeper.beep(f, 0.09, i * 0.1)),
+  train: () => beeper.beep(1700, 0.03),
+}
+world.onSfx = (k) => SFX[k]()
 
-function drawLCD(dt: number) {
-  lcd.clear()
-  if (view === 'pet') {
-    pet.update(dt)
-    pet.draw(lcd)
-  } else {
-    const d = new Date()
-    lcd.drawTime(d.getHours(), d.getMinutes(), d.getSeconds() % 2 === 0)
-  }
-  flash = Math.max(0, flash - dt)
-  attention += dt
-  for (let i = 0; i < 8; i++) {
-    let on = i === cursor
-    if (i === cursor && flash > 0) on = Math.floor(flash * 8) % 2 === 0
-    lcd.iconOn[i] = on
-  }
-  lcd.update(dt)
-  lcd.commit()
+// ---------------- 画面に入る（全画面モード） ----------------
+type Mode = 'device' | 'entering' | 'inside' | 'leaving'
+let mode: Mode = 'device'
+let modeT = 0
+const diveScene = new THREE.Scene()
+const diveCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
+const diveQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ map: world.texture, toneMapped: false }))
+diveScene.add(diveQuad)
+diveScene.background = new THREE.Color('#05060f')
+const pad = document.getElementById('pad')!
+
+function setMode(m: Mode) {
+  mode = m
+  modeT = 0
+  pad.hidden = m !== 'inside'
+  qualityBtn.hidden = m === 'inside'
+  document.getElementById('hint')!.hidden = m === 'inside'
 }
 
 // ---------------- ボタン ----------------
@@ -172,33 +178,35 @@ const tilt = { x: 0, y: 0, vx: 0, vy: 0 }
 
 function press(key: 'A' | 'B' | 'C') {
   beeper.unlock()
-  const b = device.buttons[key]
-  b.userData.press = 1
-  // 押した側にわずかに傾く
-  tilt.vy += (key === 'A' ? -1 : key === 'C' ? 1 : 0) * 0.6
-  tilt.vx += 0.8
-  if (key === 'A') {
-    cursor = (cursor + 1) % 8
-    beeper.beep(2200, 0.05)
-  } else if (key === 'B') {
-    if (cursor >= 0) {
-      flash = 0.8
-      if (view === 'pet') pet.cheer()
-      beeper.beep(2600, 0.06)
-      beeper.beep(3200, 0.08, 0.08)
-    } else beeper.beep(1400, 0.08)
-  } else {
-    if (cursor >= 0) cursor = -1
-    else view = view === 'pet' ? 'clock' : 'pet'
-    beeper.beep(1600, 0.05)
+  if (mode === 'device') {
+    const b = device.buttons[key]
+    b.userData.press = 1
+    // 押した側にわずかに傾く
+    tilt.vy += (key === 'A' ? -1 : key === 'C' ? 1 : 0) * 0.6
+    tilt.vx += 0.8
+  }
+  const used = world.press(key)
+  // 何も選んでいない時の C = 画面に入る / 出る
+  if (!used && key === 'C') {
+    beeper.beep(1200, 0.05)
+    if (mode === 'device') setMode('entering')
+    else if (mode === 'inside') setMode('leaving')
   }
 }
+document.querySelectorAll<HTMLButtonElement>('#pad [data-key]').forEach((b) =>
+  b.addEventListener('pointerdown', (e) => {
+    e.preventDefault()
+    press(b.dataset.key as 'A' | 'B' | 'C')
+  }),
+)
+document.getElementById('pad-exit')!.addEventListener('click', () => mode === 'inside' && setMode('leaving'))
 
 window.addEventListener('keydown', (e) => {
   if (e.repeat) return
   const map: Record<string, 'A' | 'B' | 'C'> = { KeyA: 'A', KeyB: 'B', KeyC: 'C', KeyZ: 'A', KeyX: 'B', Digit1: 'A', Digit2: 'B', Digit3: 'C' }
   const k = map[e.code]
   if (k) press(k)
+  if (e.code === 'Escape' && mode === 'inside') setMode('leaving')
 })
 
 // クリック / タップでボタン、ドラッグで本体を傾ける
@@ -217,6 +225,7 @@ function hitButton(e: PointerEvent): 'A' | 'B' | 'C' | null {
 }
 let drag: { id: number; x: number; y: number } | null = null
 canvas.addEventListener('pointerdown', (e) => {
+  if (mode !== 'device') return
   const k = hitButton(e)
   if (k) {
     press(k)
@@ -240,6 +249,7 @@ canvas.addEventListener('pointerup', endDrag)
 canvas.addEventListener('pointercancel', endDrag)
 
 // ---------------- サイズ ----------------
+const baseCam = new THREE.Vector3()
 function resize() {
   const w = window.innerWidth
   const h = window.innerHeight
@@ -255,6 +265,10 @@ function resize() {
   camera.lookAt(LOOK)
   camera.updateProjectionMatrix()
   ;(bokeh.uniforms as Record<string, THREE.IUniform>).focus.value = dist
+  baseCam.copy(camera.position)
+  // 全画面モード：4:3 を画面に収める（ドットは整数倍に近いサイズで）
+  const a = w / h
+  diveQuad.scale.set(a > 4 / 3 ? 4 / 3 / a : 1, a > 4 / 3 ? 1 : a / (4 / 3), 1)
 }
 window.addEventListener('resize', resize)
 applyQuality()
@@ -265,7 +279,8 @@ let elapsed = 0
 let moodCheck = 0
 renderer.setAnimationLoop((t) => {
   timer.update(t)
-  const dt = Math.min(timer.getDelta(), 1 / 20)
+  // 初回フレームは時刻の差がマイナスになることがあるので 0〜1/20 秒に収める
+  const dt = THREE.MathUtils.clamp(timer.getDelta(), 0, 1 / 20)
   elapsed += dt
 
   // 本体のふわふわ + ばねで戻る傾き
@@ -289,9 +304,10 @@ renderer.setAnimationLoop((t) => {
 
   // ランプの点滅（呼び出し中のイメージ）
   const lampMesh = device.group.getObjectByName('lamp') as THREE.Mesh
-  ;(lampMesh.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.2 + Math.max(0, Math.sin(attention * 3)) * 2
+  ;(lampMesh.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.2 + Math.max(0, Math.sin(elapsed * 3)) * 2
 
-  drawLCD(dt)
+  world.update(dt)
+  world.render(renderer)
   ;(dust.material as THREE.ShaderMaterial).uniforms.time.value = elapsed
   finish.uniforms.time.value = elapsed
 
@@ -301,14 +317,36 @@ renderer.setAnimationLoop((t) => {
     applyMood(moodForHour(new Date().getHours()))
   }
 
+  // 画面に入る / 出る：カメラを液晶へ寄せてから全画面に切り替える
+  modeT += dt
+  const screenPos = device.screen.getWorldPosition(new THREE.Vector3())
+  const near = screenPos.clone().add(new THREE.Vector3(0, 0, 1.55))
+  const ease = (t: number) => t * t * (3 - 2 * t)
+  if (mode === 'entering' || mode === 'leaving') {
+    const k = Math.min(1, modeT / 0.9)
+    const e = ease(mode === 'entering' ? k : 1 - k)
+    camera.position.lerpVectors(baseCam, near, e)
+    camera.lookAt(LOOK.clone().lerp(screenPos, e))
+    ;(bokeh.uniforms as Record<string, THREE.IUniform>).focus.value = camera.position.distanceTo(screenPos)
+    if (k >= 1) {
+      if (mode === 'entering') setMode('inside')
+      else {
+        setMode('device')
+        resize()
+      }
+    }
+  }
+  if (mode === 'inside') renderer.render(diveScene, diveCam)
   // 低画質ではボケ/ブルームが無効になり、色調整とビネットだけ残る
-  composer.render()
+  else composer.render()
 })
 
 // テスト用
 ;(window as unknown as { __pulsar: object }).__pulsar = {
   press,
-  state: () => ({ view, cursor, quality, mood: currentMood, draws: renderer.info.render.calls }),
+  state: () => ({ mode, quality, mood: currentMood, world: world.debug() }),
+  world,
+  device,
   setMood: (m: keyof typeof MOODS) => applyMood(m),
 }
 
