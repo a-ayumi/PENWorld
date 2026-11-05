@@ -4,6 +4,9 @@
  */
 const KEYS = ['pulsar-save-v1', 'pulsar-place', 'pulsar-skin', 'pulsar-chara', 'pulsar-view', 'pulsar-vol', 'pulsar-quality']
 const PREFIX = 'PULSAR1:'
+/** 読み込むコードの上限（セーブは数十 KB。巨大な入力でブラウザを固めない） */
+const MAX_CODE = 2_000_000
+const MAX_VALUE = 1_000_000
 
 const toB64 = (s: string) => {
   const bytes = new TextEncoder().encode(s)
@@ -28,7 +31,9 @@ export function exportCode(): string {
 
 /** 読み込み。成功したら true（ゲームのデータが入っていないコードは受け付けない） */
 export function importCode(text: string): { ok: boolean; reason?: string } {
+  if (text.length > MAX_CODE * 1.4) return { ok: false, reason: 'コードが大きすぎます' }
   const code = text.trim().replace(/\s+/g, '')
+  if (code.length > MAX_CODE) return { ok: false, reason: 'コードが大きすぎます' }
   if (!code.startsWith(PREFIX)) return { ok: false, reason: 'PULSAR のデータではないようです' }
   let parsed: { v: number; data: Record<string, string> }
   try {
@@ -36,14 +41,22 @@ export function importCode(text: string): { ok: boolean; reason?: string } {
   } catch {
     return { ok: false, reason: 'コードがこわれています（途中で切れていませんか？）' }
   }
-  const save = parsed?.data?.['pulsar-save-v1']
+  const data = parsed?.data
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false, reason: 'PULSAR のデータではないようです' }
+  // 知っているキーの、文字列だけを受け取る（それ以外は捨てる）
+  const clean: Record<string, string> = {}
+  for (const k of KEYS) {
+    const v = Object.prototype.hasOwnProperty.call(data, k) ? data[k] : undefined
+    if (typeof v === 'string' && v.length <= MAX_VALUE) clean[k] = v
+  }
+  const save = clean['pulsar-save-v1']
   try {
-    if (!save || !JSON.parse(save).pet) return { ok: false, reason: 'ペットのデータが入っていません' }
+    if (!save || !JSON.parse(save)?.pet) return { ok: false, reason: 'ペットのデータが入っていません' }
   } catch {
     return { ok: false, reason: 'ペットのデータが読めません' }
   }
   try {
-    for (const k of KEYS) if (k in parsed.data) localStorage.setItem(k, parsed.data[k])
+    for (const k of Object.keys(clean)) localStorage.setItem(k, clean[k])
   } catch {
     return { ok: false, reason: 'この端末に保存できませんでした' }
   }

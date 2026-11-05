@@ -111,6 +111,10 @@ const FOODS: Record<Exclude<FoodKind, 'stage'>, { name: string; color: string; l
 const CARE_NAME: Record<Care, string> = { power: 'ちから', guard: 'まもり', spirit: 'こころ' }
 
 interface ShopItem { id: string; name: string; price: number; desc: string; food?: Exclude<FoodKind, 'stage'>; item?: ItemKind; max?: number; kit?: boolean }
+/** セーブデータ・読み込んだコードは信用しない：種族は自前のキーだけ、数値は範囲に収める */
+const isSpecies = (v: unknown): v is SpeciesId => typeof v === 'string' && Object.prototype.hasOwnProperty.call(SPECIES, v)
+const num = (v: unknown, min: number, max: number, def = min) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : def)
+
 const SHOP: ShopItem[] = [
   { id: 'meat', name: 'スタミナにく', price: 30, desc: 'ちからの けいこうが そだつ', food: 'meat' },
   { id: 'sweet', name: 'あまいみ', price: 20, desc: 'きげん UP・こころが そだつ', food: 'sweet' },
@@ -2463,20 +2467,20 @@ export class World {
     if (!raw) return false
     try {
       const d = JSON.parse(raw)
-      if (!d.pet || !(d.pet.sp in SPECIES)) return false
-      this.coins = d.coins ?? 50
+      if (!d || typeof d !== 'object' || !d.pet || !isSpecies(d.pet.sp)) return false
+      this.coins = num(d.coins, 0, 999999, 50)
       this.care = { power: 0, guard: 0, spirit: 0, ...d.care }
       this.xp = d.xp ?? 0
       this.stats = { ...this.stats, ...d.stats }
       this.nightTarget = this.night = d.night ?? 0
       this.items = (d.items ?? []).map((it: Item) => ({ ...it, vx: 0, vz: 0, mesh: null }))
       type SavedHouse = { stage: number; x: number; z: number; ownerSp: SpeciesId; owner: string; mats: number; hp: number }
-      const savedHouses = (d.houses ?? []) as SavedHouse[]
-      this.houses = savedHouses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, owner: null, ownerSp: h.ownerSp in SPECIES ? h.ownerSp : 'mebu', mats: h.mats, hp: h.hp, mesh: null, shake: 0, level: houseLevel(h.mats), alerted: 0 }))
+      const savedHouses = ((Array.isArray(d.houses) ? d.houses : []) as SavedHouse[]).filter((h) => h && typeof h.owner === 'string').slice(0, 40)
+      this.houses = savedHouses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, owner: null, ownerSp: isSpecies(h.ownerSp) ? h.ownerSp : 'mebu', mats: num(h.mats, 0, 8), hp: num(h.hp, 0, 100), mesh: null, shake: 0, level: houseLevel(h.mats), alerted: 0 }))
       this.loadStage(Math.min(STAGES.length - 1, d.stage ?? 0))
       type Saved = { sp: SpeciesId; hp: number; maxHp: number; atk: number; hunger: number; energy: number; grow: number; xp?: number; care?: Record<Care, number>; bias?: Care }
       const apply = (c: Creature, s: Saved) => {
-        Object.assign(c, { hp: s.hp, maxHp: s.maxHp, atk: s.atk, hunger: s.hunger, energy: s.energy, grow: s.grow ?? 0 })
+        Object.assign(c, { hp: num(s.hp, 0, 9999), maxHp: num(s.maxHp, 1, 9999, 10), atk: num(s.atk, 0, 9999, 1), hunger: num(s.hunger, 0, 100, 50), energy: num(s.energy, 0, 100, 50), grow: num(s.grow, 0, 1, 0) })
         if (s.xp !== undefined) c.xp = s.xp
         if (s.care) c.care = Object.assign({ power: 0, guard: 0, spirit: 0 }, s.care)
         if (s.bias) c.bias = s.bias
@@ -2485,7 +2489,7 @@ export class World {
       this.pet = this.spawn(d.pet.sp, 'pet', 0, 1.5)
       apply(this.pet, d.pet)
       const friends: Creature[] = []
-      for (const f of (d.friends ?? []) as Saved[]) if (f.sp in SPECIES) {
+      for (const f of ((Array.isArray(d.friends) ? d.friends : []) as Saved[]).slice(0, 40)) if (f && isSpecies(f.sp)) {
         const c = this.spawn(f.sp, 'friend', (Math.random() - 0.5) * 2, 2.2)
         apply(c, f)
         friends.push(c)

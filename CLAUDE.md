@@ -40,6 +40,7 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - 育ちはペットだけ `World.xp` / `World.care`、ほかの子は 1 匹ずつ `c.xp` / `c.care` / `c.bias`（性格）。`gainXp(c, n)` / `addCare(c, k, n)` を使う
 - 家は `houses`（資材 2/5/8 個で 土台/かべ/屋根）。`addMaterial` で建て、`damageHouse` でこわれる。資材は `resources`（木・石）。家づくり支援の置き物は ざいもくセット / だいくどうぐ（資材 2 倍・修理）/ まもりのさく（ダメージ半分）で、効果の判定は `nearItem()`
 - ペットの行動結果は `delta()` で増減を付けてメッセージに出す（ごはん・ねむり・トレーニング・あそび・家づくり）
+- **セキュリティ**（公開リポジトリ）：秘密・鍵・個人情報をコミットしない／外部通信を増やさない（CSP の `connect-src 'self'`、許可元は `vite.config.ts` の `CSP`）／セーブや読み込んだコードは信用せず `isSpecies()` / `num()` で検査／`innerHTML` に外部データを入れない。方針は `SECURITY.md`
 - 天気は `setWeather()`、出やすさはステージごとの `WEATHER_W`
 - セーブは localStorage の `pulsar-save-v1`（10 秒ごと + 画面を離れた時）。項目を増やしたら `save()` と `load()` の両方を直す
 - データの書き出し・読み込み・やり直しは `src/backup.ts`（コードは `PULSAR1:` + base64 の JSON）。設定のキーを増やしたら `KEYS` にも足す。読み込み・やり直しの前は `world.saveLocked = true` にして上書きを防ぐ。起動時に `navigator.storage.persist()` を頼む
