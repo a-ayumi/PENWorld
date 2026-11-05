@@ -23,7 +23,8 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - `src/world/psx.ts` — PS1 風の表現（頂点スナップ・ディザ・15bit カラー・グリッチ）
 - `src/world/sprites.ts` / `textures.ts` — ドット絵スプライト生成、手続きテクスチャ
 - `src/scene.ts` — 時間帯の雰囲気（MOODS）、机の木目、背景の玉ボケ、ほこり粒子、仕上げシェーダー
-- `src/beep.ts` — 圧電ブザー風の効果音
+- `src/beep.ts` — 音の出口（効果音 + BGM → コンプレッサ → マスター音量）。圧電ブザー風の効果音 `beep` / `tone` / `noise`
+- `src/music.ts` — BGM エンジン（WebAudio で手続き生成・先読みスケジュール・クロスフェード）
 
 ## ルール
 - **デザインはすべてオリジナル**。実在する製品・ゲームの本体形状、キャラ、ロゴ、アイコン、効果音を再現しない
@@ -60,4 +61,5 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - 天気は `setWeather()`、出やすさはステージごとの `WEATHER_W`
 - セーブは localStorage の `pulsar-save-v1`（10 秒ごと + 画面を離れた時）。項目を増やしたら `save()` と `load()` の両方を直す
 - データの書き出し・読み込み・やり直しは `src/backup.ts`（コードは `PULSAR1:` + base64 の JSON）。設定のキーを増やしたら `KEYS` にも足す。読み込み・やり直しの前は `world.saveLocked = true` にして上書きを防ぐ。起動時に `navigator.storage.persist()` を頼む
+- **音**：音声ファイルは使わず全部 WebAudio。BGM は `music.ts` が `World.musicState()`（`night / weather / stage / army / villageLv`）+ 本体側の夕方フラグから曲を選び、変わるとクロスフェード（昼・夕・夜・敵軍・天気ごとのアレンジ、ステージごとの調と音色は `STAGE_MUSIC`。ステージを足したら表に 1 行。表にない番号は 0 番）。勝利 `victory` / 世代交代 `generation` は短い曲（BGM が切れていれば効果音）。効果音は `main.ts` の `SFX` 表 + `SFX_GAP`（同じ音のレート制限）。「音」ボタンはマスター音量、きせかえの「おと」で BGM / 効果音を別々に入り切り（`pulsar-bgm` / `pulsar-sfx`、`backup.ts` の `KEYS` にも入っている）。最初のタップ・キーのあとに始まり、タブが裏に回ると止まる。曲の確認は `__pulsar.renderMusic(state, 秒)`（OfflineAudioContext で書き出す）
 - テストは `window.__pulsar.press('A')` / `.state()` / `.setMood('night')`、箱庭は `.world.run(i)` と `.world.update(1/30)` の早送りで確認する

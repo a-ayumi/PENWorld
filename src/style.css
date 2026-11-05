@@ -62,6 +62,7 @@ kbd { display: inline-block; min-width: 18px; margin: 0 2px; padding: 0 4px; bor
 .file-chip { position: relative; overflow: hidden; display: inline-flex; align-items: center; }
 .file-chip input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 #data-msg { margin: 8px 0 0; font-size: 12px; color: var(--muted); min-height: 1em; }
+.snd-note { margin: 8px 0 0; font-size: 11px; color: var(--muted); }
 
 /* 眺めるモード：画面の何もない所をタップすると、ボタンや案内をすべて隠す */
 body.clean #toolbar, body.clean #dress, body.clean #dress-panel, body.clean #dex-btn, body.clean #dex-panel, body.clean #hint, body.clean #pad { display: none !important; }

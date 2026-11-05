@@ -15,6 +15,7 @@ import { STRUCTS, buildStructModel, isStructKind, styleOf, type StructKind } fro
  */
 
 export type Sfx = 'select' | 'ok' | 'cancel' | 'hit' | 'crit' | 'win' | 'lose' | 'eat' | 'warp' | 'evolve' | 'train' | 'coin' | 'friend' | 'egg' | 'skill' | 'boom'
+  | 'build' | 'built' | 'hatch' | 'dex' | 'role' | 'generation' | 'alarm' | 'boss' | 'tower' | 'demolish' | 'buy' | 'expand' | 'victory'
 type Team = 'pet' | 'friend' | 'wild'
 type State =
   | 'idle' | 'wander' | 'hunt' | 'fight' | 'assist' | 'seek' | 'eat' | 'sleep' | 'rest' | 'play'
@@ -1563,7 +1564,10 @@ export class World {
       const who = by.sp.name
       if (this.ally(by)) {
         this.say(h.level === 4 ? `${who}の いえが ぞうちくされた！` : h.level === 3 ? `${who}の いえが かんせい！` : h.level === 2 ? `${who}の いえに かべが できた` : `${who}の いえの どだいが できた`)
-        if (h.level >= 3) this.earn(h.level === 4 ? 15 : 10, h.x, h.z)
+        if (h.level >= 3) {
+          this.earn(h.level === 4 ? 15 : 10, h.x, h.z)
+          this.onSfx('built')
+        }
       } else if (h.level >= 3 && Math.hypot(h.x - this.look.x, h.z - this.look.z) < 9) this.say(`やせいの ${who}が いえを たてた`)
     }
   }
@@ -1872,7 +1876,7 @@ export class World {
     b.hp = spec.hp
     this.burst(b.x, this.stage.heightAt(b.x, b.z) + 1, b.z, 'spark', 12, 2.5)
     if (b.kind === 'wall') return void this.earn(1, b.x, b.z)
-    this.onSfx('win')
+    this.onSfx('built')
     this.earn(b.kind === 'castle' ? 40 : 10, b.x, b.z)
     if (b.kind === 'castle') {
       this.say('おしろが かんせい！ まわりに へいを たてはじめた')
@@ -2018,6 +2022,7 @@ export class World {
     a.sprite.position.set(b.x, top, b.z)
     this.scene.add(a.sprite)
     const T = 0.22
+    if (Math.hypot(b.x - this.look.x, b.z - this.look.z) < 12) this.onSfx('tower')
     this.fx.push({ sprite: a.sprite, vx: (foe.x - b.x) / T, vy: (ty - top) / T + 0.5 * 9 * T, vz: (foe.z - b.z) / T, life: T, max: T, grav: 9 })
     const dmg = 4 + this.structs.filter((o) => o.kind === 'castle' && o.stage === this.stageIndex && this.structDone(o)).length * 2
     this.after(T, () => {
@@ -2183,6 +2188,7 @@ export class World {
 
   /** かいたい・かたづける。家や建物は しざいがのこる */
   private removePick(p: Pick) {
+    this.onSfx('demolish')
     const rubble = (x: number, z: number, mats: number) => {
       for (let i = 0; i < Math.min(4, Math.ceil(mats / 3)); i++) this.spawnResource(x + (Math.random() - 0.5) * 2, z + 1 + Math.random(), undefined, true)
     }
@@ -2348,7 +2354,7 @@ export class World {
     this.loadStage(this.stageIndex)
     for (const e of eggs) this.layEgg(e.x, e.z, e.parents, e.t, e.kind, e.wild)
     this.say(`はこにわが ${LAND_SIZES[level]} に ひろがった！`)
-    this.onSfx('warp')
+    this.onSfx('expand')
     this.save()
   }
 
@@ -2365,6 +2371,7 @@ export class World {
     if (this.dexNew.length && --this.dexMsgT <= 0) {
       const names = this.dexNew.splice(0).map((id) => SPECIES[id as SpeciesId].name)
       this.say(`ずかんに とうろく：${names.slice(0, 3).join('・')}${names.length > 3 ? ' ほか' : ''}`)
+      this.onSfx('dex')
       this.dexMsgT = 4
     }
     const TH = [5, 10, 20, 30, 40, 49]
@@ -2421,6 +2428,7 @@ export class World {
         if (!said && role !== 'free' && Math.hypot(c.x - this.look.x, c.z - this.look.z) < 10) {
           said = true
           this.say(`${c.sp.name}は ${ROLE_NAME[role]}に なった`)
+          this.onSfx('role')
         }
       }
     }
@@ -2501,7 +2509,7 @@ export class World {
     this.burst(p.x, this.ground(p) + 0.8, p.z, 'spark', 20, 3)
     this.ring(p.x, p.z, '#ffe27a', 3, 0.9)
     this.flash = 1
-    this.onSfx('evolve')
+    this.onSfx('generation')
     this.say(`たまごが ひかり ${sp.name}が うまれた！ だい${this.stats.gen}せだい`)
     this.earn(50)
     this.retiring = false
@@ -2560,7 +2568,7 @@ export class World {
     const castle = this.structs.some((b) => b.stage === this.stageIndex && b.kind === 'castle')
     this.army = { phase: 'warn', t: 18, left: [], n: n ?? Math.min(12, 3 + Math.floor(this.vScore * 0.7)), castle, wave: this.armyWave }
     this.say('てきぐんが ちかづいている…！ そなえよう')
-    this.onSfx('boom')
+    this.onSfx('alarm')
     this.shake = Math.max(this.shake, 0.3)
   }
 
@@ -2587,7 +2595,7 @@ export class World {
       a.left.push(c)
     }
     this.say(`てきぐん ${a.n}たいが せめてきた！${a.wave % 3 === 0 ? ' ボスもいる！' : ''}`)
-    this.onSfx('boom')
+    this.onSfx(a.wave % 3 === 0 ? 'boss' : 'boom')
     this.shake = Math.max(this.shake, 0.4)
   }
 
@@ -2615,7 +2623,7 @@ export class World {
       const reward = 20 + a.n * 5 + (a.castle && this.structs.some((b) => b.kind === 'castle' && b.stage === this.stageIndex) ? 20 : 0)
       this.say(`てきぐんを おいはらった！ コイン+${reward}`)
       this.earn(reward)
-      this.onSfx('win')
+      this.onSfx('victory')
       for (let i = 0; i < 3; i++) this.spawnResource(undefined, undefined, undefined, true)
       this.army = null
       this.armyCd = 200 + Math.random() * 60
@@ -2850,11 +2858,14 @@ export class World {
         baby.hp = baby.maxHp
         this.burst(e.x, y + 0.3, e.z, 'spark', 14, 2.5)
         if (e.wild) {
-          if (Math.hypot(e.x - this.look.x, e.z - this.look.z) < 10) this.say(`${FAMILY_NAME[e.kind]}のたまごから ${SPECIES[id].name}が うまれた！ なかよく なれるかな`)
+          if (Math.hypot(e.x - this.look.x, e.z - this.look.z) < 10) {
+            this.say(`${FAMILY_NAME[e.kind]}のたまごから ${SPECIES[id].name}が うまれた！ なかよく なれるかな`)
+            this.onSfx('hatch')
+          }
         } else {
           this.stats.children++
           this.say(fam ? `${FAMILY_NAME[e.kind]}のたまごから ${SPECIES[id].name}が うまれた！` : `たまごから ${SPECIES[id].name}の こどもが うまれた！`)
-          this.onSfx('evolve')
+          this.onSfx('hatch')
           this.earn(20)
         }
       }
@@ -2917,7 +2928,7 @@ export class World {
         return this.onSfx('cancel')
       }
       this.coins -= s.price
-      this.onSfx('coin')
+      this.onSfx('buy')
       this.expandLand(s.land)
       this.shopOpen = false
       return
@@ -2929,7 +2940,7 @@ export class World {
       }
       const kind: EggKind = s.egg === 'random' ? (['machine', 'dragon', 'cat', 'dog', 'bird', 'water', 'monster'] as EggKind[])[Math.floor(Math.random() * 7)] : s.egg
       this.coins -= s.price
-      this.onSfx('coin')
+      this.onSfx('buy')
       const pt = this.pet
       this.layEgg(pt.x + pt.anim.facing * 1.1, pt.z + 0.4, [], 40, kind)
       this.say(s.egg === 'random' ? 'ふしぎなたまごを おいた！' : `${FAMILY_NAME[kind]}のたまごを おいた！`)
@@ -2941,13 +2952,13 @@ export class World {
       const site = this.planStruct(s.plan)
       if (!site) return this.onSfx('cancel')
       this.coins -= s.price
-      this.onSfx('coin')
+      this.onSfx('buy')
       this.say(`${STRUCTS[s.plan].name}の せっけいず！ みんなが たてはじめる`)
       this.shopOpen = false
       return
     }
     this.coins -= s.price
-    this.onSfx('coin')
+    this.onSfx('buy')
     if (s.kit) {
       // 木 3 つと石 2 つを、見ている所のまわりに置く
       for (let i = 0; i < 5; i++) {
@@ -3477,7 +3488,7 @@ export class World {
           c.cd = 0.28
           c.vy = 2.4
           this.burst(c.x + c.anim.facing * 0.35, this.ground(c) + 0.3, c.z, Math.random() < 0.5 ? 'spark' : 'cube', 2, 1.4)
-          if (c === this.pet) this.onSfx('select')
+          if (c === this.pet || Math.hypot(c.x - this.look.x, c.z - this.look.z) < 9) this.onSfx('build')
         }
         if (c.t <= 0) {
           const f = c.finish
@@ -4294,6 +4305,11 @@ export class World {
     renderer.setRenderTarget(this.rtOut)
     renderer.render(this.postScene, this.postCam)
     renderer.setRenderTarget(prev)
+  }
+
+  /** BGM が曲を選ぶための場面（night: 夜の度合い / army: 0 なし・1 予告・2 交戦 / villageLv: 0〜3） */
+  musicState() {
+    return { night: this.night, weather: this.weather as string, stage: this.stageIndex, army: this.army ? (this.army.phase === 'warn' ? 1 : 2) : 0, villageLv: this.vLv }
   }
 
   debug() {
