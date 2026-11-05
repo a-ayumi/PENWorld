@@ -13,7 +13,7 @@ import { HALF, STAGES, type Stage } from './stages'
  * 描画は 320×240 の RenderTarget → PS1 風の仕上げ → 本体の液晶 / 全画面 に使う。
  */
 
-export type Sfx = 'select' | 'ok' | 'cancel' | 'hit' | 'crit' | 'win' | 'lose' | 'eat' | 'warp' | 'evolve' | 'train' | 'coin' | 'friend' | 'egg'
+export type Sfx = 'select' | 'ok' | 'cancel' | 'hit' | 'crit' | 'win' | 'lose' | 'eat' | 'warp' | 'evolve' | 'train' | 'coin' | 'friend' | 'egg' | 'skill' | 'boom'
 type Team = 'pet' | 'friend' | 'wild'
 type State =
   | 'idle' | 'wander' | 'hunt' | 'fight' | 'assist' | 'seek' | 'eat' | 'sleep' | 'rest' | 'play'
@@ -44,7 +44,33 @@ interface Creature {
   raid: House | null
   /** 家の中で眠っている */
   inside: boolean
+  /** 技を出せるまでの時間 */
+  skillCd: number
+  /** おうえんされた（次の攻撃で技を出す） */
+  cheer: boolean
 }
+
+/** 技：種族ごとに 1 つ。演出の種類（shot = 弾 / burst = 衝撃 / dash = 突進 / rain = 降りそそぐ / heal = 回復 / wave = 地面の波）*/
+interface Skill { name: string; kind: 'shot' | 'burst' | 'dash' | 'rain' | 'heal' | 'wave'; color: string; mult: number }
+const SKILLS: Record<SpeciesId, Skill> = {
+  mebu: { name: 'はっぱとばし', kind: 'shot', color: '#7cf29b', mult: 1.6 },
+  pikori: { name: 'でんきゅうフラッシュ', kind: 'burst', color: '#fff27a', mult: 1.8 },
+  gorota: { name: 'けっしょうつぶて', kind: 'shot', color: '#5ef2ff', mult: 1.8 },
+  mofuru: { name: 'ふぶきタックル', kind: 'dash', color: '#e8f4ff', mult: 1.9 },
+  giaru: { name: 'ギアスパーク', kind: 'burst', color: '#b48cff', mult: 2.0 },
+  hireru: { name: 'みずでっぽう', kind: 'shot', color: '#6fd6ff', mult: 2.0 },
+  fuwari: { name: 'いやしのこさめ', kind: 'heal', color: '#ff9ecb', mult: 0 },
+  garudora: { name: 'はがねのブレス', kind: 'shot', color: '#8fe0ff', mult: 2.6 },
+  shioryu: { name: 'うしおのうず', kind: 'wave', color: '#2fd4e8', mult: 2.4 },
+  hoshikujira: { name: 'ほしふらし', kind: 'rain', color: '#fff27a', mult: 2.5 },
+  noiz: { name: 'ノイズばくはつ', kind: 'burst', color: '#ff3bd4', mult: 1.7 },
+  togebug: { name: 'トゲミサイル', kind: 'shot', color: '#ff5ed9', mult: 1.6 },
+  yamikage: { name: 'かげぬい', kind: 'dash', color: '#9a6aff', mult: 1.9 },
+  gougan: { name: 'マグマパンチ', kind: 'wave', color: '#ff7a2a', mult: 2.2 },
+}
+interface Shot { sprite: THREE.Sprite; from: THREE.Vector3; src: Creature; dst: Creature; t: number; dur: number; dmg: number; skill: Skill; arc: number }
+interface Ring { mesh: THREE.Mesh; t: number; dur: number; size: number }
+interface Later { t: number; run: () => void }
 type ResKind = 'wood' | 'stone'
 interface Res { kind: ResKind; x: number; z: number; mesh: THREE.Mesh; taken: Creature | null }
 interface House {
@@ -58,7 +84,7 @@ interface Food { mesh: THREE.Group; x: number; z: number; y: number; vy: number;
 type ItemKind = 'sapling' | 'ball' | 'fire' | 'charm'
 interface Item { kind: ItemKind; stage: number; x: number; z: number; grow: number; vx: number; vz: number; mesh: THREE.Group | null; light?: THREE.PointLight }
 interface Egg { x: number; z: number; t: number; anim: SpriteAnim; shadow: THREE.Mesh; parents: SpeciesId[] }
-interface Popup { pos: THREE.Vector3; text: string; color: string; t: number }
+interface Popup { pos: THREE.Vector3; text: string; color: string; t: number; big?: boolean }
 interface Fx { sprite: THREE.Sprite; vx: number; vy: number; vz: number; life: number; max: number; grav: number }
 
 export const ICONS = ['ごはん', 'トレーニング', 'バトル', 'ステータス', 'ライト', 'ショップ', 'ワープ', 'よびだし']
@@ -179,6 +205,10 @@ export class World {
   private incomeT = 0
   private saveT = 0
   private respawn: { id: SpeciesId; t: number }[] = []
+  private shots: Shot[] = []
+  private rings: Ring[] = []
+  private later: Later[] = []
+  private orbSheets = new Map<string, ReturnType<typeof iconSheet>>()
   private resources: Res[] = []
   private houses: House[] = []
   private resT = 0
@@ -198,6 +228,11 @@ export class World {
   stats = { trains: 0, wins: 0, mood: 80, born: Date.now(), children: 0 }
   /** 視点：top = 見下ろし / behind = ペットの少し後ろ / eye = ペットの目線 */
   view: 'top' | 'behind' | 'eye' = 'top'
+  /** ピンチで寄る・引く（1 = ふつう） */
+  camZoom = 1
+  /** 2 本指ドラッグ：みおろしは前後左右のずらし、うしろ・めせんは向きと高さ */
+  private camPan = new THREE.Vector2()
+  private shake = 0
   private petYaw = 0
   private camYaw = 0
   private petLast = new THREE.Vector2()
@@ -244,6 +279,11 @@ export class World {
     this.respawn = []
     for (const r of this.resources) this.scene.remove(r.mesh)
     this.resources = []
+    for (const sh of this.shots) this.scene.remove(sh.sprite)
+    for (const r of this.rings) this.scene.remove(r.mesh)
+    this.shots = []
+    this.rings = []
+    this.later = []
     for (const h of this.houses) this.unmountHouse(h)
     for (const c of this.creatures) this.dropCarry(c, false)
     this.stageIndex = i
@@ -311,6 +351,7 @@ export class World {
       phase: Math.random() * 10, affinity: 0, grow,
       xp: 0, care: { power: 0, guard: 0, spirit: 0 }, bias: (['power', 'guard', 'spirit'] as Care[])[Math.floor(Math.random() * 3)],
       spar: false, carry: null, carryMesh: null, res: null, raid: null, inside: false,
+      skillCd: 3 + Math.random() * 5, cheer: false,
     }
     this.creatures.push(c)
     this.burst(x, this.ground(c) + 0.5, z, 'cube', 8, 2)
@@ -659,6 +700,213 @@ export class World {
       this.onSfx('win')
       // 守ってもらった野生の子は仲良し度が上がる
       for (const o of this.creatures) if (o.team === 'wild' && o.sp.temper === 'calm' && Math.hypot(o.x - p.x, o.z - p.z) < 5) o.affinity += 25
+    }
+  }
+
+  // ================= 技 =================
+  private canSkill(c: Creature) {
+    if (c.skillCd > 0 || c.grow > 0) return false
+    // おうえんされたら必ず、ふだんは時々。強い段階ほど技を出しやすい
+    return c.cheer || Math.random() < 0.3 + c.sp.tier * 0.06
+  }
+
+  private orb(color: string) {
+    let sh = this.orbSheets.get(color)
+    if (!sh) {
+      sh = iconSheet(['.ooo.', 'oowoo', 'owwwo', 'oowoo', '.ooo.'], { o: color, w: '#ffffff' })
+      this.orbSheets.set(color, sh)
+    }
+    return sh
+  }
+
+  /** 技名をさけんで、種族ごとの演出で攻撃する */
+  private useSkill(c: Creature, f: Creature) {
+    const sk = SKILLS[c.sp.id]
+    c.skillCd = 7 + Math.random() * 4
+    c.cheer = false
+    c.lunge = 0.3
+    const top = this.ground(c) + this.size(c) + 0.35
+    this.popups.push({ pos: new THREE.Vector3(c.x, top, c.z), text: `${sk.name}！`, color: sk.color, t: -0.4, big: true })
+    if (this.ally(c) || this.ally(f)) this.onSfx('skill')
+    const dmg = Math.max(2, Math.round(c.atk * sk.mult * (0.9 + Math.random() * 0.2)))
+    const at = (x: number, z: number, y = 0.5) => new THREE.Vector3(x, this.stage.heightAt(x, z) + y, z)
+    switch (sk.kind) {
+      case 'shot': {
+        // 弾がまっすぐ（強い技は大きく）飛んでいく
+        const n = c.sp.tier >= 3 ? 3 : 1
+        for (let i = 0; i < n; i++) {
+          const a = new SpriteAnim(this.orb(sk.color), c.sp.tier >= 3 ? 0.42 : 0.3)
+          a.sprite.center.set(0.5, 0.5)
+          const from = at(c.x, c.z, this.size(c) * 0.55)
+          a.sprite.position.copy(from)
+          this.scene.add(a.sprite)
+          this.shots.push({ sprite: a.sprite, from, src: c, dst: f, t: -i * 0.1, dur: 0.38, dmg: i === 0 ? dmg : Math.round(dmg * 0.3), skill: sk, arc: c.sp.id === 'gorota' ? 0.8 : 0.15 })
+        }
+        break
+      }
+      case 'burst':
+        // その場でまぶしく光って、まわりをはじく
+        this.ring(c.x, c.z, sk.color, 2.6, 0.45)
+        this.colorBurst(c.x, top - 0.3, c.z, sk.color, 16, 4)
+        if (c.sp.id === 'pikori') this.flash = Math.max(this.flash, this.ally(c) ? 0.25 : 0)
+        this.after(0.12, () => this.splash(c, f, dmg, 2.6))
+        break
+      case 'dash':
+        // いきおいよく突っこむ
+        c.kx = ((f.x - c.x) / (Math.hypot(f.x - c.x, f.z - c.z) || 1)) * 14
+        c.kz = ((f.z - c.z) / (Math.hypot(f.x - c.x, f.z - c.z) || 1)) * 14
+        for (let i = 0; i < 5; i++) this.after(i * 0.04, () => this.colorBurst(c.x, this.ground(c) + 0.4, c.z, sk.color, 3, 1))
+        this.after(0.2, () => this.hitWith(c, f, dmg, sk))
+        break
+      case 'rain':
+        // 空から星がふりそそぐ
+        for (let i = 0; i < 7; i++)
+          this.after(i * 0.07, () => {
+            const a = new SpriteAnim(this.orb(sk.color), 0.32)
+            a.sprite.center.set(0.5, 0.5)
+            const ox = (Math.random() - 0.5) * 1.6
+            const oz = (Math.random() - 0.5) * 1.6
+            const from = at(f.x + ox - 1.2, f.z + oz, 5)
+            a.sprite.position.copy(from)
+            this.scene.add(a.sprite)
+            this.shots.push({ sprite: a.sprite, from, src: c, dst: f, t: 0, dur: 0.45, dmg: i === 3 ? dmg : 0, skill: sk, arc: 0 })
+          })
+        this.shake = Math.max(this.shake, 0.35)
+        break
+      case 'heal': {
+        // 自分とまわりの味方を回復
+        const friends = this.creatures.filter((o) => this.alive(o) && o.sp.temper === c.sp.temper && Math.hypot(o.x - c.x, o.z - c.z) < 3.5)
+        for (const o of friends) {
+          const amt = Math.round(o.maxHp * 0.3)
+          o.hp = Math.min(o.maxHp, o.hp + amt)
+          this.popups.push({ pos: at(o.x, o.z, this.size(o) + 0.1), text: `+${amt}`, color: '#7cf29b', t: 0 })
+          this.colorBurst(o.x, this.ground(o) + 0.8, o.z, sk.color, 6, 1.2)
+        }
+        this.ring(c.x, c.z, sk.color, 3.5, 0.6)
+        // ついでに軽く攻撃も
+        this.after(0.2, () => this.hitWith(c, f, Math.max(1, Math.round(c.atk * 0.8)), sk))
+        break
+      }
+      case 'wave':
+        // 地面を伝わる波（ゴウガンは家もゆらす）
+        this.ring(f.x, f.z, sk.color, 3, 0.55)
+        this.after(0.25, () => this.ring(f.x, f.z, sk.color, 2, 0.45))
+        this.shake = Math.max(this.shake, 0.4)
+        this.after(0.2, () => {
+          this.splash(c, f, dmg, 2.2)
+          if (c.sp.id === 'gougan') for (const h of this.houses) if (h.stage === this.stageIndex && h.level > 0 && Math.hypot(h.x - f.x, h.z - f.z) < 3) this.damageHouse(h, dmg * 0.5, c)
+        })
+        break
+    }
+    if (c.sp.tier >= 3 || c.sp.habit === 'raid') this.shake = Math.max(this.shake, 0.25)
+  }
+
+  /** 相手と、そのまわりにいる敵側にもダメージ */
+  private splash(c: Creature, f: Creature, dmg: number, range: number) {
+    const sk = SKILLS[c.sp.id]
+    if (this.alive(f)) this.hitWith(c, f, dmg, sk)
+    if (c.spar) return
+    for (const o of [...this.creatures]) {
+      if (o === f || o === c || !this.alive(o)) continue
+      const hostile = c.sp.temper === 'wild' ? o.sp.temper === 'calm' : o.sp.temper === 'wild'
+      if (hostile && Math.hypot(o.x - f.x, o.z - f.z) < range) this.hitWith(c, o, Math.round(dmg * 0.5), sk)
+    }
+  }
+
+  /** 技が当たった */
+  private hitWith(a: Creature, b: Creature, dmg: number, sk: Skill) {
+    if (!this.alive(b) || !this.creatures.includes(a)) return
+    const guard = b.sp.tier > 0 ? 1 - Math.min(0.3, this.careOf(b).guard * 0.01) : 1
+    dmg = Math.max(1, Math.round(dmg * guard))
+    b.hp -= dmg
+    b.hurt = 0.4
+    const dx = b.x - a.x
+    const dz = b.z - a.z
+    const d = Math.hypot(dx, dz) || 1
+    b.kx = (dx / d) * 9
+    b.kz = (dz / d) * 9
+    const y = this.ground(b) + this.size(b)
+    this.popups.push({ pos: new THREE.Vector3(b.x, y, b.z), text: `${dmg}!!`, color: sk.color, t: 0 })
+    this.colorBurst(b.x, y * 0.7, b.z, sk.color, 10, 3.5)
+    this.burst(b.x, y * 0.7, b.z, 'hit', 4, 3)
+    if (this.ally(a) || this.ally(b)) this.onSfx('boom')
+    if (b.hp <= 0) {
+      // 技で倒されたら、その場でいったん戦いをほどく
+      if (b.foe && b.foe !== a && b.foe.foe === b) {
+        b.foe.foe = null
+        this.setState(b.foe, 'idle', 0.4)
+      }
+      this.defeat(b, a)
+    }
+  }
+
+  private colorBurst(x: number, y: number, z: number, color: string, n: number, power: number) {
+    for (let i = 0; i < n; i++) {
+      if (this.fx.length > 180) return
+      const a = new SpriteAnim(this.orb(color), 0.14 + Math.random() * 0.08)
+      a.sprite.center.set(0.5, 0.5)
+      a.sprite.position.set(x, y, z)
+      this.scene.add(a.sprite)
+      const ang = Math.random() * Math.PI * 2
+      const sp = power * (0.3 + Math.random() * 0.7)
+      const life = 0.4 + Math.random() * 0.35
+      this.fx.push({ sprite: a.sprite, vx: Math.cos(ang) * sp * 0.6, vz: Math.sin(ang) * sp * 0.6, vy: sp * 0.7, life, max: life, grav: 5 })
+    }
+  }
+
+  /** 地面に広がる光の輪 */
+  private ring(x: number, z: number, color: string, size: number, dur: number) {
+    const mesh = new THREE.Mesh(
+      new THREE.RingGeometry(0.55, 0.75, 28).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
+    )
+    mesh.position.set(x, this.stage.heightAt(x, z) + 0.06, z)
+    mesh.scale.setScalar(0.1)
+    this.scene.add(mesh)
+    this.rings.push({ mesh, t: 0, dur, size })
+  }
+
+  private after(t: number, run: () => void) {
+    this.later.push({ t, run })
+  }
+
+  private updateSkills(dt: number) {
+    for (const l of [...this.later]) {
+      l.t -= dt
+      if (l.t <= 0) {
+        this.later.splice(this.later.indexOf(l), 1)
+        l.run()
+      }
+    }
+    for (const sh of [...this.shots]) {
+      sh.t += dt
+      if (sh.t < 0) continue
+      const k = Math.min(1, sh.t / sh.dur)
+      const to = new THREE.Vector3(sh.dst.x, this.ground(sh.dst) + this.size(sh.dst) * 0.5, sh.dst.z)
+      sh.sprite.position.lerpVectors(sh.from, to, k)
+      sh.sprite.position.y += Math.sin(k * Math.PI) * sh.arc
+      // 通ったあとに光の粒
+      if (Math.random() < 0.6) this.colorBurst(sh.sprite.position.x, sh.sprite.position.y, sh.sprite.position.z, sh.skill.color, 1, 0.4)
+      if (k >= 1) {
+        this.scene.remove(sh.sprite)
+        ;(sh.sprite.material as THREE.SpriteMaterial).map?.dispose()
+        sh.sprite.material.dispose()
+        this.shots.splice(this.shots.indexOf(sh), 1)
+        if (sh.dmg > 0) this.hitWith(sh.src, sh.dst, sh.dmg, sh.skill)
+        else this.colorBurst(to.x, to.y, to.z, sh.skill.color, 4, 2)
+      }
+    }
+    for (const r of [...this.rings]) {
+      r.t += dt
+      const k = r.t / r.dur
+      r.mesh.scale.setScalar(0.1 + k * r.size)
+      ;(r.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.9 * (1 - k))
+      if (k >= 1) {
+        this.scene.remove(r.mesh)
+        r.mesh.geometry.dispose()
+        ;(r.mesh.material as THREE.Material).dispose()
+        this.rings.splice(this.rings.indexOf(r), 1)
+      }
     }
   }
 
@@ -1368,7 +1616,13 @@ export class World {
         this.setState(p, 'train', 2.4)
         return this.say('トレーニング かいし！')
       case 2: {
-        if (busy) return this.say('もう たたかっている！')
+        // たたかっている時は「おうえん」：つぎの攻撃で技を出す
+        if (p.state === 'fight') {
+          p.cheer = true
+          this.burst(p.x, this.ground(p) + this.size(p) + 0.2, p.z, 'spark', 6, 1.5)
+          return this.say(`がんばれ ${p.sp.name}！ わざを だせ！`)
+        }
+        if (busy) return this.say('いまは うごけない…')
         let foe = this.nearest(p, (o) => o.sp.temper === 'wild', 99)
         if (!foe) {
           const a = Math.random() * Math.PI * 2
@@ -1476,6 +1730,7 @@ export class World {
     if (this.night < 0.3) for (const c of shadows) this.setState(c, 'dead', 0.8)
 
     for (const c of [...this.creatures]) this.updateCreature(c, dt)
+    this.updateSkills(dt)
     this.updateResources(dt)
     this.updateHouses(dt)
     this.updateItems(dt)
@@ -1520,6 +1775,7 @@ export class World {
     c.cd -= dt
     c.lunge = Math.max(0, c.lunge - dt)
     c.hurt = Math.max(0, c.hurt - dt)
+    c.skillCd -= dt
     if (c.state !== 'sleep') c.energy = Math.max(0, c.energy - dt * 0.5)
     // 雪の日は雪の種族が元気、それ以外は少し疲れやすい
     if (this.weather === 'snow') {
@@ -1608,7 +1864,8 @@ export class World {
           anim = 'walk'
         } else anim = c.lunge > 0 ? 'attack' : 'idle'
         if (c.cd <= 0 && d < 1.3 && c.hurt <= 0) {
-          this.attack(c, f)
+          if (this.canSkill(c)) this.useSkill(c, f)
+          else this.attack(c, f)
           c.cd = (1.5 / sp.speed) * (0.8 + Math.random() * 0.5)
         }
         break
@@ -1625,7 +1882,8 @@ export class World {
         anim = d > 0.3 ? 'walk' : c.lunge > 0 ? 'attack' : 'idle'
         if (d < 0.5) c.anim.facing = f.x > c.x ? 1 : -1
         if (c.cd <= 0 && Math.hypot(f.x - c.x, f.z - c.z) < 1.4) {
-          this.attack(c, f)
+          if (this.canSkill(c)) this.useSkill(c, f)
+          else this.attack(c, f)
           c.cd = (1.8 / sp.speed) * (0.8 + Math.random() * 0.5)
         }
         break
@@ -1905,8 +2163,8 @@ export class World {
     }
     for (const p of [...this.popups]) {
       p.t += dt
-      p.pos.y += dt * 0.8
-      if (p.t > 0.9) this.popups.splice(this.popups.indexOf(p), 1)
+      p.pos.y += dt * (p.big ? 0.25 : 0.8)
+      if (p.t > (p.big ? 1.1 : 0.9)) this.popups.splice(this.popups.indexOf(p), 1)
     }
   }
 
@@ -1925,23 +2183,37 @@ export class World {
     const fz = Math.cos(this.camYaw)
     const gy = this.ground(p)
 
+    this.shake = Math.max(0, this.shake - dt)
+    const jolt = () => {
+      if (this.shake <= 0) return
+      const k = this.shake * 0.5
+      this.camera.position.x += (Math.random() - 0.5) * k
+      this.camera.position.y += (Math.random() - 0.5) * k
+    }
     if (this.view === 'top') {
       const target = new THREE.Vector3(p.x, 0, p.z)
       if (p.state === 'fight' && p.foe) target.set((p.x + p.foe.x) / 2, 0, (p.z + p.foe.z) / 2)
-      const lim = HALF - 3
+      // 2 本指でずらした分を足す（ペットを追いかけつつ、見たい所を見られる）
+      target.x += this.camPan.x
+      target.z += this.camPan.y
+      const lim = HALF - 1.5
       target.x = THREE.MathUtils.clamp(target.x, -lim, lim)
       target.z = THREE.MathUtils.clamp(target.z, -lim, lim + 1)
       // 起伏に合わせて見る高さも変える
       target.y = this.stage.heightAt(target.x, target.z) + 0.4
-      this.look.lerp(target, 1 - Math.exp(-dt * 2.5))
-      this.camera.position.copy(this.look).add(CAM_OFF)
+      this.look.lerp(target, 1 - Math.exp(-dt * 3))
+      this.camera.position.copy(this.look).addScaledVector(CAM_OFF, this.camZoom)
       this.camera.lookAt(this.look)
+      jolt()
       return
     }
-    // 主人公視点：ペットの後ろ / 目線
-    const back = this.view === 'behind' ? 3.3 : -0.15
-    const up = this.view === 'behind' ? 2.0 : this.size(p) * 0.7
-    const want = new THREE.Vector3(p.x - fx * back, gy + up, p.z - fz * back)
+    // 主人公視点：ペットの後ろ / 目線（2 本指の横ドラッグで向きを回す、縦で見上げ・見下ろし）
+    const yaw = this.camYaw + this.camPan.x
+    const ex = Math.sin(yaw)
+    const ez = Math.cos(yaw)
+    const back = this.view === 'behind' ? 3.3 * this.camZoom : -0.15
+    const up = this.view === 'behind' ? 2.0 * this.camZoom + this.camPan.y : this.size(p) * 0.7
+    const want = new THREE.Vector3(p.x - ex * back, gy + up, p.z - ez * back)
     // 箱庭の外（デジタル空間）へカメラが出ないように
     want.x = THREE.MathUtils.clamp(want.x, -HALF - 0.5, HALF + 0.5)
     want.z = THREE.MathUtils.clamp(want.z, -HALF - 0.5, HALF + 0.5)
@@ -1949,14 +2221,45 @@ export class World {
     want.y = Math.max(want.y, this.stage.heightAt(want.x, want.z) + 0.35)
     // うしろ視点はペットが画面の中ほどに来るよう、少し手前の低い所を見る
     const ahead = this.view === 'behind' ? 1.4 : 3
-    const lookAt = new THREE.Vector3(p.x + fx * ahead, gy + (this.view === 'behind' ? 0.25 : up - 0.15), p.z + fz * ahead)
+    const lookY = this.view === 'behind' ? 0.25 : up - 0.15 - this.camPan.y
+    const lookAt = new THREE.Vector3(p.x + ex * ahead, gy + lookY, p.z + ez * ahead)
     this.camera.position.lerp(want, 1 - Math.exp(-dt * 6))
     this.look.lerp(lookAt, 1 - Math.exp(-dt * 6))
+    // めせんはピンチで望遠
+    const fov = this.view === 'eye' ? THREE.MathUtils.clamp(42 * this.camZoom, 18, 70) : 42
+    if (Math.abs(this.camera.fov - fov) > 0.01) {
+      this.camera.fov = fov
+      this.camera.updateProjectionMatrix()
+    }
     this.camera.lookAt(this.look)
+    jolt()
+    void fx
+    void fz
+  }
+
+  /** ピンチ：f < 1 で寄る、f > 1 で引く */
+  zoomBy(f: number) {
+    this.camZoom = THREE.MathUtils.clamp(this.camZoom * f, 0.45, 2.3)
+  }
+
+  /** 2 本指ドラッグ（画面の高さに対する割合） */
+  panBy(dx: number, dy: number) {
+    if (this.view === 'top') {
+      // 指を動かした方向に景色がついてくる
+      const k = 9 * this.camZoom
+      this.camPan.x = THREE.MathUtils.clamp(this.camPan.x - dx * k, -HALF, HALF)
+      this.camPan.y = THREE.MathUtils.clamp(this.camPan.y - dy * k, -HALF, HALF)
+    } else {
+      this.camPan.x = THREE.MathUtils.clamp(this.camPan.x - dx * 3, -Math.PI, Math.PI)
+      this.camPan.y = THREE.MathUtils.clamp(this.camPan.y + dy * 3, -1.2, 1.6)
+    }
   }
 
   setView(v: 'top' | 'behind' | 'eye') {
     this.view = v
+    this.camZoom = 1
+    this.camPan.set(0, 0)
+    this.camera.fov = 42
     // カメラのすぐ前にある木や仲間で画面がふさがらないよう、近くは描かない
     this.camera.near = v === 'behind' ? 1.2 : v === 'eye' ? 0.35 : 0.1
     this.camera.updateProjectionMatrix()
@@ -2251,8 +2554,19 @@ export class World {
     }
 
     for (const p of this.popups) {
+      if (p.t < 0) continue
       const s = this.project(p.pos)
-      if (s.on) this.text(p.text, s.x, s.y - 6, p.color, p.text.endsWith('!') ? 12 : 10, 'center')
+      if (!s.on) continue
+      if (p.big) {
+        // 技名：小さな札に入れて大きめに
+        g.font = `11px ${FONT}`
+        const w = Math.ceil(g.measureText(p.text).width) + 12
+        g.fillStyle = 'rgba(10,14,40,0.8)'
+        g.fillRect(s.x - w / 2, s.y - 16, w, 15)
+        g.fillStyle = p.color
+        g.fillRect(s.x - w / 2, s.y - 2, w, 1)
+        this.text(p.text, s.x, s.y - 14, '#ffffff', 11, 'center')
+      } else this.text(p.text, s.x, s.y - 6, p.color, p.text.endsWith('!') ? 12 : 10, 'center')
     }
 
     if (this.banner > 0) {

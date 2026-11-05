@@ -273,6 +273,8 @@ const SFX: Record<Sfx, () => void> = {
   coin: () => (beeper.beep(2637, 0.03), beeper.beep(3520, 0.05, 0.04)),
   friend: () => [1319, 1568, 2093].forEach((f, i) => beeper.beep(f, 0.07, i * 0.08)),
   egg: () => [1568, 1319, 1568, 2093].forEach((f, i) => beeper.beep(f, 0.08, i * 0.1)),
+  skill: () => [1200, 1800, 2400, 3200].forEach((f, i) => beeper.beep(f, 0.04, i * 0.035)),
+  boom: () => (beeper.beep(400, 0.06), beeper.beep(260, 0.1, 0.05), beeper.beep(1900, 0.04, 0.1)),
 }
 world.onSfx = (k) => SFX[k]()
 
@@ -369,34 +371,92 @@ function tapScreen(e: PointerEvent): boolean {
   return world.tap(uv.x, uv.y)
 }
 
+// ---------------- 指の操作 ----------------
+// 1 本指：タップ = 液晶のアイコン / ドラッグ = 本体を傾ける（本体ビュー）
+// 2 本指：ピンチ = 箱庭のカメラを寄せる・引く、ドラッグ = 前後左右に動かす
+const touches = new Map<number, { x: number; y: number; sx: number; sy: number; t: number }>()
+let gesture: { dist: number; mx: number; my: number } | null = null
+let gestured = false
+const pinchInfo = () => {
+  const [a, b] = [...touches.values()]
+  return { dist: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 }
+}
 canvas.addEventListener('pointerdown', (e) => {
-  if (mode === 'inside') {
-    tapScreen(e)
-    return
-  }
-  if (mode !== 'device') return
-  const k = hitButton(e)
-  if (k) {
-    press(k)
-    return
-  }
-  if (tapScreen(e)) return
-  drag = { id: e.pointerId, x: e.clientX, y: e.clientY }
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now() })
   canvas.setPointerCapture(e.pointerId)
+  if (touches.size === 2) {
+    // 2 本目の指：本体の傾けをやめて、カメラ操作にする
+    gesture = pinchInfo()
+    gestured = true
+    drag = null
+    return
+  }
+  if (touches.size > 2) return
+  gestured = false
+  if (mode === 'device') {
+    const k = hitButton(e)
+    if (k) {
+      press(k)
+      touches.delete(e.pointerId)
+      return
+    }
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY }
+  }
 })
 canvas.addEventListener('pointermove', (e) => {
+  const tp = touches.get(e.pointerId)
+  if (tp) {
+    tp.x = e.clientX
+    tp.y = e.clientY
+  }
+  if (gesture && touches.size === 2) {
+    const g = pinchInfo()
+    const h = window.innerHeight
+    if (g.dist > 0 && gesture.dist > 0) world.zoomBy(gesture.dist / g.dist)
+    world.panBy((g.mx - gesture.mx) / h, (g.my - gesture.my) / h)
+    gesture = g
+    return
+  }
   if (drag && e.pointerId === drag.id) {
     tilt.vy += (e.clientX - drag.x) * 0.012
     tilt.vx += (e.clientY - drag.y) * 0.012
     drag.x = e.clientX
     drag.y = e.clientY
-  } else if (e.pointerType === 'mouse') canvas.classList.toggle('pointer', !!hitButton(e))
+  } else if (e.pointerType === 'mouse' && !touches.size) canvas.classList.toggle('pointer', !!hitButton(e))
 })
-const endDrag = (e: PointerEvent) => {
+const endPointer = (e: PointerEvent) => {
+  const tp = touches.get(e.pointerId)
+  touches.delete(e.pointerId)
+  if (touches.size < 2) gesture = null
   if (drag && e.pointerId === drag.id) drag = null
+  // 指をほとんど動かさずに離した = タップ（ピンチの直後は無視）
+  if (e.type === 'pointerup' && tp && !gestured && touches.size === 0) {
+    const moved = Math.hypot(e.clientX - tp.sx, e.clientY - tp.sy)
+    if (moved < 12 && performance.now() - tp.t < 500) tapScreen(e)
+  }
+  if (touches.size === 0) gestured = false
 }
-canvas.addEventListener('pointerup', endDrag)
-canvas.addEventListener('pointercancel', endDrag)
+canvas.addEventListener('pointerup', endPointer)
+canvas.addEventListener('pointercancel', endPointer)
+// パソコン：ホイールで寄る・引く、矢印キーで前後左右
+canvas.addEventListener(
+  'wheel',
+  (e) => {
+    e.preventDefault()
+    world.zoomBy(Math.exp(e.deltaY * 0.0012))
+  },
+  { passive: false },
+)
+const panKeys: Record<string, [number, number]> = { ArrowLeft: [0.04, 0], ArrowRight: [-0.04, 0], ArrowUp: [0, 0.04], ArrowDown: [0, -0.04] }
+window.addEventListener('keydown', (e) => {
+  const k = panKeys[e.code]
+  if (k) {
+    e.preventDefault()
+    world.panBy(k[0], k[1])
+  }
+  if (e.code === 'Equal' || e.code === 'NumpadAdd') world.zoomBy(0.88)
+  if (e.code === 'Minus' || e.code === 'NumpadSubtract') world.zoomBy(1.14)
+})
 
 // ---------------- サイズ ----------------
 const baseCam = new THREE.Vector3()

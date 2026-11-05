@@ -29,6 +29,8 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - モンスターのドット絵は 34×32 の座標で描き、2 倍（68×64）で焼いて自動陰影 + 色付き輪郭をかける（`pixelSprite(..., { shade: true })`）
 - 液晶のアイコン・ショップ・ステータスはタップでも操作できる（`World.tap(u, v)`、HUD の 320×240 座標で当たり判定）
 - 視点は `World.setView('top' | 'behind' | 'eye')`。右上の「視点」ボタンかキー V で切り替え、音量は「音」ボタン（`Beeper.setLevel`）
+- カメラ：2 本指ピンチ = `World.zoomBy`、2 本指ドラッグ = `World.panBy`（みおろしは前後左右、うしろ・めせんは向きと高さ）。パソコンはホイールと矢印キー。1 本指のタップは指を離した時に判定
+- 技は種族ごとに `SKILLS`（shot / burst / dash / rain / heal / wave）。`useSkill` で出し、バトル中に「バトル」アイコン = おうえん（次の攻撃で技）
 - `main` に push すると `.github/workflows/pages.yml` が GitHub Pages に公開する
 - ボタンは A（アイコン選択）/ B（決定・何も選んでいなければステータス）/ C（キャンセル、何も無ければ画面に入る/出る）。キー A/B/C・Z/X・1/2/3 でも押せる
 - 本体ビューは「液晶 + ボタン」が画面いっぱいになる距離（`resize()` の needW/needH）。本体の縁や背景ははみ出してよい
