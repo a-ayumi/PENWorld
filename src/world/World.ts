@@ -6,6 +6,7 @@ import { BABY, EGG_COLORS, FAMILY_NAME, NEW_SKILLS, SPECIES, STAGE_EGGS, SpriteM
 import { Tex } from './textures'
 import { SNAP_GLSL, snapUniform } from './psx'
 import { HALF, LAND_SIZES, STAGES, setLandSize, type Stage } from './stages'
+import { EAT_KEYS, EVENT_IDS, SECRET_EVENTS, SECRET_FORMS, hintLines, hintMask, isSecretId, secretById, secretForm, type EventCtx, type EventFx, type SecretCtx, type SecretEvent } from './secrets'
 import { STRUCTS, buildStructModel, isStructKind, styleOf, type StructKind } from './structures'
 
 /**
@@ -1237,7 +1238,7 @@ export class World {
     // ペットは育て方どおり。ほかの子は生まれつきの性格と気まぐれも入る
     const score = (k: Care) => care[k] + (c === this.pet ? 0 : (c.bias === k ? 3 : 0) + Math.random() * 2.5)
     const top = (['power', 'guard', 'spirit'] as Care[]).sort((a, b) => score(b) - score(a))[0]
-    this.evolve(c, nextForm(c.sp.id, tier, top))
+    this.evolve(c, this.pickSecret(c, top) ?? nextForm(c.sp.id, tier, top))
   }
 
   private evolve(c: Creature, to: SpeciesId) {
@@ -1256,6 +1257,7 @@ export class World {
       this.onSfx('evolve')
       this.earn(c === this.pet ? 30 : 15)
     } else if (near) this.say(`やせいの ${from}が ${sp.name}に しんかした！`)
+    if (isSecretId(to) && this.ally(c)) this.foundSecretForm(c)
   }
 
   private earn(n: number, x?: number, z?: number) {
@@ -2369,7 +2371,7 @@ export class World {
     }
     const TH = [5, 10, 20, 30, 40, 49]
     const RW = [30, 50, 100, 150, 200, 500]
-    const owned = Object.values(this.dex).filter((v) => v === 2).length
+    const owned = Object.entries(this.dex).filter(([k, v]) => v === 2 && !isSecretId(k)).length
     while (this.dexClaimed < TH.length && owned >= TH[this.dexClaimed]) {
       this.say(`ずかん ${TH[this.dexClaimed]}しゅ たっせい！ コイン+${RW[this.dexClaimed]}`)
       this.earn(RW[this.dexClaimed])
@@ -2382,15 +2384,16 @@ export class World {
     const order = ['めばえ', 'きかい', 'りゅう', 'ねこ', 'いぬ', 'とり', 'みず', 'モンスター', 'てき']
     const fam = (id: SpeciesId) => (SPECIES[id].tier ? FAMILY_NAME[familyOf(id)] : 'てき')
     return (Object.values(SPECIES) as Species[])
+      .filter((sp) => !isSecretId(sp.id))
       .map((sp) => ({ id: sp.id, name: sp.name, kind: sp.kind, tier: sp.tier, family: fam(sp.id), state: this.dex[sp.id] ?? 0 }))
       .sort((a, b) => order.indexOf(a.family) - order.indexOf(b.family) || a.tier - b.tier)
   }
   dexInfo() {
-    const all = Object.values(SPECIES) as Species[]
+    const all = (Object.values(SPECIES) as Species[]).filter((sp) => !isSecretId(sp.id))
     return {
-      owned: Object.values(this.dex).filter((v) => v === 2).length,
+      owned: Object.entries(this.dex).filter(([k, v]) => v === 2 && !isSecretId(k)).length,
       total: all.filter((s) => s.tier > 0).length,
-      seen: Object.keys(this.dex).length,
+      seen: Object.keys(this.dex).filter((k) => !isSecretId(k)).length,
       all: all.length,
       gen: this.stats.gen,
       lineage: this.stats.lineage,
@@ -2488,6 +2491,7 @@ export class World {
     // 育ちの傾向は 3 割だけ引きつぐ。代をかさねるほど少し強く生まれる
     this.care = { power: this.care.power * 0.3, guard: this.care.guard * 0.3, spirit: this.care.spirit * 0.3 }
     this.xp = 0
+    this.eatenOf.set(p, {})
     const legacy = 1 + Math.min(0.4, 0.05 * (this.stats.gen - 1))
     p.sp = sp
     p.grow = 0.01
@@ -2526,6 +2530,7 @@ export class World {
     this.villageT = 0
     this.calcVillage()
     this.updateDex()
+    this.updateSecrets()
     this.roleT += 1
     if (this.roleT >= 15) {
       this.roleT = 0
@@ -2755,6 +2760,7 @@ export class World {
 
   setWeather(w: Weather, quiet = false) {
     const changed = w !== this.weather
+    if (changed && !quiet && this.weather === 'rain') this.secret.rainEnd = this.time
     this.weather = w
     this.weatherT = 60 + Math.random() * 90
     const mode = { sun: 0, cloud: 0, rain: 1, snow: 2, ember: 3 }[w]
@@ -3130,6 +3136,7 @@ export class World {
     this.updateEggs(dt)
     this.tryBreed(dt)
     this.updateFx(dt)
+    this.updateSecretFx(dt)
     this.updateCamera(dt)
 
     // 見守っているだけでも少しずつコインがたまる（仲間が多いほど多い）
@@ -3317,6 +3324,7 @@ export class World {
           // 食べた物で傾向が育つ（野生・仲間は自分の好みも少し入る）
           if (info) this.addCare(c, info.care, 2)
           else if (c !== this.pet) this.addCare(c, c.bias, 0.5)
+          this.noteEaten(c, kind)
           this.gainXp(c, info ? 2 : 1)
           if (c.team === 'pet') {
             this.stats.mood = Math.min(100, this.stats.mood + (info?.mood ?? 10))
@@ -3881,6 +3889,409 @@ export class World {
     return { x: 0, z: 0 }
   }
 
+  // ================= ひみつ（隠し進化・できごと） =================
+  /** 食べた物の履歴（1 匹ずつ。stage / meat / sweet / nut の回数）。セーブは secrets.eaten */
+  private eatenOf = new WeakMap<Creature, Record<string, number>>()
+  /** 見つけた隠しの姿・できごと / ヒントの進み / 雨がやんだ時刻 / できごとの待ち秒 / 見つけた時の札 */
+  private secret = {
+    forms: new Set<string>(),
+    events: new Set<string>(),
+    hints: {} as Record<string, number>,
+    rainEnd: -9999,
+    evT: {} as Record<string, number>,
+    card: null as { title: string; sub: string; t: number } | null,
+  }
+  private secretMeshes: { obj: THREE.Mesh; t: number; dur: number; hold: number }[] = []
+
+  private noteEaten(c: Creature, kind: FoodKind) {
+    const e = this.eatenOf.get(c) ?? {}
+    e[kind] = Math.min(999, (e[kind] ?? 0) + 1)
+    this.eatenOf.set(c, e)
+  }
+
+  /** 水ぞくの池の半径（はしが かかっている池） */
+  private bridgeSpan(b: Struct) {
+    const o = this.stage.obstacles.find((q) => q.water && Math.hypot(b.x - q.x, b.z - q.z) < 0.7)
+    return o ? o.r : 1.5
+  }
+
+  /** 進化の瞬間（とヒントの判定）の まわりのようす */
+  private secretCtx(c: Creature, top?: Care): SecretCtx {
+    const care = this.careOf(c)
+    const t: Care = top ?? (['power', 'guard', 'spirit'] as Care[]).sort((a, b) => care[b] + (c !== this.pet && c.bias === b ? 3 : 0) - (care[a] + (c !== this.pet && c.bias === a ? 3 : 0)))[0]
+    const here = (b: Struct) => b.stage === this.stageIndex && this.structDone(b)
+    const st = (k: StructKind, r: number) => this.structs.some((b) => b.kind === k && here(b) && Math.hypot(b.x - c.x, b.z - c.z) < r)
+    const fam = familyOf(c.sp.id)
+    return {
+      isPet: c === this.pet,
+      night: this.night > 0.55,
+      weather: this.weather,
+      rainedLately: this.time - this.secret.rainEnd < 120,
+      stage: this.stageIndex,
+      gen: this.stats.gen,
+      coins: this.coins,
+      mood: this.stats.mood,
+      role: c.role,
+      top: t,
+      eaten: this.eatenOf.get(c) ?? {},
+      homeLv: this.homeOf(c)?.level ?? 0,
+      kin: this.creatures.filter((o) => o !== c && this.ally(o) && this.alive(o) && familyOf(o.sp.id) === fam && Math.hypot(o.x - c.x, o.z - c.z) < 6).length,
+      village: this.vLv,
+      near: {
+        tower: st('tower', 8),
+        castle: st('castle', 8),
+        bridge: this.structs.some((b) => b.kind === 'bridge' && here(b) && Math.hypot(b.x - c.x, b.z - c.z) < this.bridgeSpan(b) + 3),
+        farm: st('farm', 6),
+        fire: this.nearItem('fire', c.x, c.z, 5),
+        memorial: this.nearItem('memorial', c.x, c.z, 4),
+        tools: this.nearItem('tools', c.x, c.z, 6),
+        water: this.stage.obstacles.some((o) => o.water && Math.hypot(o.x - c.x, o.z - c.z) < o.r + 2.5),
+      },
+    }
+  }
+
+  /** 条件がそろった 隠しの姿（仲間だけ。ペットは必ず、ほかの子は 8 割） */
+  private pickSecret(c: Creature, top: Care): SpeciesId | null {
+    if (!this.ally(c)) return null
+    const f = secretForm(familyOf(c.sp.id), c.sp.tier, this.secretCtx(c, top))
+    if (!f) return null
+    if (c !== this.pet && Math.random() > 0.8) return null
+    return f.id
+  }
+
+  /** 隠しの姿に進化した時の 大きな演出 */
+  private foundSecretForm(c: Creature) {
+    const f = secretById(c.sp.id)
+    if (!f) return
+    const first = !this.secret.forms.has(f.id)
+    this.secret.forms.add(f.id)
+    this.secret.hints[f.id] = 0x87
+    const y = this.ground(c) + 0.8
+    this.flash = 1
+    this.shake = Math.max(this.shake, 0.3)
+    this.ring(c.x, c.z, '#ffd23f', 5, 1.2)
+    this.after(0.25, () => this.ring(c.x, c.z, '#ffffff', 7, 1.4))
+    this.after(0.5, () => this.ring(c.x, c.z, '#ff9ecb', 9, 1.6))
+    this.burst(c.x, y, c.z, 'spark', 40, 5, 3)
+    this.burst(c.x, y, c.z, 'coin', 12, 4, 6)
+    this.glow(c.x, y, c.z, '#ffd23f', 18, { life: 2.4, spread: 2.2, rise: 1.2 })
+    this.onSfx('win')
+    this.after(0.4, () => this.onSfx('evolve'))
+    this.say(`ひみつの すがた！ ${f.name}に しんかした！`)
+    this.say(f.story)
+    this.secret.card = { title: first ? '★ ひみつの すがた はっけん！' : '★ ひみつの すがた', sub: `${f.name}　${f.kind}`, t: 5 }
+    if (first) this.earn(c === this.pet ? 200 : 120)
+    this.save()
+  }
+
+  /** ふわふわ漂う光の粒（ほたる・花びら・オーロラなど）。grav 0 でゆっくり動く */
+  private glow(x: number, y: number, z: number, color: string, n: number, o: { life: number; spread: number; rise: number; size?: number; fall?: number }) {
+    for (let i = 0; i < n; i++) {
+      if (this.fx.length > 230) return
+      const a = new SpriteAnim(this.orb(color), (o.size ?? 0.16) * (0.7 + Math.random() * 0.6))
+      a.sprite.center.set(0.5, 0.5)
+      const ang = Math.random() * Math.PI * 2
+      const d = Math.random() * o.spread
+      a.sprite.position.set(x + Math.cos(ang) * d, y + Math.random() * 0.6, z + Math.sin(ang) * d)
+      this.scene.add(a.sprite)
+      const life = o.life * (0.7 + Math.random() * 0.6)
+      this.fx.push({ sprite: a.sprite, vx: (Math.random() - 0.5) * 0.5, vz: (Math.random() - 0.5) * 0.5, vy: o.rise * (0.3 + Math.random() * 0.7), life, max: life, grav: o.fall ?? 0 })
+    }
+  }
+
+  /** 1 秒に 1 回：ヒントの進み具合と、ひみつのできごとの判定 */
+  private updateSecrets() {
+    const s = this.secret
+    // ヒント：この系統の成長期・成熟期の仲間が、いま条件のどれかを満たしていれば その行が増える
+    for (const c of this.creatures) {
+      if (!this.ally(c) || c.grow > 0 || c.sp.tier < 2 || c.sp.tier > 3 || !this.alive(c)) continue
+      const fam = familyOf(c.sp.id)
+      if (fam === 'plain') continue
+      for (const [id, mask] of hintMask(fam, this.secretCtx(c))) {
+        const cur = s.hints[id] ?? 0
+        if ((cur | mask) !== cur) {
+          s.hints[id] = cur | mask
+          if (cur !== 0 && !s.forms.has(id)) this.say('なにか ありそうな きがする… （ずかんの ひみつ）')
+        }
+      }
+    }
+    if (this.eventsLeft() === 0) return
+    // できごと
+    const ctx = this.eventCtx()
+    for (const e of SECRET_EVENTS) {
+      if (s.events.has(e.id)) continue
+      s.evT[e.id] = e.test(ctx) ? (s.evT[e.id] ?? 0) + 1 : 0
+      if (s.evT[e.id] >= e.dwell) this.foundEvent(e)
+    }
+  }
+  private eventsLeft() {
+    return SECRET_EVENTS.length - this.secret.events.size
+  }
+
+  private eventCtx(): EventCtx {
+    const al = this.creatures.filter((c) => this.ally(c) && this.alive(c) && !c.army)
+    const here = <T extends { stage: number }>(a: T[]) => a.filter((x) => x.stage === this.stageIndex)
+    const fires = here(this.items).filter((it) => it.kind === 'fire' && it.mesh)
+    const mem = here(this.items).filter((it) => it.kind === 'memorial' && it.mesh)
+    const done = (k: StructKind) => here(this.structs).filter((b) => b.kind === k && this.structDone(b))
+    const castles = done('castle')
+    const cradles = done('cradle')
+    const bridges = done('bridge')
+    const within = (c: Creature, p: { x: number; z: number }, r: number) => Math.hypot(p.x - c.x, p.z - c.z) < r
+    const birds = al.filter((c) => familyOf(c.sp.id) === 'bird')
+    return {
+      night: this.night > 0.55,
+      weather: this.weather,
+      stage: this.stageIndex,
+      gen: this.stats.gen,
+      village: this.vLv,
+      allies: al.length,
+      nearFire: al.filter((c) => fires.some((f) => within(c, f, 5))).length,
+      fires: fires.length,
+      onBridge: al.filter((c) => bridges.some((b) => within(c, b, Math.max(1.2, this.bridgeSpan(b) * 0.9)))).length,
+      petAtMemorial: this.alive(this.pet) && mem.some((m) => within(this.pet, m, 3)),
+      atCastle: al.filter((c) => castles.some((b) => within(c, b, 4.5))).length,
+      castles: castles.length,
+      trees: here(this.items).filter((it) => it.kind === 'sapling' && it.grow >= 1).length,
+      waterAwake: al.filter((c) => familyOf(c.sp.id) === 'water' && c.state !== 'sleep' && c.state !== 'rest' && c.sp.tier > 0).length,
+      sleepCradle: al.filter((c) => c.state === 'sleep' && cradles.some((b) => within(c, b, 5))).length,
+      cradles: cradles.length,
+      birds: Math.max(0, ...birds.map((c) => birds.filter((o) => within(o, c, 5)).length)),
+      inside: al.filter((c) => c.inside).length,
+    }
+  }
+
+  /** できごとが起きた：札・メッセージ・コイン・演出 */
+  private foundEvent(e: SecretEvent) {
+    this.secret.events.add(e.id)
+    const al = this.creatures.filter((c) => this.ally(c) && this.alive(c))
+    const pet = this.pet
+    this.playEventFx(e.fx, al)
+    this.say(e.msg)
+    this.secret.card = { title: '★ ひみつを みつけた！', sub: `${e.name}　コイン+${e.reward}`, t: 5 }
+    this.flash = Math.max(this.flash, 0.55)
+    this.earn(e.reward, pet.x, pet.z)
+    this.onSfx('win')
+    this.save()
+  }
+
+  private playEventFx(fx: EventFx, al: Creature[]) {
+    const p = this.pet
+    const find = <T extends { stage: number; x: number; z: number }>(a: T[], pred: (x: T) => boolean = () => true) => a.find((x) => x.stage === this.stageIndex && pred(x))
+    const at = (o: { x: number; z: number } | undefined) => o ?? { x: p.x, z: p.z }
+    const gy = (o: { x: number; z: number }) => this.stage.heightAt(o.x, o.z)
+    switch (fx) {
+      case 'hotaru': {
+        const f = at(find(this.items, (it) => it.kind === 'fire'))
+        for (let k = 0; k < 10; k++) this.after(k * 0.8, () => this.glow(f.x, gy(f) + 0.5, f.z, k % 2 ? '#e8ff7a' : '#b8ff9a', 7, { life: 7, spread: 4, rise: 0.35, size: 0.14 }))
+        this.ring(f.x, f.z, '#e8ff7a', 6, 2)
+        break
+      }
+      case 'rainbow': {
+        const b = at(find(this.structs, (s) => s.kind === 'bridge'))
+        this.rainbow(b.x, b.z)
+        this.burst(b.x, gy(b) + 1, b.z, 'spark', 14, 3, 2)
+        break
+      }
+      case 'meteor': {
+        const m = at(find(this.items, (it) => it.kind === 'memorial'))
+        for (let k = 0; k < 14; k++)
+          this.after(k * 0.35, () => {
+            const sx = m.x - 4 + Math.random() * 8
+            const sz = m.z - 4 + Math.random() * 8
+            const a = new SpriteAnim(this.fxSheets.spark, 0.3)
+            a.sprite.center.set(0.5, 0.5)
+            a.sprite.position.set(sx + 3, 9, sz)
+            this.scene.add(a.sprite)
+            this.fx.push({ sprite: a.sprite, vx: -5, vy: -6.5, vz: 0, life: 1.3, max: 1.3, grav: 0 })
+            this.glow(sx + 1.5, 6, sz, '#fff6c0', 3, { life: 0.9, spread: 1.2, rise: -1, size: 0.1 })
+          })
+        this.ring(m.x, m.z, '#ffe27a', 5, 2.4)
+        break
+      }
+      case 'confetti': {
+        const c = at(find(this.structs, (s) => s.kind === 'castle'))
+        for (let k = 0; k < 8; k++)
+          this.after(k * 0.3, () => {
+            for (const col of ['#ff5e7a', '#ffd23f', '#6fe7ff', '#7cf29b', '#c9a8ff']) this.colorBurst(c.x + (Math.random() - 0.5) * 3, gy(c) + 2.5, c.z + 1 + Math.random(), col, 3, 2.6)
+            this.burst(c.x, gy(c) + 1.5, c.z + 1.5, 'coin', 3, 3)
+          })
+        this.ring(c.x, c.z + 1.5, '#ffd23f', 6, 1.6)
+        for (const a of al) if (Math.hypot(a.x - c.x, a.z - c.z) < 4.5) this.setState(a, 'happy', 2.5)
+        break
+      }
+      case 'petals': {
+        for (const it of this.items) if (it.stage === this.stageIndex && it.kind === 'sapling' && it.grow >= 1) {
+          for (let k = 0; k < 5; k++) this.after(k * 0.9, () => this.glow(it.x, gy(it) + 2, it.z, k % 2 ? '#ffb8d8' : '#ffffff', 5, { life: 4, spread: 1.4, rise: -0.1, size: 0.13, fall: 0.18 }))
+          this.burst(it.x, gy(it) + 1.6, it.z, 'heart', 3, 1.2, 1.2)
+        }
+        break
+      }
+      case 'dance': {
+        const cols = ['#6fe7ff', '#a8fff0', '#ff9ecb', '#ffe27a']
+        al.filter((c) => familyOf(c.sp.id) === 'water').forEach((c, i) => {
+          this.setState(c, 'happy', 6)
+          this.after(i * 0.3, () => this.ring(c.x, c.z, cols[i % cols.length], 3.5, 1.4))
+          for (let k = 0; k < 4; k++) this.after(k * 1.1 + i * 0.2, () => this.burst(c.x, this.ground(c) + this.size(c), c.z, 'heart', 2, 1.5))
+          this.glow(c.x, this.ground(c) + 0.4, c.z, '#a8fff0', 8, { life: 4, spread: 1.4, rise: 0.5 })
+        })
+        break
+      }
+      case 'egg': {
+        const cr = at(find(this.structs, (s) => s.kind === 'cradle'))
+        if (this.eggs.length < 6) this.layEgg(cr.x + 0.9, cr.z + 0.9, [], 30, this.stageEggKind(), true)
+        this.glow(cr.x, gy(cr) + 0.8, cr.z, '#fff6c0', 14, { life: 3.5, spread: 2, rise: 0.6 })
+        this.ring(cr.x, cr.z, '#fff6c0', 5, 1.8)
+        break
+      }
+      case 'aurora': {
+        const cols = ['#7cf29b', '#5ef2ff', '#b48cff', '#ff9ecb', '#7cf29b']
+        cols.forEach((col, i) => {
+          this.after(i * 1.2, () => this.ring(p.x, p.z, col, 12 + i * 2, 3.5))
+          for (let k = 0; k < 6; k++) this.after(i * 1.2 + k * 0.5, () => this.glow(p.x - 5 + k * 2, 5 + i * 0.5, p.z - 3, col, 5, { life: 5, spread: 1.5, rise: 0.15, size: 0.3 }))
+        })
+        this.flash = 0.8
+        break
+      }
+      case 'chorus': {
+        const birds = al.filter((c) => familyOf(c.sp.id) === 'bird')
+        birds.forEach((c, i) => {
+          this.setState(c, 'happy', 4)
+          for (let k = 0; k < 5; k++) this.after(k * 0.7 + i * 0.15, () => {
+            this.burst(c.x, this.ground(c) + this.size(c) + 0.3, c.z, 'spark', 2, 1.4, 1)
+            this.popups.push({ pos: new THREE.Vector3(c.x, this.ground(c) + this.size(c) + 0.5, c.z), text: k % 2 ? 'ぴよ' : 'ちゅん', color: '#ffe27a', t: 0 })
+          })
+        })
+        break
+      }
+      case 'festival': {
+        al.forEach((c, i) => {
+          this.setState(c, 'happy', 5)
+          this.after(i * 0.15, () => {
+            c.vy = 4
+            this.colorBurst(c.x, this.ground(c) + 1, c.z, ['#ff5e7a', '#ffd23f', '#6fe7ff', '#7cf29b'][i % 4], 4, 3)
+          })
+        })
+        for (let k = 0; k < 8; k++) this.after(k * 0.4, () => this.burst(p.x + (Math.random() - 0.5) * 6, 3, p.z + (Math.random() - 0.5) * 6, 'coin', 4, 2.5, 5))
+        this.ring(p.x, p.z, '#ffd23f', 9, 2)
+        break
+      }
+      case 'cozy': {
+        for (const h of this.houses) if (h.stage === this.stageIndex && h.level >= 1) {
+          this.glow(h.x, this.stage.heightAt(h.x, h.z) + 1.2, h.z, '#ffd8a8', 8, { life: 5, spread: 0.8, rise: 0.4 })
+          this.burst(h.x, this.stage.heightAt(h.x, h.z) + 1.4, h.z, 'heart', 3, 1)
+        }
+        break
+      }
+    }
+  }
+
+  /** にじ：かたむけた半円のおび（7 色）。ゆっくり現れて、しばらくして消える */
+  private rainbow(x: number, z: number) {
+    const geo = new THREE.RingGeometry(3.2, 4.4, 40, 7, 0, Math.PI)
+    const cols = ['#ff4d4d', '#ff9a3d', '#ffe03d', '#6be86b', '#4dc8ff', '#5a6cff', '#b45aff', '#b45aff'].map((c) => new THREE.Color(c))
+    const n = geo.attributes.position.count
+    const arr = new Float32Array(n * 3)
+    for (let i = 0; i < n; i++) {
+      const j = Math.floor(i / 41)
+      arr.set([cols[Math.min(j, 7)].r, cols[Math.min(j, 7)].g, cols[Math.min(j, 7)].b], i * 3)
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(arr, 3))
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }))
+    const cx = this.camera.position.x
+    const cz = this.camera.position.z
+    const dir = Math.atan2(cx - x, cz - z)
+    // カメラから見て、はしの うしろに立てる
+    mesh.position.set(x - Math.sin(dir) * 2.5, this.stage.heightAt(x, z) + 0.05, z - Math.cos(dir) * 2.5)
+    mesh.rotation.set(-0.28, dir, 0)
+    this.scene.add(mesh)
+    this.secretMeshes.push({ obj: mesh, t: 0, dur: 14, hold: 0.6 })
+  }
+
+  /** 毎フレーム：にじの出入り・札のタイマー */
+  private updateSecretFx(dt: number) {
+    for (const m of [...this.secretMeshes]) {
+      m.t += dt
+      const k = m.t / m.dur
+      const a = k < 0.12 ? k / 0.12 : k > 0.8 ? Math.max(0, (1 - k) / 0.2) : 1
+      ;(m.obj.material as THREE.MeshBasicMaterial).opacity = a * m.hold
+      if (k >= 1) {
+        this.scene.remove(m.obj)
+        m.obj.geometry.dispose()
+        ;(m.obj.material as THREE.Material).dispose()
+        this.secretMeshes.splice(this.secretMeshes.indexOf(m), 1)
+      }
+    }
+    if (this.secret.card) {
+      this.secret.card.t -= dt
+      if (this.secret.card.t <= 0) this.secret.card = null
+    }
+  }
+
+  /** 札：ひみつを みつけた時に 画面の上に出る */
+  private drawSecretCard() {
+    const k = this.secret.card
+    if (!k) return
+    const age = 5 - k.t
+    const y = Math.round(64 - Math.max(0, 1 - age * 4) * 60 - Math.max(0, 0.5 - k.t) * 120)
+    this.win(24, y, RES.w - 48, 40)
+    const g = this.hudCtx
+    g.strokeStyle = '#ffd23f'
+    g.strokeRect(25.5, y + 1.5, RES.w - 51, 37)
+    this.text(k.title, RES.w / 2, y + 7, '#ffd23f', 11, 'center')
+    this.text(k.sub, RES.w / 2, y + 23, '#ffffff', 10, 'center')
+  }
+
+  /** ずかんの「ひみつ」欄に出す 情報 */
+  secretInfo() {
+    const forms = SECRET_FORMS.map((s) => {
+      const found = this.secret.forms.has(s.id)
+      const mask = this.secret.hints[s.id] ?? 0
+      return {
+        id: s.id, name: s.name, kind: s.kind, family: FAMILY_NAME[s.family], found,
+        lines: hintLines(s, mask, found),
+        known: s.conds.filter((_, i) => mask & (1 << i)).length,
+        total: s.conds.length,
+        story: found ? s.story : '',
+      }
+    })
+    const events = SECRET_EVENTS.map((e) => {
+      const found = this.secret.events.has(e.id)
+      return { id: e.id, name: found ? e.name : '？？？', found, text: found ? e.msg : e.riddle }
+    })
+    return { forms, events, formsFound: forms.filter((f) => f.found).length, eventsFound: events.filter((e) => e.found).length }
+  }
+
+  private saveSecrets(friends: Creature[]) {
+    const s = this.secret
+    return {
+      forms: [...s.forms], events: [...s.events], hints: s.hints,
+      eaten: { pet: this.eatenOf.get(this.pet) ?? {}, friends: friends.map((c) => this.eatenOf.get(c) ?? {}) },
+    }
+  }
+
+  /** 読み込み：ID は表と照合、数字は範囲に収める */
+  private loadSecrets(d: any, friends: Creature[], savedFriends: unknown[]) {
+    const s = this.secret
+    const o = d && typeof d === 'object' ? d : {}
+    s.forms = new Set((Array.isArray(o.forms) ? o.forms : []).filter(isSecretId).slice(0, 40))
+    s.events = new Set((Array.isArray(o.events) ? o.events : []).filter((v: unknown): v is string => typeof v === 'string' && EVENT_IDS.has(v)).slice(0, 60))
+    s.hints = {}
+    if (o.hints && typeof o.hints === 'object' && !Array.isArray(o.hints))
+      for (const [k, v] of Object.entries(o.hints)) if (isSecretId(k)) s.hints[k] = Math.round(num(v, 0, 255, 0)) & 0x87
+    const clean = (v: unknown) => {
+      const r: Record<string, number> = {}
+      if (v && typeof v === 'object' && !Array.isArray(v)) for (const k of EAT_KEYS) r[k] = Math.round(num((v as Record<string, unknown>)[k], 0, 999, 0))
+      return r
+    }
+    const e = o.eaten && typeof o.eaten === 'object' ? o.eaten : {}
+    this.eatenOf.set(this.pet, clean(e.pet))
+    const list: unknown[] = Array.isArray(e.friends) ? e.friends : []
+    // 保存した友だちのうち 読み込めた子だけが friends に入っているので、同じ条件でそろえる
+    const ok = savedFriends.map((f, i) => ({ f: f as { sp?: unknown } | null, i })).filter((x) => x.f && isSpecies(x.f.sp))
+    friends.forEach((c, i) => this.eatenOf.set(c, clean(list[ok[i]?.i ?? -1])))
+  }
+
   // ================= セーブ / ロード =================
   /** 読み込み・やり直しの直前は自動セーブを止める（上書きしないように） */
   saveLocked = false
@@ -3901,6 +4312,7 @@ export class World {
       structs: this.structs.map((b) => ({ kind: b.kind, stage: b.stage, x: b.x, z: b.z, rot: b.rot, len: b.len, mats: b.mats, hp: Math.round(b.hp) })),
       items: this.items.map((it) => ({ kind: it.kind, stage: it.stage, x: it.x, z: it.z, grow: it.grow })),
       eggs: this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild })),
+      secrets: this.saveSecrets(friends),
     }
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(data))
@@ -3979,6 +4391,7 @@ export class World {
         if (kind === 'inherit' && !parents.length) continue
         this.layEgg(num(e.x, -HALF, HALF), num(e.z, -HALF, HALF), parents, num(e.t, 0, 120, 35), kind, !!e.wild)
       }
+      this.loadSecrets(d.secrets, friends, Array.isArray(d.friends) ? d.friends.slice(0, 40) : [])
       this.say(`おかえり！ ${this.pet.sp.name}が まっていたよ`)
       return true
     } catch {
@@ -4202,6 +4615,8 @@ export class World {
       this.text(this.stage.name, x + 8, 34, '#ffffff', 11)
       this.text(this.stage.sub, x + 8, 47, '#9fd8ff', 8)
     }
+
+    this.drawSecretCard()
 
     const label = this.cursor >= 0 && !this.messages.length && !this.shopOpen ? `▶ ${ICONS[this.cursor]}` : this.messages[0]
     if (label) {

@@ -62,3 +62,4 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - セーブは localStorage の `pulsar-save-v1`（10 秒ごと + 画面を離れた時）。項目を増やしたら `save()` と `load()` の両方を直す
 - データの書き出し・読み込み・やり直しは `src/backup.ts`（コードは `PULSAR1:` + base64 の JSON）。設定のキーを増やしたら `KEYS` にも足す。読み込み・やり直しの前は `world.saveLocked = true` にして上書きを防ぐ。起動時に `navigator.storage.persist()` を頼む
 - テストは `window.__pulsar.press('A')` / `.state()` / `.setMood('night')`、箱庭は `.world.run(i)` と `.world.update(1/30)` の早送りで確認する
+- **ひみつ**（`src/world/secrets.ts`）：隠しの姿 12 種（`SECRET_FORMS`、成熟期が条件 3 つ = 時間帯×場所×育ちをそろえて進化すると、ふつうの完成期のかわりに出る。ペットは必ず、ほかの子は 8 割）。判定は `pickSecret()` → `secretForm()`（`gainXp` の進化先決定の前）。食べた物は `eatenOf`（WeakMap）に数える。ヒントは `updateSecrets()`（1 秒ごと）が条件ごとに記録、ずかんの「ひみつの すがた」に 1 行ずつ出る。ひみつのできごと 11 個は `SECRET_EVENTS`（条件を `dwell` 秒みたし続けると 1 度だけ）。セーブは `secrets`（読み込み時に ID を表と照合）

@@ -1,4 +1,5 @@
 import { SpriteAnim, buildSheet, pixelSprite, type Sheet } from './sprites'
+import { SECRET_FORMS, secretSpecies, type SecretId } from './secrets'
 import { CHAINS, FAMILIES, FAMILY_OF, FAMILY_SPEED, TIER_BASE, WATER_NEW, EVOLVE, type Look, type Family } from './families'
 
 /**
@@ -11,7 +12,7 @@ type OldId =
 /** 系統の仲間（families.ts） */
 export type NewId =
   | 'nejiru' | 'boruta' | 'kacha' | 'tankuru' | 'kurokko' | 'metarion' | 'ryuuko' | 'honora' | 'kazeru' | 'bakuryu' | 'raigaru' | 'tenryuu' | 'mimiko' | 'tsumeru' | 'yoruna' | 'torahime' | 'tsukineko' | 'nekomata' | 'wanko' | 'kibaru' | 'fuwan' | 'garufu' | 'mamoru' | 'rouga' | 'piyo' | 'habataki' | 'utaru' | 'hayate' | 'hoshiro' | 'hikaritori' | 'gabuko' | 'oniko' | 'nurari' | 'ogaran' | 'bakeran' | 'yamatan' | 'shizuku' | 'awako' | 'kaimaru'
-export type SpeciesId = OldId | NewId
+export type SpeciesId = OldId | NewId | SecretId
 
 export interface Species {
   id: SpeciesId
@@ -760,7 +761,12 @@ for (const ch of CHAINS) {
     }
   })
 }
-export const SPECIES: Record<SpeciesId, Species> = { ...OLD_SPECIES, ...NEW_SPECIES }
+// 隠しの姿（secrets.ts）：見た目・技・ステータスを足す
+for (const s of SECRET_FORMS) {
+  LOOKS[s.id] = s.look
+  NEW_SKILLS[s.id] = { name: s.skill[0], kind: s.skill[1], color: s.skill[2], mult: s.skill[3] }
+}
+export const SPECIES: Record<SpeciesId, Species> = { ...OLD_SPECIES, ...NEW_SPECIES, ...secretSpecies() }
 export const familyOf = (id: SpeciesId): Family => (FAMILY_OF[id] as Family | undefined) ?? 'plain'
 /** つぎの姿：系統ごとの枝分かれ → なければ 昔からの BRANCH */
 export function nextForm(id: SpeciesId, tier: 1 | 2 | 3, care: Care): SpeciesId {

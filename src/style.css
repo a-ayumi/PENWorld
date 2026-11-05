@@ -78,6 +78,19 @@ body.clean #toolbar, body.clean #dress, body.clean #dress-panel, body.clean #dex
 .dex-cell.own { background: rgba(242,177,52,.14); color: var(--ink); }
 .dex-cell.seen canvas { opacity: .55; }
 .dex-cell small { font-size: 9px; opacity: .7; }
+#dex-panel h3 span { color: var(--ink); font-weight: 400; margin-left: 6px; }
+#sec-forms { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+.sec-row { display: flex; gap: 8px; align-items: flex-start; padding: 8px; border-radius: 10px; background: rgba(255,255,255,.05); color: var(--muted); }
+.sec-row.found { background: rgba(242,177,52,.14); color: var(--ink); }
+.sec-row canvas { width: 56px; height: 52px; flex: none; image-rendering: pixelated; }
+.sec-row b { display: block; font-size: 13px; color: var(--ink); }
+.sec-row small { font-size: 10px; opacity: .75; }
+.sec-row ul { margin: 4px 0 0; padding-left: 14px; font-size: 11px; line-height: 1.55; }
+#sec-events { display: grid; gap: 6px; }
+.sec-ev { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; border-radius: 10px; background: rgba(255,255,255,.05); color: var(--muted); }
+.sec-ev.found { background: rgba(242,177,52,.14); color: var(--ink); }
+.sec-ev b { font-size: 12px; color: var(--ink); }
+.sec-ev small { font-size: 11px; line-height: 1.5; }
 #dex-lineage { margin: 0; font-size: 12px; line-height: 1.7; color: var(--ink); }
 
 /* 画面に入る（Cボタンは「もどる」専用なので、入るのは外のボタン） */
