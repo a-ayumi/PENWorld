@@ -18,7 +18,7 @@ export type Sfx = 'select' | 'ok' | 'cancel' | 'hit' | 'crit' | 'win' | 'lose' |
 type Team = 'pet' | 'friend' | 'wild'
 type State =
   | 'idle' | 'wander' | 'hunt' | 'fight' | 'assist' | 'seek' | 'eat' | 'sleep' | 'rest' | 'play'
-  | 'happy' | 'faint' | 'dead' | 'train' | 'come' | 'gather' | 'build' | 'raid' | 'march'
+  | 'happy' | 'faint' | 'dead' | 'train' | 'come' | 'gather' | 'build' | 'raid' | 'march' | 'work'
 
 interface Creature {
   sp: Species; team: Team; anim: MonsterView; shadow: THREE.Mesh
@@ -55,6 +55,11 @@ interface Creature {
   site: Struct | null
   /** 敵軍の一員 */
   army: boolean
+  /** ぷにぷに動き：着地のつぶれ・前の高さ */
+  squash: number
+  pj: number
+  /** 組み立て作業の終わりにやること（かなづちの動きのあと実行） */
+  finish: (() => void) | null
 }
 
 /** 技：種族ごとに 1 つ。演出の種類（shot = 弾 / burst = 衝撃 / dash = 突進 / rain = 降りそそぐ / heal = 回復 / wave = 地面の波）*/
@@ -244,6 +249,9 @@ export class World {
   private resources: Res[] = []
   private houses: House[] = []
   private structs: Struct[] = []
+  /** 当たった瞬間のわずかな止まり（ヒットストップ） */
+  private hitStop = 0
+  private ambient: { s: SpriteAnim; kind: 'bf' | 'ff' | 'ice'; cx: number; cz: number; r: number; ph: number; sp: number; y: number; bx: number; by: number }[] = []
   private army: Army | null = null
   private armyCd = 180
   private armyWave = 0
@@ -366,7 +374,48 @@ export class World {
       this.setState(c, 'happy', 1.5)
       k++
     }
+    this.makeAmbient()
     this.banner = 3.5
+  }
+
+  // ================= ちょうちょ・ほたる =================
+  private makeAmbient() {
+    for (const a of this.ambient) {
+      this.scene.remove(a.s.sprite)
+      a.s.dispose()
+    }
+    this.ambient = []
+    const bfSheets = ['#ffd23f', '#ff8fb1', '#9fd8ff', '#ffffff', '#b48cff'].map((col) => iconSheet(['.....', 'oo.oo', 'ooxoo', 'oo.oo', '.....'], { o: col, x: '#3d2a1e' }))
+    const ff = iconSheet(['.....', '..o..', '.ooo.', '..o..', '.....'], { o: '#d8ff7a' })
+    const ice = iconSheet(['.....', '..o..', '.ooo.', '..o..', '.....'], { o: '#aef0ff' })
+    for (let i = 0; i < 12; i++) {
+      const kind: 'bf' | 'ff' | 'ice' = this.stageIndex === 4 ? 'ice' : i < 7 ? 'bf' : 'ff'
+      const sheet = kind === 'bf' ? bfSheets[i % bfSheets.length] : kind === 'ff' ? ff : ice
+      const s = new SpriteAnim(sheet, kind === 'bf' ? 0.32 : kind === 'ff' ? 0.3 : 0.22)
+      s.sprite.center.set(0.5, 0.5)
+      s.sprite.visible = false
+      this.scene.add(s.sprite)
+      this.ambient.push({ s, kind, cx: (Math.random() * 2 - 1) * HALF * 0.8, cz: (Math.random() * 2 - 1) * HALF * 0.8, r: 0.8 + Math.random() * 1.6, ph: Math.random() * 10, sp: 0.5 + Math.random() * 0.6, y: 0.7 + Math.random() * 0.8, bx: s.sprite.scale.x, by: s.sprite.scale.y })
+    }
+  }
+
+  private updateAmbient(dt: number) {
+    const calm = this.weather === 'sun' || this.weather === 'cloud'
+    for (const a of this.ambient) {
+      const show = a.kind === 'bf' ? this.night < 0.4 && calm : a.kind === 'ff' ? this.night > 0.5 && this.weather !== 'rain' : this.weather !== 'ember'
+      a.s.sprite.visible = show
+      if (!show) continue
+      a.cx += Math.sin(this.time * 0.13 + a.ph) * dt * 0.4
+      a.cz += Math.cos(this.time * 0.11 + a.ph) * dt * 0.4
+      a.cx = THREE.MathUtils.clamp(a.cx, -HALF, HALF)
+      a.cz = THREE.MathUtils.clamp(a.cz, -HALF, HALF)
+      const t = this.time * a.sp + a.ph
+      const x = a.cx + Math.cos(t) * a.r
+      const z = a.cz + Math.sin(t * 1.3) * a.r
+      a.s.sprite.position.set(x, this.stage.heightAt(x, z) + a.y + Math.sin(t * 2.3) * 0.15, z)
+      if (a.kind === 'bf') a.s.sprite.scale.x = a.bx * (0.35 + 0.65 * Math.abs(Math.sin(this.time * 13 + a.ph)))
+      else a.s.sprite.scale.setScalar(a.bx * (0.7 + 0.5 * Math.sin(this.time * 5 + a.ph * 3)))
+    }
   }
 
   private applyLight() {
@@ -398,7 +447,7 @@ export class World {
       phase: Math.random() * 10, affinity: 0, grow,
       xp: 0, care: { power: 0, guard: 0, spirit: 0 }, bias: (['power', 'guard', 'spirit'] as Care[])[Math.floor(Math.random() * 3)],
       spar: false, carry: null, carryMesh: null, res: null, raid: null, inside: false,
-      skillCd: 3 + Math.random() * 5, cheer: false, sleepFrom: null, site: null, army: false,
+      skillCd: 3 + Math.random() * 5, cheer: false, sleepFrom: null, site: null, army: false, squash: 0, pj: 0, finish: null,
     }
     this.creatures.push(c)
     this.burst(x, this.ground(c) + 0.5, z, 'cube', 8, 2)
@@ -655,6 +704,21 @@ export class World {
         return this.setState(c, 'raid', 6)
       }
     }
+    // あいさつ：近くの子どうしが、ときどき ぴょんと挨拶する
+    if (!wild && c.grow === 0 && Math.random() < 0.1) {
+      const b = this.nearest(c, (o) => !o.army && o.grow === 0 && o.sp.temper === 'calm' && (o.state === 'idle' || o.state === 'wander') && (o.team === 'wild') === (c.team === 'wild'), 2)
+      if (b) {
+        c.anim.facing = b.x > c.x ? 1 : -1
+        b.anim.facing = c.x > b.x ? 1 : -1
+        this.burst((c.x + b.x) / 2, this.ground(c) + this.size(c) + 0.2, (c.z + b.z) / 2, 'heart', 2, 1)
+        this.popups.push({ pos: new THREE.Vector3(c.x, this.ground(c) + this.size(c) + 0.3, c.z), text: 'やあ！', color: '#ffd0e6', t: 0 })
+        this.setState(c, 'happy', 1.1)
+        this.setState(b, 'happy', 1.1)
+        return
+      }
+    }
+    if (c.energy < 28 && c.state !== 'sleep' && Math.random() < 0.25)
+      this.popups.push({ pos: new THREE.Vector3(c.x, this.ground(c) + this.size(c) + 0.3, c.z), text: 'ふぁ…', color: '#9fd8ff', t: 0 })
     // 仲間はペットのそばを離れすぎない
     if (c.team === 'friend' && Math.hypot(p.x - c.x, p.z - c.z) > 3.5) {
       c.tx = p.x + (Math.random() - 0.5) * 2.5
@@ -729,6 +793,7 @@ export class World {
     this.popups.push({ pos: new THREE.Vector3(b.x, y, b.z), text: crit ? `${dmg}!` : `${dmg}`, color: crit ? '#ffd23f' : '#ffffff', t: 0 })
     this.burst(b.x, y * 0.7, b.z, 'hit', crit ? 6 : 3, 2.5)
     if (this.ally(a) || this.ally(b)) this.onSfx(crit ? 'crit' : 'hit')
+    if (crit && (this.ally(a) || this.ally(b))) this.hitStop = Math.max(this.hitStop, 0.06)
     if (b.hp <= 0) this.defeat(b, a)
   }
 
@@ -905,7 +970,10 @@ export class World {
     this.popups.push({ pos: new THREE.Vector3(b.x, y, b.z), text: `${dmg}!!`, color: sk.color, t: 0 })
     this.colorBurst(b.x, y * 0.7, b.z, sk.color, 10, 3.5)
     this.burst(b.x, y * 0.7, b.z, 'hit', 4, 3)
-    if (this.ally(a) || this.ally(b)) this.onSfx('boom')
+    if (this.ally(a) || this.ally(b)) {
+      this.onSfx('boom')
+      this.hitStop = Math.max(this.hitStop, 0.09)
+    }
     if (b.hp <= 0) {
       // 技で倒されたら、その場でいったん戦いをほどく
       if (b.foe && b.foe !== a && b.foe.foe === b) {
@@ -1217,6 +1285,7 @@ export class World {
           }
         }
         it.mesh.scale.setScalar(0.25 + 0.75 * it.grow)
+        it.mesh.rotation.z = Math.sin(this.time * 1.5 + it.x * 2) * 0.03 * it.grow
         it.mesh.children.forEach((o) => o.name === 'fruit' && (o.visible = it.grow >= 1))
       } else if (it.kind === 'ball') {
         it.x += it.vx * dt
@@ -1435,6 +1504,7 @@ export class World {
       g.add(lamp)
     }
     g.position.set(h.x, this.stage.heightAt(h.x, h.z) - 0.02, h.z)
+    g.userData.pop = this.time > 2 ? 0.55 : 0
     this.scene.add(g)
     h.mesh = g
     if (!h.hp) h.hp = houseMaxHp(h.level)
@@ -1455,6 +1525,16 @@ export class World {
     for (const h of [...this.houses]) {
       if (h.stage !== this.stageIndex || !h.mesh) continue
       h.shake = Math.max(0, h.shake - dt)
+      this.popAnim(h.mesh, dt)
+      // えんとつのけむり：夜・雨・雪、または中にだれかいる時
+      if (h.level >= 3) {
+        const t = ((h.mesh.userData.smoke as number | undefined) ?? 0) - dt
+        if (t <= 0) {
+          h.mesh.userData.smoke = 0.7 + Math.random() * 0.6
+          if (this.night > 0.5 || this.weather === 'rain' || this.weather === 'snow' || this.creatures.some((c) => c.inside && h.owner === c))
+            this.smoke(h.x - 0.32, this.stage.heightAt(h.x, h.z) + 1.7 + (h.level >= 4 ? 0.45 : 0), h.z - 0.15)
+        } else h.mesh.userData.smoke = t
+      }
       // だいくどうぐ の近くの家は少しずつ直る
       if (h.level >= 1 && h.hp < houseMaxHp(h.level) && this.nearItem('tools', h.x, h.z, 6)) {
         h.hp = Math.min(houseMaxHp(h.level), h.hp + dt * 0.8)
@@ -1576,6 +1656,7 @@ export class World {
       }
     }
     g.rotation.y = b.rot
+    g.userData.pop = this.time > 2 ? 0.55 : 0
     g.position.set(b.x, b.kind === 'bridge' ? 0.27 : this.stage.heightAt(b.x, b.z) - 0.02, b.z)
     this.scene.add(g)
     b.mesh = g
@@ -1649,6 +1730,7 @@ export class World {
     b.hp -= dmg
     b.shake = 0.3
     this.burst(b.x, this.stage.heightAt(b.x, b.z) + 0.7, b.z, 'hit', 2, 2)
+    if (b.kind === 'castle') this.shake = Math.max(this.shake, 0.12)
     if (by && b.kind !== 'wall' && this.time - b.alerted > 12) {
       b.alerted = this.time
       this.say(`${STRUCTS[b.kind].name}が ${by.sp.name}に おそわれている！`)
@@ -1659,6 +1741,8 @@ export class World {
     for (let i = 0; i < Math.min(4, Math.ceil(b.mats / 3)); i++) this.spawnResource(b.x + (Math.random() - 0.5) * 2, b.z + 1 + Math.random(), undefined, true)
     this.burst(b.x, this.stage.heightAt(b.x, b.z) + 0.8, b.z, 'cube', 12, 3.5)
     this.shake = Math.max(this.shake, b.kind === 'castle' ? 0.7 : 0.25)
+    this.ring(b.x, b.z, '#cfc7b8', b.kind === 'castle' ? 3.2 : 2, 0.6)
+    if (b.kind === 'castle' || b.kind === 'tower') this.hitStop = 0.15
     if (b.kind !== 'wall') this.say(b.kind === 'castle' ? 'おしろが おちてしまった…！' : `${STRUCTS[b.kind].name}が こわされた…`)
   }
 
@@ -1689,6 +1773,8 @@ export class World {
     for (const b of [...this.structs]) {
       if (b.stage !== this.stageIndex || !b.mesh) continue
       b.shake = Math.max(0, b.shake - dt)
+      this.popAnim(b.mesh, dt)
+      if (b.kind === 'castle' || b.kind === 'tower') b.mesh.traverse((o) => o.name === 'flag' && (o.rotation.y = Math.sin(this.time * 5 + o.position.x * 3 + b.x) * 0.55))
       b.mesh.position.x = b.x + (b.shake > 0 ? Math.sin(this.time * 60) * 0.05 : 0)
       const done = this.structDone(b)
       if (done && b.hp < STRUCTS[b.kind].hp && this.nearItem('tools', b.x, b.z, 6)) b.hp = Math.min(STRUCTS[b.kind].hp, b.hp + dt * 1.5)
@@ -1732,6 +1818,24 @@ export class World {
     }
   }
 
+  /** 建った瞬間の ぽよん */
+  private popAnim(m: THREE.Group, dt: number) {
+    const pk = (m.userData.pop as number | undefined) ?? 0
+    if (pk <= 0) return
+    m.userData.pop = pk - dt
+    const k = Math.max(0, pk) / 0.55
+    m.scale.y = pk - dt <= 0 ? 1 : 1 + Math.sin((1 - k) * Math.PI * 2) * 0.16 * k
+  }
+
+  private smoke(x: number, y: number, z: number) {
+    if (this.fx.length > 120) return
+    const a = new SpriteAnim(this.orb('#e6e6e6'), 0.16)
+    a.sprite.center.set(0.5, 0.5)
+    a.sprite.position.set(x, y, z)
+    this.scene.add(a.sprite)
+    this.fx.push({ sprite: a.sprite, vx: 0.12 + Math.random() * 0.1, vy: 0.45, vz: 0, life: 1.6, max: 1.6, grav: 0 })
+  }
+
   private towerShot(b: Struct, foe: Creature) {
     const top = this.stage.heightAt(b.x, b.z) + 2.3
     const ty = this.ground(foe) + this.size(foe) * 0.6
@@ -1740,7 +1844,7 @@ export class World {
     a.sprite.position.set(b.x, top, b.z)
     this.scene.add(a.sprite)
     const T = 0.22
-    this.fx.push({ sprite: a.sprite, vx: (foe.x - b.x) / T, vy: (ty - top) / T, vz: (foe.z - b.z) / T, life: T, max: T, grav: 0 })
+    this.fx.push({ sprite: a.sprite, vx: (foe.x - b.x) / T, vy: (ty - top) / T + 0.5 * 9 * T, vz: (foe.z - b.z) / T, life: T, max: T, grav: 9 })
     const dmg = 4 + this.structs.filter((o) => o.kind === 'castle' && o.stage === this.stageIndex && this.structDone(o)).length * 2
     this.after(T, () => {
       if (!this.alive(foe)) return
@@ -1833,6 +1937,10 @@ export class World {
       c.maxHp = Math.round(c.sp.hp * mult * (boss ? 2.5 : 1))
       c.hp = c.maxHp
       c.atk = c.sp.atk * mult * (boss ? 1.4 : 1)
+      if (boss) {
+        this.ring(x, z, '#ff7a2a', 3.4, 1)
+        this.popups.push({ pos: new THREE.Vector3(x, this.size(c) + 0.6, z), text: 'ボス！', color: '#ff7a2a', t: 0, big: true })
+      }
       this.setState(c, 'march', 8)
       a.left.push(c)
     }
@@ -2239,6 +2347,10 @@ export class World {
 
   // ================= 更新 =================
   update(dt: number) {
+    if (this.hitStop > 0) {
+      this.hitStop -= dt
+      dt *= 0.2
+    }
     this.time += dt
     this.night += (this.nightTarget - this.night) * Math.min(1, dt * 2)
     this.updateWeather(dt)
@@ -2312,6 +2424,7 @@ export class World {
     this.updateVillage(dt)
     this.updateArmy(dt)
     this.updateItems(dt)
+    this.updateAmbient(dt)
     this.updateEggs(dt)
     this.tryBreed(dt)
     this.updateFx(dt)
@@ -2622,26 +2735,53 @@ export class World {
         if (site) {
           const off = STRUCTS[site.kind].r + 0.75
           if (this.moveTo(c, site.x + (c.x < site.x ? -1 : 1) * 0.6, site.z + off, sp.speed * 0.9, dt) < 0.5) {
-            this.dropCarry(c, false)
-            this.addStructMaterial(site, c)
-            this.addCare(c, 'guard', 1)
-            this.gainXp(c, 2)
             c.anim.facing = site.x > c.x ? 1 : -1
-            this.setState(c, 'happy', 0.8)
+            c.finish = () => {
+              this.dropCarry(c, false)
+              if (this.structs.includes(site)) {
+                this.addStructMaterial(site, c)
+                this.addCare(c, 'guard', 1)
+                this.gainXp(c, 2)
+              }
+              this.setState(c, 'happy', 0.8)
+            }
+            this.setState(c, 'work', 1.1)
           }
           break
         }
         if (!h) break
         if (this.moveTo(c, h.x + (c.x < h.x ? -1 : 1) * 0.6, h.z + 0.9, sp.speed * 0.9, dt) < 0.5) {
-          this.dropCarry(c, false)
-          const m0 = h.mats
-          this.addMaterial(h, c)
-          this.addCare(c, 'guard', 1)
-          this.gainXp(c, 2)
-          if (c === this.pet && h.level < 4)
-            this.say(`${sp.name}は しざいを はこんだ（いえ ${h.mats}/${HOUSE_STEPS[Math.min(4, h.level + 1)]}${h.mats - m0 > 1 ? ' どうぐで 2ばい' : ''}） まもり+1`)
           c.anim.facing = h.x > c.x ? 1 : -1
-          this.setState(c, 'happy', 0.8)
+          c.finish = () => {
+            this.dropCarry(c, false)
+            if (this.houses.includes(h)) {
+              const m0 = h.mats
+              this.addMaterial(h, c)
+              this.addCare(c, 'guard', 1)
+              this.gainXp(c, 2)
+              if (c === this.pet && h.level < 4)
+                this.say(`${sp.name}は しざいを はこんだ（いえ ${h.mats}/${HOUSE_STEPS[Math.min(4, h.level + 1)]}${h.mats - m0 > 1 ? ' どうぐで 2ばい' : ''}） まもり+1`)
+            }
+            this.setState(c, 'happy', 0.8)
+          }
+          this.setState(c, 'work', 1.1)
+        }
+        break
+      }
+      case 'work': {
+        // かなづちで トントン：はねて、かけらが とぶ
+        anim = c.jy > 0 ? 'happy' : 'idle'
+        if (c.cd <= 0) {
+          c.cd = 0.28
+          c.vy = 2.4
+          this.burst(c.x + c.anim.facing * 0.35, this.ground(c) + 0.3, c.z, Math.random() < 0.5 ? 'spark' : 'cube', 2, 1.4)
+          if (c === this.pet) this.onSfx('select')
+        }
+        if (c.t <= 0) {
+          const f = c.finish
+          c.finish = null
+          if (f) f()
+          else this.setState(c, 'idle', 0.3)
         }
         break
       }
@@ -2760,11 +2900,52 @@ export class World {
     const gy = this.ground(c)
     c.anim.play(anim)
     c.anim.update(dt)
-    c.anim.sprite.position.set(c.x + lungeOff, gy + c.jy, c.z)
+    // ぷにぷに：歩くと弾み、息をして、ジャンプで伸び、着地でつぶれる
+    if (c.pj > 0 && c.jy === 0) c.squash = 0.2
+    c.pj = c.jy
+    c.squash = Math.max(0, c.squash - dt * 1.6)
+    const walking = c.state === 'wander' || c.state === 'hunt' || c.state === 'seek' || c.state === 'gather' || c.state === 'build' || c.state === 'raid' || c.state === 'march' || c.state === 'come' || c.state === 'assist' || c.state === 'rest'
+    const wp = this.time * (7 + sp.speed * 2.2) + c.phase
+    let sx = 1
+    let sy = 1
+    let bob = 0
+    if (c.jy > 0.01) {
+      const up = c.vy > 0 ? 1 : 0.4
+      sy = 1 + 0.12 * up
+      sx = 1 - 0.08 * up
+    } else if (walking) {
+      bob = Math.abs(Math.sin(wp)) * 0.05 * this.size(c)
+      sy = 1 + Math.cos(wp * 2) * 0.04
+      sx = 1 - Math.cos(wp * 2) * 0.03
+    } else {
+      const br = Math.sin(this.time * (c.state === 'sleep' ? 1.1 : 2.2) + c.phase)
+      sy = 1 + br * (c.state === 'sleep' ? 0.035 : 0.02)
+      sx = 1 - br * 0.015
+    }
+    if (c.squash > 0) {
+      sy *= 1 - c.squash * 0.9
+      sx *= 1 + c.squash * 0.7
+    }
+    if (c.lunge > 0) {
+      const l = Math.sin((c.lunge / 0.22) * Math.PI)
+      sx *= 1 + 0.18 * l
+      sy *= 1 - 0.08 * l
+    }
+    c.anim.setHeight(this.size(c))
+    c.anim.sprite.scale.x *= sx
+    c.anim.sprite.scale.y *= sy
+    c.anim.sprite.position.set(c.x + lungeOff, gy + c.jy + bob, c.z)
     c.shadow.position.set(c.x + lungeOff, this.stage.heightAt(c.x, c.z) + 0.03, c.z)
     c.shadow.scale.setScalar(this.size(c) * 0.9 * (1 - Math.min(0.5, c.jy * 0.4)))
     if (c.carryMesh) {
-      c.carryMesh.position.set(c.x, gy + c.jy + this.size(c) * 0.92, c.z)
+      if (c.state === 'work') {
+        // 資材をかなづち代わりに ふりおろす
+        c.carryMesh.position.set(c.x + c.anim.facing * (0.3 + Math.max(0, Math.sin(this.time * 22)) * 0.15), gy + c.jy + this.size(c) * (0.55 + Math.sin(this.time * 22) * 0.2), c.z)
+        c.carryMesh.rotation.z = Math.sin(this.time * 22) * 0.8
+      } else {
+        c.carryMesh.position.set(c.x, gy + c.jy + this.size(c) * 0.92, c.z)
+        c.carryMesh.rotation.z = 0
+      }
       c.carryMesh.rotation.y += dt * 2
     }
   }
