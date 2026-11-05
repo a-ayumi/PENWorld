@@ -68,7 +68,12 @@ const cone = (r: number, h: number, seg: number, mat: THREE.Material, x = 0, y =
 function flag(ctx: ModelCtx, x: number, y: number, z: number) {
   const g = new THREE.Group()
   g.add(cyl(0.015, 0.015, 0.5, 4, ctx.lam('#3d2a1e'), 0, 0.25, 0))
-  g.add(box(0.28, 0.16, 0.02, ctx.basic(ctx.style.accent), 0.15, 0.42, 0))
+  // 旗は ポールを軸に ゆれる（World が name === 'flag' を回す）
+  const pivot = new THREE.Group()
+  pivot.name = 'flag'
+  pivot.position.set(0, 0, 0)
+  pivot.add(box(0.28, 0.16, 0.02, ctx.basic(ctx.style.accent), 0.15, 0.42, 0))
+  g.add(pivot)
   g.position.set(x, y, z)
   return g
 }
