@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { psx, SNAP_GLSL, snapUniform } from './psx'
 import { Tex, rng } from './textures'
 import type { SpeciesId } from './monsters'
+import { STAGES2 } from './stages2'
 
 /**
  * オリジナルのステージ 5 種。どれも「デジタル空間に浮かぶ四角い箱庭」。
@@ -18,8 +19,8 @@ export function setLandSize(n: number) {
 /** 広くなったぶん、木や岩などの小物も増やす */
 const dens = (n: number) => Math.round(n * (SIZE / 20) ** 2)
 
-/** water = 水場（泳げる/浮けるモンスターだけ入れる） */
-export interface Obstacle { x: number; z: number; r: number; water?: boolean }
+/** water = 水場（泳げる/浮けるモンスターだけ入れる）。lava = 溶岩（water の仲間。見た目と はしの扱いだけ ちがう） */
+export interface Obstacle { x: number; z: number; r: number; water?: boolean; lava?: boolean }
 export interface FoodSpot { x: number; z: number }
 
 export interface Stage {
@@ -37,6 +38,10 @@ export interface Stage {
   sky: [string, string, string]
   sun: { color: string; intensity: number; dir: [number, number, number] }
   hemi: [string, string, number]
+  /** フォグの近さ・遠さ（既定 14〜34）。霧のステージは近く */
+  fogRange?: [number, number]
+  /** 夜のヤミカゲの数の上限（既定 2） */
+  shadows?: number
   update(t: number, night: number): void
   dispose(): void
 }
@@ -847,4 +852,6 @@ function disposeTree(o: THREE.Object3D) {
 }
 
 /** ワープで巡る順番 */
-export const STAGES = [seedGrove, glassDunes, coralCove, cottonField, frostCircuit]
+export const STAGES = [seedGrove, glassDunes, coralCove, cottonField, frostCircuit, ...STAGES2]
+/** 追加ステージ（stages2.ts）が使う共通の道具 */
+export { dens, disposeTree, edge, lambert, motes, mounds, placer, skyDome, smooth, terrain, voidSpace }
