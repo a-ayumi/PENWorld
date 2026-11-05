@@ -27,6 +27,18 @@
     </div>
     <button id="dress" aria-expanded="false" aria-controls="dress-panel">きせかえ</button>
     <button id="dex-btn" aria-expanded="false" aria-controls="dex-panel">ずかん</button>
+    <button id="mission-btn" aria-expanded="false" aria-controls="mission-panel">おねがい</button>
+    <section id="mission-panel" hidden aria-label="おねがい">
+      <div class="dress-head"><h2>おねがい</h2><button id="mission-close" aria-label="閉じる">とじる</button></div>
+      <p id="mission-summary"></p>
+      <h3>きょうの おねがい</h3>
+      <ul id="mission-list"></ul>
+      <p id="mission-note"></p>
+      <h3>きせつ</h3>
+      <div id="season-row" class="chips"></div>
+      <h3 id="badge-head">バッジ</h3>
+      <div id="badge-grid"></div>
+    </section>
     <section id="dex-panel" hidden aria-label="ずかん">
       <div class="dress-head"><h2>ずかん</h2><button id="dex-close" aria-label="閉じる">とじる</button></div>
       <p id="dex-summary"></p>
