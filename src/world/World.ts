@@ -4,8 +4,9 @@ import { SpriteAnim, iconSheet } from './sprites'
 import { MonsterModel, hasModel } from './models'
 import { BABY, EGG_COLORS, FAMILY_NAME, NEW_SKILLS, SPECIES, STAGE_EGGS, SpriteMonster, XP_NEED, familyOf, nextForm, type Care, type EggKind, type MonsterView, type Species, type SpeciesId } from './monsters'
 import { Tex } from './textures'
-import { SNAP_GLSL, snapUniform } from './psx'
-import { HALF, LAND_SIZES, STAGES, setLandSize, type Stage } from './stages'
+import { fxU } from './fx'
+import { WeatherFx, fxLod } from './fxprops'
+import { HALF, LAND_SIZES, SIZE, STAGES, setLandSize, type Stage } from './stages'
 import { STRUCTS, buildStructModel, isStructKind, styleOf, type StructKind } from './structures'
 
 /**
@@ -248,6 +249,20 @@ const WEATHER_W: Partial<Record<Weather, number>>[] = [
   { snow: 5, cloud: 2.5, sun: 2.5, ember: 0.3 },
   { snow: 6, cloud: 3, sun: 1, ember: 0.6 },
 ]
+/** 天気ごとの「目標」（強さは World.wx が なめらかに近づく） */
+const WX: Record<Weather, { rain: number; snow: number; ember: number; wind: number; cloud: number; grey: number; mist: number }> = {
+  sun: { rain: 0, snow: 0, ember: 0, wind: 0.22, cloud: 1, grey: 0, mist: 0 },
+  cloud: { rain: 0, snow: 0, ember: 0, wind: 0.42, cloud: 0.5, grey: 0.55, mist: 0.2 },
+  rain: { rain: 1, snow: 0, ember: 0, wind: 0.8, cloud: 0, grey: 0.85, mist: 0.35 },
+  snow: { rain: 0, snow: 1, ember: 0, wind: 0.45, cloud: 0.15, grey: 0.45, mist: 0.3 },
+  ember: { rain: 0, snow: 0, ember: 1, wind: 0.95, cloud: 0.2, grey: 0.1, mist: 0 },
+}
+/** 空気の色（くもり・あめ・ゆき・ひのこ） */
+const WX_TINT: Record<Weather, string | null> = { sun: null, cloud: '#9aa3ad', rain: '#7f8c9c', snow: '#e8eef8', ember: '#b8603a' }
+const EMBER_SUN = new THREE.Color('#ff7a3a')
+const TMP = new THREE.Color()
+/** にじの長さ（秒） */
+const BOW_LEN = 30
 const MAX_FRIENDS = 5
 
 export class World {
@@ -319,8 +334,19 @@ export class World {
   weather: Weather = 'sun'
   private weatherT = 50
   private weatherDim = 1
-  private weatherFx!: THREE.Points
-  private weatherMat!: THREE.ShaderMaterial
+  /** 雨・雪・火の粉・しぶき・もや（fxprops.ts） */
+  private wfx!: WeatherFx
+  /**
+   * なめらかに変わる天気の強さ（0〜1）。天気が変わる時は粒・光・空・地面がこの値で ゆっくり入れかわる。
+   * wet = 地面のぬれ（雨で上がり、止むとかわく）/ cover = 雪の積もり（降ると増え、止むと溶ける）/ bow = にじ
+   */
+  readonly wx = { rain: 0, snow: 0, ember: 0, wind: 0.22, cloud: 1, grey: 0, mist: 0, wet: 0, cover: 0, bow: 0, bowT: 0 }
+  private tintC = new THREE.Color('#9aa3ad')
+  private tintK = 0
+  /** 朝（もやが出る）。main.ts の時間帯から setDayPart で入る */
+  private morning = false
+  /** 画質（高 = 影・波紋・雲の影・もや・草のゆれ まで / 低 = 粒を減らして切る）。main.ts の applyQuality から */
+  high = true
   private warp = 0
   private warpSwitched = true
   private flash = 0
@@ -362,7 +388,8 @@ export class World {
     this.post = makePostMaterial(this.rtScene.texture, this.hudTex)
     this.postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.post))
     this.scene.add(this.hemi, this.sun)
-    this.buildWeatherFx()
+    this.wfx = new WeatherFx()
+    this.scene.add(this.wfx.group)
     if (!this.load()) {
       this.loadStage(0)
       this.pet = this.spawn('mebu', 'pet', 0, 1.5)
@@ -407,6 +434,8 @@ export class World {
     this.stage = STAGES[i]()
     const s = this.stage
     this.scene.add(s.group)
+    fxLod(s.group, this.high)
+    this.wfx.setGround(s.heightAt, SIZE, s.obstacles.filter((o) => o.water))
     this.scene.fog = new THREE.Fog(s.fog, 14, 34)
     this.hemi.color.set(s.hemi[0])
     this.hemi.groundColor.set(s.hemi[1])
@@ -484,19 +513,30 @@ export class World {
     }
   }
 
-  private applyLight() {
+  private applyLight(dt = 0.03) {
     const s = this.stage
     const k = (1 - this.night * 0.68) * this.weatherDim
     this.hemi.intensity = s.hemi[2] * k
     this.sun.intensity = s.sun.intensity * k
     const fog = this.scene.fog as THREE.Fog
     fog.color.set(s.fog)
-    // 天気で空気の色を変える
-    const tint = { sun: null, cloud: '#9aa3ad', rain: '#7f8c9c', snow: '#e8eef8', ember: '#b8603a' }[this.weather]
-    if (tint) fog.color.lerp(new THREE.Color(tint), (1 - this.weatherDim) * 1.6 + (this.weather === 'snow' ? 0.35 : 0))
+    // 天気で空気の色を変える（色も強さも なめらかに追いかける）
+    const tint = WX_TINT[this.weather]
+    const k2 = 1 - Math.exp(-dt * 0.9)
+    if (tint) this.tintC.lerp(TMP.set(tint), k2)
+    const tk = tint ? (1 - this.weatherDim) * 1.6 + (this.weather === 'snow' ? 0.35 : 0) : 0
+    this.tintK += (tk - this.tintK) * k2
+    if (this.tintK > 0.001) fog.color.lerp(this.tintC, Math.min(1, this.tintK))
     fog.color.multiplyScalar(1 - this.night * 0.7)
+    // 朝もや・雨・ゆきで、遠くがかすむ
+    fog.near = 14 - 5 * this.wx.mist
+    fog.far = 34 - 8 * this.wx.mist
     this.sun.color.set(s.sun.color)
-    if (this.weather === 'ember') this.sun.color.lerp(new THREE.Color('#ff7a3a'), 0.5)
+    this.hemi.color.set(s.hemi[0])
+    if (this.wx.ember > 0.001) {
+      this.sun.color.lerp(EMBER_SUN, 0.55 * this.wx.ember)
+      this.hemi.color.lerp(EMBER_SUN, 0.35 * this.wx.ember)
+    }
     this.scene.background = fog.color
   }
 
@@ -2681,66 +2721,6 @@ export class World {
   }
 
   // ================= 天気 =================
-  private buildWeatherFx() {
-    const n = 1500
-    const pos = new Float32Array(n * 3)
-    const seed = new Float32Array(n)
-    for (let i = 0; i < n; i++) {
-      pos[i * 3] = (Math.random() - 0.5) * 26
-      pos[i * 3 + 1] = Math.random() * 9
-      pos[i * 3 + 2] = (Math.random() - 0.5) * 26
-      seed[i] = Math.random()
-    }
-    const geo = new THREE.BufferGeometry()
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-    geo.setAttribute('seed', new THREE.BufferAttribute(seed, 1))
-    this.weatherMat = new THREE.ShaderMaterial({
-      transparent: true,
-      depthWrite: false,
-      uniforms: { time: { value: 0 }, mode: { value: 0 }, uSnap: snapUniform },
-      vertexShader: /* glsl */ `
-        ${SNAP_GLSL}
-        uniform float time; uniform float mode; attribute float seed; varying float vSeed;
-        void main() {
-          vec3 p = position;
-          if (mode < 1.5) {          // 雨：速く落ちる
-            p.y = mod(p.y - time * 12.0 - seed * 9.0, 9.0);
-            p.x += p.y * 0.06;
-          } else if (mode < 2.5) {   // 雪：ゆっくり揺れながら
-            p.y = mod(p.y - time * 1.1 - seed * 9.0, 9.0);
-            p.x += sin(time * 0.8 + seed * 40.0) * 0.5;
-            p.z += cos(time * 0.6 + seed * 30.0) * 0.4;
-          } else {                   // ひのこ：ゆらゆら昇る
-            p.y = mod(p.y + time * 1.3 + seed * 9.0, 9.0);
-            p.x += sin(time * 1.4 + seed * 50.0) * 0.7;
-          }
-          vSeed = seed;
-          vec4 mv = modelViewMatrix * vec4(p, 1.0);
-          gl_Position = psxSnap(projectionMatrix * mv);
-          gl_PointSize = mode < 1.5 ? 7.0 : mode < 2.5 ? 4.0 : 4.0;
-        }`,
-      fragmentShader: /* glsl */ `
-        uniform float time; uniform float mode; varying float vSeed;
-        void main() {
-          vec2 q = gl_PointCoord - 0.5;
-          if (mode < 1.5) {
-            if (abs(q.x) > 0.08) discard;     // 雨は細い線
-            gl_FragColor = vec4(0.8, 0.9, 1.0, 0.8);
-          } else if (mode < 2.5) {
-            gl_FragColor = vec4(1.0, 1.0, 1.0, 0.95);
-          } else {
-            float f = 0.6 + 0.4 * sin(time * 9.0 + vSeed * 60.0);
-            if (length(q) > 0.5) discard;
-            gl_FragColor = vec4(1.0, 0.45 + 0.35 * f, 0.12, 0.6 + 0.4 * f);
-          }
-        }`,
-    })
-    this.weatherFx = new THREE.Points(geo, this.weatherMat)
-    this.weatherFx.frustumCulled = false
-    this.weatherFx.visible = false
-    this.scene.add(this.weatherFx)
-  }
-
   private pickWeather(): Weather {
     const w = WEATHER_W[this.stageIndex] ?? WEATHER_W[0]
     const list = (Object.keys(w) as Weather[]).filter((k) => k !== this.weather || Math.random() < 0.3)
@@ -2755,14 +2735,36 @@ export class World {
 
   setWeather(w: Weather, quiet = false) {
     const changed = w !== this.weather
+    // 雨あがりににじ（まだ雨がのこっている間に はれた時）
+    if (changed && this.weather === 'rain' && w === 'sun' && this.wx.rain > 0.3 && this.night < 0.5) {
+      this.wx.bowT = BOW_LEN
+      // にじは、そのとき見ている向きに かかる
+      const d = this.camera.getWorldDirection(new THREE.Vector3())
+      const h = Math.hypot(d.x, d.z)
+      fxU.uBowDir.value.set(h > 0.2 ? d.x / h : 0, 0, h > 0.2 ? d.z / h : -1)
+      if (!quiet) this.after(2.5, () => this.say('にじが かかった！'))
+    }
     this.weather = w
     this.weatherT = 60 + Math.random() * 90
-    const mode = { sun: 0, cloud: 0, rain: 1, snow: 2, ember: 3 }[w]
-    this.weatherMat.uniforms.mode.value = mode
-    this.weatherFx.visible = w === 'rain' || w === 'snow' || w === 'ember'
-    this.weatherMat.blending = w === 'ember' ? THREE.AdditiveBlending : THREE.NormalBlending
-    this.weatherMat.needsUpdate = true
+    // ステージを切りかえた時は、粒と空を すぐ今の天気に合わせる（ワープの画面のゆがみでかくれる）
+    if (quiet) {
+      const T = WX[w]
+      Object.assign(this.wx, { rain: T.rain, snow: T.snow, ember: T.ember, wind: T.wind, cloud: T.cloud, grey: T.grey, mist: Math.max(T.mist, this.morning ? 0.85 : 0) })
+    }
     if (changed && !quiet) this.say(WEATHER_MSG[w])
+  }
+
+  /** 朝はもやが出る（main.ts が時間帯を渡す） */
+  setDayPart(part: string) {
+    this.morning = part === 'morning'
+  }
+
+  /** 画質。低 = 雨・雪・火の粉を減らし、雲の影・水たまり・波紋・風のゆれ・もや・熱のゆらぎ・水面のきらめきを切る */
+  setQuality(q: 'high' | 'low') {
+    this.high = q === 'high'
+    fxU.uHigh.value = this.high ? 1 : 0
+    this.wfx.setQuality(this.high)
+    fxLod(this.stage.group, this.high)
   }
 
   private updateWeather(dt: number) {
@@ -2770,8 +2772,46 @@ export class World {
     if (this.weatherT <= 0) this.setWeather(this.pickWeather())
     const target = { sun: 1, cloud: 0.72, rain: 0.6, snow: 0.86, ember: 0.78 }[this.weather]
     this.weatherDim += (target - this.weatherDim) * Math.min(1, dt * 0.8)
-    this.weatherMat.uniforms.time.value = this.time
-    this.weatherFx.position.set(this.look.x, this.stage.heightAt(this.look.x, this.look.z) - 1, this.look.z)
+
+    // 天気の強さを目標へ なめらかに（約 4 秒で入れかわる）
+    const T = WX[this.weather]
+    const wx = this.wx
+    const k = 1 - Math.exp(-dt * 0.7)
+    wx.rain += (T.rain - wx.rain) * k
+    wx.snow += (T.snow - wx.snow) * k
+    wx.ember += (T.ember - wx.ember) * k
+    wx.wind += (T.wind - wx.wind) * k * 0.6
+    wx.cloud += (T.cloud - wx.cloud) * k * 0.5
+    wx.grey += (T.grey - wx.grey) * k * 0.5
+    wx.mist += (Math.max(T.mist, this.morning ? 0.85 : 0) - wx.mist) * k * 0.4
+    // ぬれ：雨で上がり、止むとゆっくりかわく / 雪：降るほど積もり、止むと溶ける（ひのこ・はれは早い）
+    wx.wet = THREE.MathUtils.clamp(wx.wet + (this.weather === 'rain' ? dt / 14 : this.weather === 'ember' ? -dt / 25 : -dt / 70), 0, 1)
+    const melt = this.weather === 'ember' ? 22 : this.weather === 'sun' ? 50 : 80
+    wx.cover = THREE.MathUtils.clamp(wx.cover + (this.weather === 'snow' ? (dt / 80) * wx.snow : -dt / melt), 0, 1)
+    // にじ（出て、しばらくして消える）
+    if (wx.bowT > 0) {
+      wx.bowT = Math.max(0, wx.bowT - dt)
+      wx.bow = Math.pow(Math.sin(Math.PI * (1 - wx.bowT / BOW_LEN)), 0.6)
+    } else wx.bow = 0
+
+    // 共通の uniform（地形・木・水・空のシェーダーが読む）
+    const ang = 0.55 + Math.sin(this.time * 0.04) * 0.5
+    fxU.uWindDir.value.set(Math.cos(ang), Math.sin(ang))
+    fxU.uDrift.value.addScaledVector(fxU.uWindDir.value, (0.18 + wx.wind * 0.5) * dt)
+    fxU.uTime.value = this.time
+    fxU.uWind.value = wx.wind
+    fxU.uWet.value = wx.wet
+    fxU.uRain.value = wx.rain
+    fxU.uSnow.value = wx.cover
+    fxU.uCloud.value = wx.cloud * (1 - this.night) * (1 - wx.grey * 0.6)
+    fxU.uNight.value = this.night
+    fxU.uGlint.value = (1 - this.night * 0.5) * Math.max(0, 1 - wx.grey * 1.15)
+    fxU.uGrey.value = wx.grey
+    fxU.uEmber.value = wx.ember
+    fxU.uBow.value = wx.bow
+    this.post.uniforms.heat.value = this.high ? wx.ember : 0
+    const fog = this.scene.fog as THREE.Fog
+    this.wfx.update(this.look, this.stage.heightAt(this.look.x, this.look.z), { rain: wx.rain, snow: wx.snow, ember: wx.ember, mist: wx.mist }, fog.color)
   }
 
   // ================= たまご =================
@@ -3055,10 +3095,9 @@ export class World {
     this.time += dt
     this.night += (this.nightTarget - this.night) * Math.min(1, dt * 2)
     this.updateWeather(dt)
-    this.applyLight()
-    // くもり・雨のときは空も少し暗く
-    const overcast = { sun: 0, cloud: 0.3, rain: 0.45, snow: 0.15, ember: 0.35 }[this.weather]
-    this.stage.update(this.time, Math.max(this.night, overcast * (1 - this.weatherDim) * 2.5))
+    this.applyLight(dt)
+    // くもり・雨の空の暗さ・灰色は fxU（uGrey）で空のシェーダーに入る
+    this.stage.update(this.time, this.night)
 
     if (this.warp > 0) {
       this.warp = Math.max(0, this.warp - dt)
