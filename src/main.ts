@@ -121,6 +121,7 @@ function applyQuality() {
   composer.setPixelRatio(dpr)
   bokeh.enabled = quality === 'high'
   bloom.enabled = quality === 'high'
+  world.setQuality(quality)
   qualityBtn.textContent = `画質: ${quality === 'high' ? '高' : '低'}`
   resize()
 }

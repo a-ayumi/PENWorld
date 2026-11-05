@@ -14,6 +14,8 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - `src/main.ts` — レンダラー、ライト、ポストエフェクト、ボタン操作、ループ
 - `src/device.ts` — 本体の 3D モデルと、きせかえ用の柄 `SKINS`（7 種）と かたち `SHAPES`（たまご / くま / おはな = かわいい系、ロボ / メカ = きかい系）
 - `src/places.ts` — 本体の後ろの「人間側」の場所 6 種（机・電車・通学路・教室・バーガーショップ・公園）。実在の店や施設は描かない
+- `src/world/items.ts` — 置き物 13 種（なえ・ボール・たき火・おまもり・だいくどうぐ・まもりのさく・おはか・ベンチ・ランタン・ぬいぐるみ・おうえんばた・はなだん・ミニすべりだい）の説明 `ITEM_INFO`・上限 `ITEM_SPEC`・モデル `buildItem()`・見た目のアニメ `tickItem()`。効果は World.ts（`think()` / `updateItems()`）
+- `src/world/shop.ts` — ショップの商品 `SHOP`（カテゴリ別・安い順）・タブ式の画面 `drawShop()`・タップ判定 `shopTap()`・9×9 のアイコン
 - `src/world/World.ts` — 箱庭本体：生き物の AI・バトル・食べ物・置き物・仲間・たまご・進化・コイン/ショップ・セーブ・HUD・描画パイプライン
 - `src/world/stages.ts` — ステージ 5 種（はじまりの森 / ガラスの砂丘 / さんごの入り江 / わたゆきの原 / こおりの回路峰）。水場は `water: true` の障害物（浮く種族だけ入れる）
 - `src/world/monsters.ts` — 進化分岐 `BRANCH`（ちから/まもり/こころ、4 段階）、必要経験値 `XP_NEED`、モンスター 14 種（仲間になれる 10 種：メブ / ピコリ / ゴロタ / モフル / ギアル / ヒレル / フワリ / ガルドラ / シオリュウ / ホシクジラ、敵 4 種：ノイズ / トゲバグ / ヤミカゲ（夜だけ）/ ゴウガン（家をこわす））
@@ -56,6 +58,7 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - **役割分担**：`Creature.role`（だいく / はたけがかり / みはり）を `assignRoles()` が 15 秒ごとに、性格 `bias` と村に足りない物（はたけ・みはりとう・おしろ）で決める。だいくは建築の確率が高く現場を優先、はたけがかりは `tend` 状態で畑の実りを早め、みはりは持ち場（みはりとう・おしろ）を見まわり 7 マス先の敵まで追う。頭の上に色つきの点
 - **世代交代**：ペットの `stats.petAge`（あそんだ秒）が `LIFESPAN`（3 時間）に達すると `retirePet()` → おはか（`memorial`）→ `rebirth()` で同じ系統の赤ちゃんとして生まれ変わる（育ちの傾向は 3 割引きつぎ、代をかさねるほど強く、25% で突然変異）。`stats.gen` / `lineage` を保存。テストは `world.ageUp(分)`
 - **かいたく**：箱庭の広さは `LAND_SIZES = [20, 26, 32]`（`stages.ts` の `setLandSize()`）。ショップの「かいたく ①②」で `expandLand()`（ステージを作り直し、家・建物・置き物・たまごは残す）。小物の数は `dens()` で面積に比例。広さは全ステージ共通で `land` を保存
+- **ショップと置き物**：買えるか・理由は `shopCheck()`（色分けと同じ元）。買うと置き物は上から落ちてはずみ、コインが吸いこまれる（`placeItem` / `buyFx`）。置き物を足す時は `items.ts` の `ItemKind` / `ITEM_SPEC` / `ITEM_INFO` / モデル / `tickItem` と `shop.ts` の `SHOP`・アイコンを足し、効果を World.ts に書く。セーブは `isItemKind` と上限で検査。光源は画質「低」で作らない（`World.setQuality`）
 - ペットの行動結果は `delta()` で増減を付けてメッセージに出す（ごはん・ねむり・トレーニング・あそび・家づくり）
 - **セキュリティ**（公開リポジトリ）：秘密・鍵・個人情報をコミットしない／外部通信を増やさない（CSP の `connect-src 'self'`、許可元は `vite.config.ts` の `CSP`）／セーブや読み込んだコードは信用せず `isSpecies()` / `num()` で検査／`innerHTML` に外部データを入れない。方針は `SECURITY.md`
 - 天気は `setWeather()`、出やすさはステージごとの `WEATHER_W`
