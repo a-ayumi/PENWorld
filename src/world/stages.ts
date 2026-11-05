@@ -319,7 +319,7 @@ function seedGrove(): Stage {
   return {
     id: 0, name: 'はじまりの森', sub: 'SEED GROVE', group, heightAt, obstacles, foodSpots,
     food: { name: 'ほしリンゴ', color: '#ff5a6e', leaf: '#5cc25a' },
-    residents: ['mebu', 'mebu', 'pikori', 'noiz', 'togebug'],
+    residents: ['mebu', 'mebu', 'pikori', 'noiz', 'togebug', 'mimiko', 'piyo'],
     fog: '#bfe6ff', sky: ['#3f7fe0', '#a8dcff', '#1b2a5a'],
     sun: { color: '#fff1d6', intensity: 2.2, dir: [5, 9, 4] }, hemi: ['#d8efff', '#4a7a3a', 1.4],
     update(t, night) {
@@ -402,7 +402,7 @@ function glassDunes(): Stage {
   return {
     id: 1, name: 'ガラスの砂丘', sub: 'GLASS DUNES', group, heightAt, obstacles, foodSpots,
     food: { name: 'けっしょう糖', color: '#5ef2ff', leaf: '#ff7ad9' },
-    residents: ['gorota', 'gorota', 'giaru', 'noiz', 'togebug', 'gougan'],
+    residents: ['gorota', 'gorota', 'giaru', 'noiz', 'togebug', 'gougan', 'nejiru', 'ryuuko'],
     fog: '#f0a878', sky: ['#5b3a8a', '#ff9b6a', '#2a1a3a'],
     sun: { color: '#ffb27a', intensity: 2.4, dir: [-6, 5, 3] }, hemi: ['#ffd2b0', '#7a4a3a', 1.2],
     update(t, night) {
@@ -500,7 +500,7 @@ function frostCircuit(): Stage {
   return {
     id: 2, name: 'こおりの回路峰', sub: 'FROST CIRCUIT', group, heightAt, obstacles, foodSpots,
     food: { name: 'ゆきベリー', color: '#b48cff', leaf: '#2e7a5e' },
-    residents: ['fuwari', 'fuwari', 'pikori', 'noiz', 'gougan'],
+    residents: ['fuwari', 'fuwari', 'pikori', 'noiz', 'gougan', 'shizuku', 'gabuko'],
     fog: '#7a90c0', sky: ['#0d1a3a', '#3a5a9a', '#0a1028'],
     sun: { color: '#cfe0ff', intensity: 1.6, dir: [4, 8, -3] }, hemi: ['#a8c8ff', '#3a4a6a', 1.3],
     update(t, night) {
@@ -677,7 +677,7 @@ function coralCove(): Stage {
   return {
     id: 3, name: 'さんごの入り江', sub: 'CORAL COVE', group, heightAt, obstacles, foodSpots,
     food: { name: 'なみのみ', color: '#ffd166', leaf: '#3fae5a' },
-    residents: ['hireru', 'hireru', 'mebu', 'noiz', 'togebug'],
+    residents: ['hireru', 'hireru', 'mebu', 'noiz', 'togebug', 'wanko', 'piyo'],
     fog: '#bfe9ff', sky: ['#2f8ff0', '#bfeeff', '#123a6a'],
     sun: { color: '#fff6e0', intensity: 2.4, dir: [3, 10, 5] }, hemi: ['#dff6ff', '#c9a070', 1.4],
     update(t, night) {
@@ -810,7 +810,7 @@ function cottonField(): Stage {
   return {
     id: 4, name: 'わたゆきの原', sub: 'COTTON SNOWFIELD', group, heightAt, obstacles, foodSpots,
     food: { name: 'ゆきいちご', color: '#ff9ecb', leaf: '#7cf29b' },
-    residents: ['mofuru', 'mofuru', 'fuwari', 'noiz', 'togebug'],
+    residents: ['mofuru', 'mofuru', 'fuwari', 'noiz', 'togebug', 'nejiru', 'mimiko'],
     fog: '#e8f0ff', sky: ['#7fb2ff', '#e6f0ff', '#3a4a7a'],
     sun: { color: '#fff8ee', intensity: 2.0, dir: [-4, 9, 5] }, hemi: ['#eef4ff', '#8a9ac0', 1.5],
     update(t, night) {
