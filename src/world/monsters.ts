@@ -1,10 +1,12 @@
 import { SpriteAnim, buildSheet, pixelSprite, type Sheet } from './sprites'
 
 /**
- * オリジナルのモンスター 8 種。すべてコードで描く 2.5D ドット絵（色・陰影・アウトライン付き）。
+ * オリジナルのモンスター 14 種（仲間になれる 11 種 + 敵 4 種のうち ノイズ を含む）。すべてコードで描く 2.5D ドット絵（色・陰影・アウトライン付き）。
  * 1 種につき 12 コマ：idle×2 / walk×4 / happy / eat×2 / sleep / attack / hurt
  */
-export type SpeciesId = 'mebu' | 'pikori' | 'gorota' | 'fuwari' | 'giaru' | 'noiz' | 'hireru' | 'mofuru'
+export type SpeciesId =
+  | 'mebu' | 'pikori' | 'gorota' | 'fuwari' | 'giaru' | 'noiz' | 'hireru' | 'mofuru'
+  | 'garudora' | 'shioryu' | 'hoshikujira' | 'togebug' | 'yamikage' | 'gougan'
 
 export interface Species {
   id: SpeciesId
@@ -17,15 +19,21 @@ export interface Species {
   /** calm = 平和に暮らす / wild = 近くの相手に襲いかかる */
   temper: 'calm' | 'wild'
   float?: boolean
-  /** 進化の段階（1 = 幼年期、2 = 成長期、3 = 成熟期、0 = 敵） */
-  tier: 0 | 1 | 2 | 3
+  /** 進化の段階（1 = 幼年期、2 = 成長期、3 = 成熟期、4 = 完成期、0 = 敵） */
+  tier: 0 | 1 | 2 | 3 | 4
+  /** 敵のこのみ（raid = 家を壊したがる / night = 夜だけ出る） */
+  habit?: 'raid' | 'night'
 }
+
+/** 進化に必要な経験値（段階ごと） */
+export const XP_NEED: Record<1 | 2 | 3, number> = { 1: 15, 2: 45, 3: 110 }
 
 /** 進化分岐：育て方の傾向（ちから / まもり / こころ）でつぎの姿が決まる */
 export type Care = 'power' | 'guard' | 'spirit'
-export const BRANCH: Record<1 | 2, Record<Care, SpeciesId>> = {
+export const BRANCH: Record<1 | 2 | 3, Record<Care, SpeciesId>> = {
   1: { power: 'pikori', guard: 'gorota', spirit: 'mofuru' },
   2: { power: 'giaru', guard: 'hireru', spirit: 'fuwari' },
+  3: { power: 'garudora', guard: 'shioryu', spirit: 'hoshikujira' },
 }
 
 export const SPECIES: Record<SpeciesId, Species> = {
@@ -36,7 +44,13 @@ export const SPECIES: Record<SpeciesId, Species> = {
   giaru: { id: 'giaru', name: 'ギアル', kind: 'はぐるまロボ型', height: 1.69, hp: 80, atk: 13, speed: 1.7, temper: 'calm', tier: 3 },
   hireru: { id: 'hireru', name: 'ヒレル', kind: 'なみのり魚型', height: 1.4, hp: 76, atk: 12, speed: 1.7, temper: 'calm', float: true, tier: 3 },
   mofuru: { id: 'mofuru', name: 'モフル', kind: 'わたゆき獣型', height: 1.4, hp: 60, atk: 6, speed: 1.0, temper: 'calm', tier: 2 },
+  garudora: { id: 'garudora', name: 'ガルドラ', kind: 'はがねりゅう型', height: 2.05, hp: 150, atk: 22, speed: 1.6, temper: 'calm', tier: 4 },
+  shioryu: { id: 'shioryu', name: 'シオリュウ', kind: 'うしおへび型', height: 2.0, hp: 165, atk: 18, speed: 1.5, temper: 'calm', float: true, tier: 4 },
+  hoshikujira: { id: 'hoshikujira', name: 'ホシクジラ', kind: 'ほしぞらくじら型', height: 2.1, hp: 140, atk: 19, speed: 1.2, temper: 'calm', float: true, tier: 4 },
   noiz: { id: 'noiz', name: 'ノイズ', kind: 'こわれたデータ', height: 1.35, hp: 38, atk: 7, speed: 1.5, temper: 'wild', tier: 0 },
+  togebug: { id: 'togebug', name: 'トゲバグ', kind: 'とげむし型', height: 1.15, hp: 26, atk: 6, speed: 2.2, temper: 'wild', tier: 0 },
+  yamikage: { id: 'yamikage', name: 'ヤミカゲ', kind: 'よるのかげ', height: 1.5, hp: 40, atk: 10, speed: 1.6, temper: 'wild', float: true, tier: 0, habit: 'night' },
+  gougan: { id: 'gougan', name: 'ゴウガン', kind: 'マグマいわ型', height: 1.95, hp: 115, atk: 14, speed: 0.8, temper: 'wild', tier: 0, habit: 'raid' },
 }
 
 interface Pose {
@@ -295,6 +309,185 @@ const DRAW: Record<SpeciesId, (g: G, p: Pose, f: number) => void> = {
     ell(g, '#ffb3c8', cx, cy + 2, 1.6, 1)
     if (p.mouth) rect(g, '#7a1f3d', cx + 3, cy + 3, 2, 2)
     else rect(g, '#2a3a6a', cx + 3, cy + 3, 2, 1)
+  },
+  garudora(g, p) {
+    // はがねの竜：青い装甲・金のふち・歯車の翼・プラグのしっぽ
+    const cx = 15 + p.lean
+    const cy = 20 + p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
+    // 歯車の翼（後ろ）
+    for (let i = 0; i < 5; i++) {
+      const a = -2.4 + i * 0.32 + p.flap * 0.05
+      poly(g, i % 2 ? '#7a8aa8' : '#9aaac8', [cx - 3, cy - 4, cx - 3 + Math.cos(a) * 12, cy - 4 + Math.sin(a) * 12, cx - 3 + Math.cos(a + 0.25) * 11, cy - 4 + Math.sin(a + 0.25) * 11])
+    }
+    ell(g, '#c9ced6', cx - 3, cy - 4, 2.5, 2.5)
+    // しっぽ
+    poly(g, '#34508a', [cx - 7, cy + 3, cx - 15, cy + 1 - p.step, cx - 14, cy + 3 - p.step, cx - 7, cy + 6])
+    rect(g, '#ffd23f', cx - 17, cy - p.step, 3, 3)
+    // あし
+    rect(g, '#2a3f6e', cx - 6 + p.step, cy + 6, 4, 5)
+    rect(g, '#2a3f6e', cx + 2 - p.step, cy + 6, 4, 5)
+    rect(g, '#ffd23f', cx - 6 + p.step, cy + 10, 4, 1)
+    rect(g, '#ffd23f', cx + 2 - p.step, cy + 10, 4, 1)
+    // からだ
+    blob(g, cx, cy + 1, 8, 7 - p.sq * 0.5, '#4a6fa5', '#2a3f6e', '#8fb0e0')
+    ell(g, '#c9d8f0', cx + 2, cy + 3, 4, 3.5)
+    for (let i = 0; i < 3; i++) rect(g, '#9aaac8', cx + 0.5, cy + 1 + i * 1.5, 3, 0.5)
+    // くび + あたま
+    poly(g, '#4a6fa5', [cx + 3, cy - 4, cx + 7, cy - 9, cx + 9, cy - 6, cx + 6, cy - 1])
+    const hx = cx + 9
+    const hy = cy - 10
+    blob(g, hx, hy, 5, 3.6, '#4a6fa5', '#2a3f6e', '#8fb0e0')
+    poly(g, '#ffd23f', [hx - 2, hy - 3, hx - 4, hy - 8, hx, hy - 3.5])
+    poly(g, '#ffd23f', [hx + 1, hy - 3, hx + 1, hy - 7, hx + 3, hy - 3])
+    rect(g, '#2a3f6e', hx + 2, hy + 1.5, 4, 1.5)
+    if (p.mouth) {
+      rect(g, '#7a1f3d', hx + 2, hy + 1.5, 4, 1.5)
+      rect(g, '#ffffff', hx + 3, hy + 1.5, 0.5, 0.5)
+    }
+    // ゴーグルの目
+    ell(g, '#c9ced6', hx + 1, hy - 0.5, 1.6, 1.6)
+    if (p.eye === 'closed') rect(g, '#2a3f6e', hx, hy - 0.5, 2, 0.5)
+    else {
+      ell(g, p.eye === 'hurt' ? '#ffffff' : '#5ef2ff', hx + 1, hy - 0.5, 1, 1)
+      if (p.eye === 'angry') rect(g, '#1a1530', hx - 1, hy - 2.5, 4, 0.5)
+    }
+    // うで
+    rect(g, '#2a3f6e', cx + 5 + (p.lean > 1 ? 2 : 0), cy - 1 - p.flap * 0.5, 3, 4)
+    rect(g, '#ffd23f', cx + 6 + (p.lean > 1 ? 2 : 0), cy + 2.5 - p.flap * 0.5, 2, 1)
+  },
+  shioryu(g, p, f) {
+    // うしおの竜：S 字にうねる体・クリームのおなか・オレンジのひれ
+    const cx = 15 + p.lean
+    const cy = 16 + p.bob
+    const segs = 7
+    for (let i = segs; i >= 0; i--) {
+      const t = i / segs
+      const x = cx - 10 + t * 16
+      const y = cy + 6 - Math.sin(t * Math.PI * 1.6 + f * 0.6) * 4 - t * 4
+      const r = 2.2 + t * 1.6
+      ell(g, '#1f8a9a', x + 0.5, y + 0.8, r, r)
+      ell(g, '#2fb5c9', x, y, r - 0.4, r - 0.6)
+      ell(g, '#f4ead6', x + 0.3, y + r * 0.45, r * 0.6, r * 0.35)
+      if (i % 2 === 0) poly(g, '#ff9f6b', [x - 1, y - r + 0.5, x + 0.5, y - r - 2.5, x + 1.5, y - r + 0.5])
+    }
+    // 尾びれ
+    poly(g, '#ff9f6b', [cx - 11, cy + 6, cx - 15, cy + 3, cx - 14, cy + 9])
+    // あたま
+    const hx = cx + 8
+    const hy = cy - 5
+    blob(g, hx, hy, 4.5, 3.5, '#2fb5c9', '#1f8a9a', '#9ae6ea')
+    rect(g, '#f4ead6', hx + 1, hy + 1, 4, 1.5)
+    poly(g, '#ff9f6b', [hx - 3, hy - 2, hx - 6, hy - 6, hx - 1, hy - 3])
+    // ひげ
+    for (const dy of [0, 1.5]) {
+      const w = Math.sin(f + dy) * 0.8
+      rect(g, '#f4ead6', hx + 4, hy + dy, 2, 0.5)
+      rect(g, '#f4ead6', hx + 5.5, hy + dy + 0.5 + w, 1.5, 0.5)
+    }
+    eyes(g, [hx + 1.5], hy - 1, p.eye)
+    if (p.mouth) rect(g, '#7a1f3d', hx + 2, hy + 1.5, 2, 1)
+  },
+  hoshikujira(g, p, f) {
+    // ほしぞらのくじら：紺の体に星もよう・水色のおなか
+    const cx = 16 + p.lean
+    const cy = 16 + p.bob
+    // しっぽ
+    const tw = Math.sin(f * 0.9) * 1.5
+    poly(g, '#1f2a5e', [cx - 10, cy, cx - 16, cy - 5 + tw, cx - 13, cy + tw, cx - 16, cy + 5 + tw])
+    blob(g, cx, cy, 12, 7.5 - p.sq * 0.4, '#2a3a7a', '#1a2350', '#5a6ab0')
+    ell(g, '#9fd8ff', cx + 2, cy + 3.5, 8, 3)
+    for (let i = 0; i < 4; i++) rect(g, '#7ab8e0', cx - 4 + i * 2.5, cy + 2, 0.5, 3)
+    // 星もよう
+    for (const [sx, sy] of [[-6, -3], [-2, -5], [3, -4], [-8, 1], [6, -2]] as const) {
+      rect(g, '#fff27a', cx + sx, cy + sy, 1, 1)
+      rect(g, '#fff27a', cx + sx - 0.5, cy + sy + 0.25, 2, 0.5)
+    }
+    // むなびれ
+    poly(g, '#1a2350', [cx - 1, cy + 4, cx - 5, cy + 9 - p.flap, cx + 2, cy + 6])
+    // 潮ふき（きらきら）
+    if ((f + 1) % 3 === 0 || p.eye === 'happy') {
+      rect(g, '#cfeeff', cx - 1, cy - 11, 1, 3)
+      rect(g, '#cfeeff', cx - 3, cy - 12, 1, 2)
+      rect(g, '#cfeeff', cx + 1, cy - 12, 1, 2)
+    }
+    eyes(g, [cx + 7], cy - 1, p.eye, '#0d1530')
+    if (p.mouth) rect(g, '#0d1530', cx + 8, cy + 2, 3, 1)
+    else rect(g, '#0d1530', cx + 8, cy + 2, 3, 0.5)
+  },
+  togebug(g, p, f) {
+    // とげむし：とがった甲羅の小さな虫。足が 6 本
+    const cx = 16 + p.lean
+    const cy = 24 + p.bob * 0.5
+    for (let i = 0; i < 3; i++) {
+      const lx = cx - 5 + i * 5
+      const s = (i % 2 ? 1 : -1) * p.step
+      rect(g, '#1a3a38', lx + s, cy + 3, 1, 4)
+      rect(g, '#1a3a38', lx + s - 1, cy + 6, 2, 1)
+    }
+    blob(g, cx, cy, 9, 5.5 - p.sq * 0.5, '#2a6f6a', '#1a4a48', '#5fb8a8')
+    for (let i = 0; i < 5; i++) {
+      const sx = cx - 7 + i * 3.4
+      poly(g, i % 2 ? '#ff3bd4' : '#d01fb0', [sx - 1.5, cy - 3, sx, cy - 8 - (i === 2 ? 2 : 0), sx + 1.5, cy - 3])
+    }
+    ell(g, '#1a3a38', cx + 9, cy + 1, 3, 2.5)
+    rect(g, '#ff3b5c', cx + 9.5, cy, 1.5, 1)
+    if (p.eye === 'angry' || p.mouth) {
+      rect(g, '#ffd23f', cx + 12, cy + 1, 2, 0.5)
+      rect(g, '#ffd23f', cx + 12, cy + 2.5, 2, 0.5)
+    }
+    // こわれたデータの粒
+    if (f % 2 === 0) rect(g, '#3bf2ff', cx - 3, cy - 1, 1, 1)
+  },
+  yamikage(g, p, f) {
+    // よるのかげ：ゆらめく紫の炎のようなもの。光る目
+    const cx = 16 + p.lean
+    const cy = 16 + p.bob
+    for (let i = 0; i < 4; i++) {
+      const w = Math.sin(f * 1.3 + i) * 1.5
+      poly(g, '#2a1a50', [cx - 6 + i * 4, cy + 4, cx - 5 + i * 4 + w, cy + 11 + (i % 2) * 2, cx - 3 + i * 4, cy + 4])
+    }
+    ell(g, '#2a1a50', cx, cy, 8, 7)
+    ell(g, '#3a2a6a', cx - 0.5, cy - 0.5, 7, 6)
+    // 頭の炎
+    const fl = Math.sin(f * 1.7) * 1.5
+    poly(g, '#3a2a6a', [cx - 5, cy - 4, cx - 2 + fl, cy - 14, cx + 1, cy - 6])
+    poly(g, '#5a3a9a', [cx - 1, cy - 5, cx + 3 - fl, cy - 12, cx + 5, cy - 4])
+    poly(g, '#7a5ac0', [cx - 2, cy - 5, cx + fl * 0.5, cy - 9, cx + 2, cy - 5])
+    if (p.eye === 'closed') {
+      rect(g, '#ffe14a', cx, cy - 1, 2, 0.5)
+      rect(g, '#ffe14a', cx + 4, cy - 1, 2, 0.5)
+    } else {
+      ell(g, '#ffe14a', cx + 1, cy - 1, 1.4, p.eye === 'angry' ? 0.8 : 1.4)
+      ell(g, '#ffe14a', cx + 5, cy - 1, 1.4, p.eye === 'angry' ? 0.8 : 1.4)
+    }
+    if (p.mouth) for (let i = 0; i < 4; i++) rect(g, '#ffe14a', cx + i * 1.2, cy + 2.5 + (i % 2) * 0.5, 0.5, 0.5)
+  },
+  gougan(g, p, f) {
+    // マグマいわ：岩のかたまりの巨人。すきまからマグマが光る
+    const cx = 16 + p.lean
+    const cy = 20 + p.bob * 0.5
+    rect(g, '#4f4740', cx - 7 + p.step, cy + 6, 5, 5)
+    rect(g, '#4f4740', cx + 2 - p.step, cy + 6, 5, 5)
+    // 胴体（岩をつみ重ねた形）
+    poly(g, '#4f4740', [cx - 9, cy + 7, cx - 10, cy - 4, cx - 5, cy - 9, cx + 6, cy - 9, cx + 10, cy - 3, cx + 9, cy + 7])
+    poly(g, '#7a6f66', [cx - 8, cy + 5, cx - 9, cy - 4, cx - 4, cy - 8, cx + 5, cy - 8, cx + 8, cy - 3, cx + 7, cy + 5])
+    poly(g, '#a89c90', [cx - 7, cy - 4, cx - 4, cy - 7, cx, cy - 7, cx - 3, cy - 3])
+    // マグマのひび
+    const glow = f % 2 ? '#ff9a3a' : '#ff6a1a'
+    rect(g, glow, cx - 3, cy - 2, 1, 5)
+    rect(g, glow, cx - 3, cy + 2, 5, 1)
+    rect(g, glow, cx + 3, cy - 5, 1, 4)
+    rect(g, glow, cx + 4, cy + 3, 1, 3)
+    // 頭（小さな岩）+ ひとつ目
+    rect(g, '#4f4740', cx - 2, cy - 13, 7, 5)
+    rect(g, '#7a6f66', cx - 2, cy - 13, 6, 4)
+    ell(g, p.eye === 'closed' ? '#4f4740' : '#ff3b2a', cx + 2.5, cy - 11, 1.4, p.eye === 'angry' ? 0.8 : 1.2)
+    // おおきなこぶし
+    const ax = p.lean > 1 ? 3 : 0
+    rect(g, '#4f4740', cx + 8 + ax, cy - 3 - p.flap, 5, 6)
+    rect(g, '#7a6f66', cx + 8 + ax, cy - 3 - p.flap, 4, 5)
+    rect(g, '#4f4740', cx - 13, cy - 2 + p.flap, 4, 6)
+    rect(g, '#7a6f66', cx - 13, cy - 2 + p.flap, 3, 5)
   },
   noiz(g, p, f) {
     const cx = 16 + p.lean
