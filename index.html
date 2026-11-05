@@ -27,6 +27,22 @@
     </div>
     <button id="dress" aria-expanded="false" aria-controls="dress-panel">きせかえ</button>
     <button id="dex-btn" aria-expanded="false" aria-controls="dex-panel">ずかん</button>
+    <button id="lucky-btn" aria-expanded="false" aria-controls="lucky-panel">うんだめし</button>
+    <section id="lucky-panel" hidden aria-label="うんだめし">
+      <div class="dress-head"><h2>うんだめし</h2><span id="lucky-coins"></span><button id="lucky-close" aria-label="閉じる">とじる</button></div>
+      <div id="lucky-tabs" role="tablist"></div>
+      <p id="lucky-banner" hidden aria-live="polite"></p>
+      <div id="lucky-body"></div>
+      <div id="lucky-day"></div>
+      <div class="chips"><button type="button" class="chip" id="lucky-allow">おこづかい</button></div>
+      <p class="lk-note">ここで あそぶ コインは、ゲームの中だけの ものです。ほんもののお金とは ぜんぜん つながっていません。むりせず、ほどほどに たのしもうね。</p>
+    </section>
+    <div id="bet-bar" hidden>
+      <div class="bb-head"><b id="bb-title">どっちが かつ？</b><span id="bb-time"></span></div>
+      <div class="bb-row"><button id="bb-a" type="button"></button><button id="bb-b" type="button"></button></div>
+      <div class="bb-row"><span>かけ金</span><span id="bb-bets" class="chips"></span><button id="bb-skip" type="button" class="chip">みおくり</button></div>
+      <p id="bb-info"></p>
+    </div>
     <section id="dex-panel" hidden aria-label="ずかん">
       <div class="dress-head"><h2>ずかん</h2><button id="dex-close" aria-label="閉じる">とじる</button></div>
       <p id="dex-summary"></p>
