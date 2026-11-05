@@ -221,7 +221,7 @@ const EGG_SHEET = (kind: EggKind) => {
 
 /** 少し見下ろす箱庭カメラ（手前の木でキャラが隠れにくい角度） */
 const CAM_OFF = new THREE.Vector3(0, 6.6, 5.8)
-const FONT = '"DotGothic16", ui-monospace, monospace'
+const FONT = '"DotGothic16", "Hiragino Sans", "Noto Sans JP", "Yu Gothic", Meiryo, ui-monospace, monospace'
 const SAVE_KEY = 'pulsar-save-v1'
 const HOUSE_STEPS = [0, 2, 5, 8, 12]
 const MAX_STRUCTS = 26
@@ -306,6 +306,8 @@ export class World {
   private structs: Struct[] = []
   /** 当たった瞬間のわずかな止まり（ヒットストップ） */
   private hitStop = 0
+  /** 「動きをへらす」：画面ゆれ・フラッシュ・ヒットストップ・ぷにぷにを弱める（main.ts の設定から切り替える） */
+  reducedMotion = false
   private ambient: { s: SpriteAnim; kind: 'bf' | 'ff' | 'ice'; cx: number; cz: number; r: number; ph: number; sp: number; y: number; bx: number; by: number }[] = []
   private army: Army | null = null
   private armyCd = 180
@@ -662,8 +664,16 @@ export class World {
     return dReal
   }
 
-  /** ステージの障害物 + 置き物 */
+  /** ステージの障害物 + 置き物。1 フレームに何十回も呼ばれるので、フレームごとに 1 回だけ組み立てて使いまわす（個数が変わったら作り直す） */
+  private obsCache: { x: number; z: number; r: number; water?: boolean }[] = []
+  private obsKey = ''
+  private obsTick = -1
+  private obsFrame = 0
   private obstacles() {
+    const key = `${this.obsFrame}|${this.stageIndex}|${this.items.length}|${this.houses.length}|${this.structs.length}|${this.stage.obstacles.length}`
+    if (key === this.obsKey && this.obsTick === this.obsFrame) return this.obsCache
+    this.obsKey = key
+    this.obsTick = this.obsFrame
     const extra = this.items
       .filter((it) => it.stage === this.stageIndex && (it.kind === 'fire' || it.kind === 'charm' || it.kind === 'tools' || it.kind === 'fence' || it.kind === 'memorial' || (it.kind === 'sapling' && it.grow >= 1)))
       .map((it) => ({ x: it.x, z: it.z, r: it.kind === 'sapling' ? 0.35 : it.kind === 'fence' ? 0.55 : it.kind === 'tools' ? 0.45 : 0.3, water: false }))
@@ -672,7 +682,8 @@ export class World {
       !!o.water && this.structs.some((b) => b.kind === 'bridge' && b.stage === this.stageIndex && b.mats >= STRUCTS.bridge.need && Math.hypot(b.x - o.x, b.z - o.z) < 0.6)
     const land = this.stage.obstacles.filter((o) => !bridged(o))
     const builds = this.structs.filter((b) => b.stage === this.stageIndex && STRUCTS[b.kind].r > 0 && b.mesh).map((b) => ({ x: b.x, z: b.z, r: STRUCTS[b.kind].r, water: false }))
-    return [...land, ...extra, ...homes, ...builds]
+    this.obsCache = [...land, ...extra, ...homes, ...builds]
+    return this.obsCache
   }
 
   private collide(c: Creature) {
@@ -900,12 +911,13 @@ export class World {
     let best: Creature | null = null
     let bd = range
     for (const o of this.creatures) {
-      if (o === c || !this.alive(o) || !pred(o)) continue
-      const d = Math.hypot(o.x - c.x, o.z - c.z)
-      if (d < bd) {
-        bd = d
-        best = o
-      }
+      if (o === c || !this.alive(o)) continue
+      const dx = o.x - c.x
+      const dz = o.z - c.z
+      const d2 = dx * dx + dz * dz
+      if (d2 >= bd * bd || !pred(o)) continue // 遠い子は条件の関数を呼ぶ前に外す
+      bd = Math.sqrt(d2)
+      best = o
     }
     return best
   }
@@ -2073,9 +2085,9 @@ export class World {
     // 地面の点と上の点を画面に投影して、見た目の大きさから当たりの半径を決める
     const test = (px: number, pz: number, h: number, pick: Pick, minR = 9) => {
       const gy = this.stage.heightAt(px, pz)
-      const a = this.project(new THREE.Vector3(px, gy + h * 0.5, pz))
+      const a = this.projectXYZ(px, gy + h * 0.5, pz)
       if (!a.on) return
-      const b = this.project(new THREE.Vector3(px, gy + h, pz))
+      const b = this.projectXYZ(px, gy + h, pz)
       const r = Math.max(minR, Math.hypot(a.x - b.x, a.y - b.y) * 1.15)
       const score = Math.hypot(a.x - x, a.y - y) / r
       if (score < bs) {
@@ -2260,7 +2272,7 @@ export class World {
     if (p.armed && this.time > this.armUntil) p.armed = false
     const g = this.hudCtx
     const pos = this.pickPos(p)
-    const s = this.project(new THREE.Vector3(pos.x, this.stage.heightAt(pos.x, pos.z) + pos.h, pos.z))
+    const s = this.projectXYZ(pos.x, this.stage.heightAt(pos.x, pos.z) + pos.h, pos.z)
     if (s.on) {
       const by = s.y - 4 + Math.round(Math.sin(this.time * 6) * 2)
       g.fillStyle = '#10122a'
@@ -2864,6 +2876,7 @@ export class World {
   // ================= ボタン =================
   /** 戻り値 false = この画面では使わなかった（本体側で処理してよい） */
   press(key: 'A' | 'B' | 'C'): boolean {
+    this.hudNow = true
     if (this.warp > 0) return true
     if (this.shopOpen) {
       if (key === 'A') {
@@ -3047,10 +3060,14 @@ export class World {
   }
 
   // ================= 更新 =================
+  private hudT = 1
+  private hudNow = true
   update(dt: number) {
+    this.obsFrame++
+    const rawDt = dt
     if (this.hitStop > 0) {
       this.hitStop -= dt
-      dt *= 0.2
+      dt *= this.reducedMotion ? 1 : 0.2
     }
     this.time += dt
     this.night += (this.nightTarget - this.night) * Math.min(1, dt * 2)
@@ -3067,9 +3084,9 @@ export class World {
         this.loadStage((this.stageIndex + 1) % STAGES.length)
       }
     }
-    this.post.uniforms.glitch.value = this.warp > 0 ? Math.sin((1 - this.warp / 1.6) * Math.PI) : 0
+    this.post.uniforms.glitch.value = this.warp > 0 ? Math.sin((1 - this.warp / 1.6) * Math.PI) * (this.reducedMotion ? 0.35 : 1) : 0
     this.flash = Math.max(0, this.flash - dt * 1.2)
-    this.post.uniforms.flash.value = this.flash
+    this.post.uniforms.flash.value = this.flash * (this.reducedMotion ? 0.3 : 1)
     this.post.uniforms.time.value = this.time
 
     // たべものが落ちる / 実る（植えた木が多いほどよく落ちる）
@@ -3159,7 +3176,13 @@ export class World {
     }
     this.banner = Math.max(0, this.banner - dt)
     this.stats.mood = Math.max(0, Math.min(100, this.stats.mood - dt * 0.15 + (this.weather === 'sun' ? dt * 0.08 : 0)))
-    this.drawHud()
+    // 液晶の絵（HUD）は 30 回/秒まで。60Hz の端末では 1 フレームおきに描けば十分（ボタン・タップの直後はすぐ描く）
+    this.hudT += rawDt
+    if (this.hudT >= 1 / 30 - 0.002 || this.hudNow) {
+      this.hudT = 0
+      this.hudNow = false
+      this.drawHud()
+    }
   }
 
   private updateCreature(c: Creature, dt: number) {
@@ -3659,6 +3682,10 @@ export class World {
       sx *= 1 + 0.18 * l
       sy *= 1 - 0.08 * l
     }
+    if (this.reducedMotion) {
+      sx = 1 + (sx - 1) * 0.3
+      sy = 1 + (sy - 1) * 0.3
+    }
     c.anim.setHeight(this.size(c))
     c.anim.sprite.scale.x *= sx
     c.anim.sprite.scale.y *= sy
@@ -3732,7 +3759,7 @@ export class World {
     this.shake = Math.max(0, this.shake - dt)
     const jolt = () => {
       if (this.shake <= 0) return
-      const k = this.shake * 0.5
+      const k = this.shake * (this.reducedMotion ? 0.07 : 0.5)
       this.camera.position.x += (Math.random() - 0.5) * k
       this.camera.position.y += (Math.random() - 0.5) * k
     }
@@ -3825,6 +3852,7 @@ export class World {
    * 戻り値 true = HUD で使った
    */
   tap(u: number, v: number): boolean {
+    this.hudNow = true
     if (this.warp > 0) return true
     if (this.cleanView) return false
     const x = u * RES.w
@@ -3997,8 +4025,14 @@ export class World {
   }
 
   // ================= HUD =================
+  private pv = new THREE.Vector3()
   private project(v: THREE.Vector3) {
-    const p = v.clone().project(this.camera)
+    return this.projectXYZ(v.x, v.y, v.z)
+  }
+
+  /** 3D の点を HUD の座標へ（使い捨ての Vector3 を作らない） */
+  private projectXYZ(x: number, y: number, z: number) {
+    const p = this.pv.set(x, y, z).project(this.camera)
     return { x: Math.round((p.x + 1) * 0.5 * RES.w), y: Math.round((1 - p.y) * 0.5 * RES.h), on: p.z < 1 }
   }
 
@@ -4134,7 +4168,7 @@ export class World {
       if (b.kind === 'wall' && (done ? b.hp >= STRUCTS.wall.hp - 1 : b.mats === 0)) continue
       if (done && b.hp >= STRUCTS[b.kind].hp - 1) continue
       const hgt = { castle: 3.5, tower: 2.7, cradle: 1.7, well: 1.6, farm: 1.2, wall: 1.1, bridge: 0.9 }[b.kind]
-      const p = this.project(new THREE.Vector3(b.x, this.stage.heightAt(b.x, b.z) + hgt, b.z))
+      const p = this.projectXYZ(b.x, this.stage.heightAt(b.x, b.z) + hgt, b.z)
       if (!p.on) continue
       if (!done) this.bar(p.x - 10, p.y, 20, b.mats / STRUCTS[b.kind].need, '#c8955a')
       else this.bar(p.x - 10, p.y, 20, b.hp / STRUCTS[b.kind].hp, '#ff9f43')
@@ -4142,7 +4176,7 @@ export class World {
     // 家：建てている途中はできあがり具合、こわされていれば残り
     for (const h of this.houses) {
       if (h.stage !== this.stageIndex || !h.mesh) continue
-      const s = this.project(new THREE.Vector3(h.x, this.stage.heightAt(h.x, h.z) + (h.level >= 4 ? 2.4 : h.level >= 3 ? 1.9 : 1.1), h.z))
+      const s = this.projectXYZ(h.x, this.stage.heightAt(h.x, h.z) + (h.level >= 4 ? 2.4 : h.level >= 3 ? 1.9 : 1.1), h.z)
       if (!s.on) continue
       if (h.level < 3) this.bar(s.x - 10, s.y, 20, h.mats / HOUSE_STEPS[3], '#c8955a')
       else if (h.hp < houseMaxHp(h.level) - 1) this.bar(s.x - 10, s.y, 20, h.hp / houseMaxHp(h.level), '#ff9f43')
@@ -4151,7 +4185,7 @@ export class World {
     // 頭の上の目印 + HP バー
     for (const c of this.creatures) {
       if (c.state === 'dead' || (c.inside && c.state === 'sleep')) continue
-      const top = this.project(new THREE.Vector3(c.x, this.ground(c) + c.jy + this.size(c) + 0.15, c.z))
+      const top = this.projectXYZ(c.x, this.ground(c) + c.jy + this.size(c) + 0.15, c.z)
       if (!top.on) continue
       if (c.team === 'pet' && this.view === 'eye') continue
       if (c.team === 'pet') {
@@ -4163,8 +4197,20 @@ export class World {
       } else if (c.team === 'friend') {
         this.heartMark(top.x, top.y - 9)
         if (c.role !== 'free') {
+          // 色だけに頼らないよう、役割ごとに形も変える（だいく = ■ / はたけがかり = ▲ / みはり = ✚）
+          const rx = top.x + 6
+          const ry = top.y - 9
+          g.fillStyle = '#10122a'
+          g.fillRect(rx - 1, ry - 1, 5, 5)
           g.fillStyle = ROLE_COLOR[c.role]
-          g.fillRect(top.x + 6, top.y - 9, 3, 3)
+          if (c.role === 'builder') g.fillRect(rx, ry, 3, 3)
+          else if (c.role === 'farmer') {
+            g.fillRect(rx + 1, ry, 1, 1)
+            g.fillRect(rx, ry + 1, 3, 2)
+          } else {
+            g.fillRect(rx + 1, ry, 1, 3)
+            g.fillRect(rx, ry + 1, 3, 1)
+          }
         }
       }
       else if (c.affinity > 30 && c.sp.temper === 'calm') {
@@ -4176,7 +4222,7 @@ export class World {
     }
     // たまごの残り時間
     for (const e of this.eggs) {
-      const s = this.project(new THREE.Vector3(e.x, this.stage.heightAt(e.x, e.z) + 0.75, e.z))
+      const s = this.projectXYZ(e.x, this.stage.heightAt(e.x, e.z) + 0.75, e.z)
       if (s.on) this.bar(s.x - 8, s.y, 16, 1 - e.t / 35, '#7fd1ff')
     }
 

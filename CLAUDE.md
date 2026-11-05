@@ -60,4 +60,7 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - 天気は `setWeather()`、出やすさはステージごとの `WEATHER_W`
 - セーブは localStorage の `pulsar-save-v1`（10 秒ごと + 画面を離れた時）。項目を増やしたら `save()` と `load()` の両方を直す
 - データの書き出し・読み込み・やり直しは `src/backup.ts`（コードは `PULSAR1:` + base64 の JSON）。設定のキーを増やしたら `KEYS` にも足す。読み込み・やり直しの前は `world.saveLocked = true` にして上書きを防ぐ。起動時に `navigator.storage.persist()` を頼む
+- **仕上げ（軽さ・オフライン・設定）**：画質は 高 / 低 / 自動（`pulsar-quality`。自動は平均 FPS が低い状態が続いたら 高 → 低 → ピクセル比を下げる。手動で選んだ時は勝手に変えない。自動テスト中 `navigator.webdriver` は `?autoq=1` が無いと自動調整しない）。`document.hidden` の間は描画もシミュレーションも止め、戻ったら止まっていた分のうち 1 秒ぶんまでを進める。60 秒操作が無いと 30fps に落とす。`obstacles()` は 1 フレームに 1 回だけ組み立てる（`obsFrame`）、HUD は 30 回/秒まで（`hudNow` でボタン・タップ直後は即描画）
+- **せってい**（きせかえパネル内）：文字の大きさ `pulsar-text`（`html[data-text]`、CSS は `calc(Npx * var(--ts))`）、うごき `pulsar-motion`（既定は `prefers-reduced-motion`。`World.reducedMotion` が画面ゆれ・フラッシュ・ヒットストップ・ぷにぷにを弱める。ゆれやフラッシュを足す時は係数を掛ける）、画質。ほかの設定は `#settings-extra` に足す。キーを増やしたら `backup.ts` の `KEYS` にも
+- **起動と失敗時の表示**（`src/shell.ts` / `boot.ts`）：スプラッシュ（`#splash`、index.html にインライン CSS）、WebGL が使えない / コンテキストロスト時の案内（`#gl-msg`）、新バージョンのバー（`#update-bar`、`registerType: 'prompt'` で「こうしん」を押すまで入れ替えない）、初回だけの遊び方（`#tips`、`pulsar-hint`）。HTML の文字は `textContent` で入れる。Google Fonts は `runtimeCaching` で一度見たらオフラインでも使える（読めない時は代替フォント）。入力欄に打っている間はゲームのキーを無視する（`typing()`）
 - テストは `window.__pulsar.press('A')` / `.state()` / `.setMood('night')`、箱庭は `.world.run(i)` と `.world.update(1/30)` の早送りで確認する
