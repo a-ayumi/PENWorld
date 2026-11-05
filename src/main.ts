@@ -86,9 +86,10 @@ const beeper = new Beeper()
 // ---------------- ポストエフェクト ----------------
 const composer = new EffectComposer(renderer)
 composer.addPass(new RenderPass(scene, camera))
-const bokeh = new BokehPass(scene, camera, { focus: 9, aperture: 0.0025, maxblur: 0.012 })
+const bokeh = new BokehPass(scene, camera, { focus: 9, aperture: 0.0025, maxblur: 0.006 })
 composer.addPass(bokeh)
-const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.2, 0.4, 1.0)
+// 光るのは本当にまぶしい所（ランプ・ハイライト）だけ。しきい値が低いと クリーム色の本体や液晶までもやがかかる
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.1, 0.3, 2.4)
 composer.addPass(bloom)
 const finish = new ShaderPass(FinishShader)
 composer.addPass(finish)
