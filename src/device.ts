@@ -192,16 +192,17 @@ export function buildDevice(screenTexture: THREE.Texture): Device {
   const pz = front + 0.026
 
   // ---- 液晶（4:3 のカラー液晶）----
-  const SCREEN_Y = 0.43
+  // 正方形の液晶
+  const SCREEN_Y = 0.46
   const bezel = new THREE.Mesh(
-    new THREE.ShapeGeometry(roundedRect(1.66, 1.32, 0.14), 16),
+    new THREE.ShapeGeometry(roundedRect(1.52, 1.52, 0.14), 16),
     new THREE.MeshStandardMaterial({ color: BEZEL, roughness: 0.6 }),
   )
   bezel.position.set(0, SCREEN_Y, pz + 0.002)
   group.add(bezel)
 
   const screen = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.48, 1.11),
+    new THREE.PlaneGeometry(1.34, 1.34),
     // バックライト付きのカラー液晶なのでライティングの影響を受けない
     // 少しだけ暗くして、ブルームで白飛びしないようにする
     new THREE.MeshBasicMaterial({ map: screenTexture, color: '#c4c4c4' }),
@@ -211,7 +212,7 @@ export function buildDevice(screenTexture: THREE.Texture): Device {
 
   // 液晶カバー（映り込み用のガラス）
   const glass = new THREE.Mesh(
-    new THREE.ShapeGeometry(roundedRect(1.62, 1.28, 0.12), 16),
+    new THREE.ShapeGeometry(roundedRect(1.48, 1.48, 0.12), 16),
     new THREE.MeshPhysicalMaterial({
       color: '#ffffff', roughness: 0.04, metalness: 0, transparent: true, opacity: 0.08, clearcoat: 1, envMapIntensity: 1.6,
       depthWrite: false,
@@ -225,7 +226,8 @@ export function buildDevice(screenTexture: THREE.Texture): Device {
     new THREE.SphereGeometry(0.035, 16, 8),
     new THREE.MeshStandardMaterial({ color: '#ff6b4a', emissive: '#ff4a2a', emissiveIntensity: 2.2, roughness: 0.2 }),
   )
-  lamp.position.set(0.55, SCREEN_Y + 0.79, pz + 0.01)
+  // 液晶が大きくなったので、ランプは液晶の右下へ
+  lamp.position.set(0.82, -0.27, pz + 0.01)
   lamp.name = 'lamp'
   group.add(lamp)
 

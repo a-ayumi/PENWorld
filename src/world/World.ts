@@ -190,6 +190,8 @@ export class World {
   private shadowMat = new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.3, depthWrite: false })
 
   cursor = -1
+  /** 眺めるモード：文字やアイコンを全部かくす */
+  cleanView = false
   private messages: string[] = []
   private msgT = 0
   private showStatus = false
@@ -726,8 +728,12 @@ export class World {
     c.cheer = false
     c.lunge = 0.3
     const top = this.ground(c) + this.size(c) + 0.35
-    this.popups.push({ pos: new THREE.Vector3(c.x, top, c.z), text: `${sk.name}！`, color: sk.color, t: -0.4, big: true })
-    if (this.ally(c) || this.ally(f)) this.onSfx('skill')
+    // 技名はいつものメッセージ欄に（仲間がからむ時と、カメラの近くの時だけ）
+    const near = Math.hypot(c.x - this.look.x, c.z - this.look.z) < 8
+    if (this.ally(c) || this.ally(f)) {
+      this.say(`${c.team === 'wild' ? 'てきの ' : ''}${c.sp.name}の ${sk.name}！`)
+      this.onSfx('skill')
+    } else if (near) this.say(`やせいの ${c.sp.name}の ${sk.name}！`)
     const dmg = Math.max(2, Math.round(c.atk * sk.mult * (0.9 + Math.random() * 0.2)))
     const at = (x: number, z: number, y = 0.5) => new THREE.Vector3(x, this.stage.heightAt(x, z) + y, z)
     switch (sk.kind) {
@@ -1658,7 +1664,7 @@ export class World {
 
   private say(text: string) {
     this.messages.push(text)
-    if (this.messages.length > 3) this.messages.shift()
+    if (this.messages.length > 4) this.messages.shift()
     if (this.messages.length === 1) this.msgT = 2.8
   }
 
@@ -2280,6 +2286,7 @@ export class World {
    */
   tap(u: number, v: number): boolean {
     if (this.warp > 0) return true
+    if (this.cleanView) return false
     const x = u * RES.w
     const y = (1 - v) * RES.h
     if (this.shopOpen) {
@@ -2492,6 +2499,11 @@ export class World {
     const g = this.hudCtx
     g.clearRect(0, 0, RES.w, RES.h)
     g.imageSmoothingEnabled = false
+    if (this.cleanView) {
+      // 眺めるモード：何も描かない
+      this.hudTex.needsUpdate = true
+      return
+    }
 
     for (const [y, row] of [[0, 0], [RES.h - 24, 1]] as const) {
       const grad = g.createLinearGradient(0, y, 0, y + 24)

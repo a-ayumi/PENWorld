@@ -456,6 +456,13 @@ function tapScreen(e: PointerEvent): boolean {
   return world.tap(uv.x, uv.y)
 }
 
+/** 何もない所をタップ：文字・アイコン・設定ボタンをまとめて隠す / 出す（眺めるモード） */
+function toggleChrome() {
+  world.cleanView = !world.cleanView
+  document.body.classList.toggle('clean', world.cleanView)
+  if (world.cleanView) dressPanel.hidden = true
+}
+
 // ---------------- 指の操作 ----------------
 // 1 本指：タップ = 液晶のアイコン / ドラッグ = 本体を傾ける（本体ビュー）
 // 2 本指：ピンチ = 箱庭のカメラを寄せる・引く、ドラッグ = 前後左右に動かす
@@ -517,7 +524,7 @@ const endPointer = (e: PointerEvent) => {
   // 指をほとんど動かさずに離した = タップ（ピンチの直後は無視）
   if (e.type === 'pointerup' && tp && !gestured && touches.size === 0) {
     const moved = Math.hypot(e.clientX - tp.sx, e.clientY - tp.sy)
-    if (moved < 12 && performance.now() - tp.t < 500) tapScreen(e)
+    if (moved < 12 && performance.now() - tp.t < 500 && !tapScreen(e)) toggleChrome()
   }
   if (touches.size === 0) gestured = false
 }
@@ -565,7 +572,8 @@ function resize() {
   baseCam.copy(camera.position)
   // 全画面モード：4:3 を画面に収める（ドットは整数倍に近いサイズで）
   const a = w / h
-  diveQuad.scale.set(a > 4 / 3 ? 4 / 3 / a : 1, a > 4 / 3 ? 1 : a / (4 / 3), 1)
+  // 全画面：正方形を画面に収める
+  diveQuad.scale.set(a > 1 ? 1 / a : 1, a > 1 ? 1 : a, 1)
 }
 window.addEventListener('resize', resize)
 applyQuality()

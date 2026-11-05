@@ -8,11 +8,11 @@ import * as THREE from 'three'
  * - テクスチャは Nearest（ぼかさない）
  */
 /** HUD（文字・アイコン）のキャンバス解像度 */
-export const RES = { w: 320, h: 240 }
+export const RES = { w: 320, h: 320 }
 /** 箱庭を描く解像度（ドット絵の細かさを出すため HUD の 1.5 倍） */
-export const SCENE = { w: 480, h: 360 }
+export const SCENE = { w: 480, h: 480 }
 /** 最終出力（HUD の 3 倍・箱庭の 2 倍 = どちらもドットが均等に拡大される） */
-export const OUT = { w: 960, h: 720 }
+export const OUT = { w: 960, h: 960 }
 
 /** 頂点スナップの格子（小さいほど揺れが強い） */
 const snap = { value: new THREE.Vector2(SCENE.w / 2, SCENE.h / 2) }
