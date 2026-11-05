@@ -2327,8 +2327,10 @@ export class World {
   }
 
   // ================= セーブ / ロード =================
+  /** 読み込み・やり直しの直前は自動セーブを止める（上書きしないように） */
+  saveLocked = false
   save() {
-    if (!this.pet) return
+    if (!this.pet || this.saveLocked) return
     const c2 = (c: Creature) => ({
       sp: c.sp.id, hp: Math.round(c.hp), maxHp: c.maxHp, atk: c.atk, hunger: Math.round(c.hunger), energy: Math.round(c.energy), grow: c.grow,
       xp: c.xp, care: c.care, bias: c.bias,

@@ -33,6 +33,23 @@
       <div id="place-list" class="chips"></div>
       <h3>キャラの表現</h3>
       <div id="chara-list" class="chips"></div>
+      <h3>データ</h3>
+      <div class="chips">
+        <button type="button" class="chip" id="data-export">書き出す</button>
+        <button type="button" class="chip" id="data-import">読み込む</button>
+        <button type="button" class="chip danger" id="data-reset">最初からやり直す</button>
+      </div>
+      <div id="data-box" hidden>
+        <label id="data-label" for="data-code">データのコード</label>
+        <textarea id="data-code" rows="3" spellcheck="false" autocomplete="off"></textarea>
+        <div class="chips">
+          <button type="button" class="chip" id="data-copy">コピー</button>
+          <button type="button" class="chip" id="data-download">ファイルに保存</button>
+          <button type="button" class="chip" id="data-apply">このコードで読み込む</button>
+          <label class="chip file-chip" id="data-file-label">ファイルをえらぶ<input type="file" id="data-file" accept=".txt,.json,text/plain" /></label>
+        </div>
+      </div>
+      <p id="data-msg" aria-live="polite"></p>
     </section>
     <div id="pad" hidden>
       <button id="pad-exit" class="pad-exit" aria-label="本体にもどる">本体にもどる</button>

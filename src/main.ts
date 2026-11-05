@@ -13,6 +13,7 @@ import { FinishShader, MOODS, dustParticles, moodForHour, type Mood } from './sc
 import { PLACES, buildPlace, type PlaceId, type PlaceInst } from './places'
 import { SKINS, type SkinId } from './device'
 import { Beeper, VOLUME_NAMES } from './beep'
+import { exportCode, importCode, requestPersist } from './backup'
 
 // ---------------- レンダラー ----------------
 const canvas = document.getElementById('scene') as HTMLCanvasElement
@@ -252,6 +253,90 @@ dressBtn.addEventListener('click', () => {
   dressPanel.hidden = !dressPanel.hidden
   dressBtn.setAttribute('aria-expanded', String(!dressPanel.hidden))
 })
+// ---------------- データ（書き出し・読み込み・やり直し）----------------
+void requestPersist()
+const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
+const dataBox = $<HTMLDivElement>('data-box')
+const dataCode = $<HTMLTextAreaElement>('data-code')
+const dataMsg = $<HTMLParagraphElement>('data-msg')
+const showData = (mode: 'export' | 'import') => {
+  dataBox.hidden = false
+  $('data-label').textContent = mode === 'export' ? 'データのコード（ほかの端末で「読み込む」に貼りつけます）' : 'コードを貼りつけるか、ファイルをえらんでください'
+  $('data-copy').hidden = $('data-download').hidden = mode !== 'export'
+  $('data-apply').hidden = $('data-file-label').hidden = mode !== 'import'
+  dataCode.readOnly = mode === 'export'
+}
+$('data-export').addEventListener('click', () => {
+  world.save()
+  dataCode.value = exportCode()
+  showData('export')
+  dataMsg.textContent = 'いまのデータを書き出しました'
+})
+$('data-import').addEventListener('click', () => {
+  dataCode.value = ''
+  showData('import')
+  dataMsg.textContent = ''
+  dataCode.focus()
+})
+$('data-copy').addEventListener('click', () => {
+  navigator.clipboard
+    .writeText(dataCode.value)
+    .then(() => (dataMsg.textContent = 'コピーしました'))
+    .catch(() => {
+      dataCode.select()
+      dataMsg.textContent = 'コードを選択しました。長押しでコピーしてください'
+    })
+})
+$('data-download').addEventListener('click', () => {
+  const blob = new Blob([dataCode.value], { type: 'text/plain' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  const d = new Date()
+  a.download = `pulsar-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}.txt`
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+  dataMsg.textContent = 'ファイルに保存しました'
+})
+const applyImport = (text: string) => {
+  const r = importCode(text)
+  if (!r.ok) {
+    dataMsg.textContent = `読み込めませんでした：${r.reason}`
+    return
+  }
+  world.saveLocked = true
+  dataMsg.textContent = '読み込みました。はじめから開きなおします…'
+  setTimeout(() => location.reload(), 700)
+}
+$('data-apply').addEventListener('click', () => applyImport(dataCode.value))
+$<HTMLInputElement>('data-file').addEventListener('change', async (e) => {
+  const f = (e.target as HTMLInputElement).files?.[0]
+  if (f) applyImport(await f.text())
+})
+// やり直しは 2 回押しで確定（うっかり防止）
+let resetArmed = 0
+const resetBtn = $<HTMLButtonElement>('data-reset')
+resetBtn.addEventListener('click', () => {
+  if (Date.now() - resetArmed < 4000) {
+    world.saveLocked = true
+    try {
+      localStorage.removeItem('pulsar-save-v1')
+    } catch {
+      /* noop */
+    }
+    dataMsg.textContent = 'データを消しました。はじめから開きなおします…'
+    setTimeout(() => location.reload(), 700)
+    return
+  }
+  resetArmed = Date.now()
+  resetBtn.dataset.armed = 'true'
+  resetBtn.textContent = 'もう一度押すと消えます'
+  dataMsg.textContent = '先に「書き出す」でバックアップしておくと安心です'
+  setTimeout(() => {
+    resetBtn.dataset.armed = 'false'
+    resetBtn.textContent = '最初からやり直す'
+  }, 4000)
+})
+
 document.getElementById('dress-close')!.addEventListener('click', () => {
   dressPanel.hidden = true
   dressBtn.setAttribute('aria-expanded', 'false')
