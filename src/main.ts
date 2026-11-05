@@ -11,7 +11,7 @@ import { World, type Sfx } from './world/World'
 import { buildDevice } from './device'
 import { FinishShader, MOODS, dustParticles, moodForHour, type Mood } from './scene'
 import { PLACES, buildPlace, type PlaceId, type PlaceInst } from './places'
-import { SKINS, buildHands, type SkinId } from './device'
+import { SKINS, type SkinId } from './device'
 import { Beeper, VOLUME_NAMES } from './beep'
 import { exportCode, importCode, requestPersist } from './backup'
 import { sheetFor, type SpeciesId } from './world/monsters'
@@ -34,7 +34,6 @@ scene.environmentIntensity = 0.55
 // ---------------- 背景（壁・机） ----------------
 // 背景の「場所」（机・電車・通学路…）は places.ts。ここでは差し替え口だけ持つ
 let place: PlaceInst | null = null
-let hands: THREE.Group | null = null
 
 const desk = new THREE.Mesh(
   new THREE.PlaneGeometry(40, 24),
@@ -155,21 +154,8 @@ function rebuildPlace() {
   }
   place = buildPlace(placeId, currentMood as keyof typeof MOODS)
   scene.add(place.group)
-  // 手に持って（すわって）遊ぶ場所：手と、ひざ・つくえ・足もとの景色。机の上は立てかけたまま
-  if (hands) {
-    device.group.remove(hands)
-    hands.traverse((o) => {
-      const m = o as THREE.Mesh
-      m.geometry?.dispose()
-      ;(m.material as THREE.Material | undefined)?.dispose?.()
-    })
-    hands = null
-  }
-  if (place.held) {
-    hands = buildHands(place.sleeve ?? '#3b4d7a')
-    device.group.add(hands)
-  }
-  desk.position.y = place.held ? -3.6 : -2.05
+  // 手に持って（すわって）遊ぶ場所：机や床の面は置かず、ひざ・つくえ・足もとの景色だけを見せる。机の上だけは立てかけ
+  desk.visible = !place.held
   const dm = desk.material as THREE.MeshStandardMaterial
   dm.map = place.surface
   dm.needsUpdate = true

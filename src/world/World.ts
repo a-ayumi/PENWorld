@@ -121,6 +121,30 @@ const LIFESPAN = 3 * 3600
 interface Item { kind: ItemKind; stage: number; x: number; z: number; grow: number; vx: number; vz: number; mesh: THREE.Group | null; light?: THREE.PointLight }
 interface Egg { x: number; z: number; t: number; anim: SpriteAnim; shadow: THREE.Mesh; parents: SpeciesId[]; kind: EggKind; wild: boolean }
 interface Popup { pos: THREE.Vector3; text: string; color: string; t: number; big?: boolean }
+type Pick = { type: 'creature' | 'house' | 'struct' | 'item' | 'egg' | 'res' | 'food'; ref: any; armed: boolean }
+const STATE_NAME: Record<string, string> = {
+  idle: 'ぼんやり', wander: 'さんぽ', hunt: 'おいかけている', fight: 'たたかっている', seek: 'ごはんへ むかう', eat: 'たべている', sleep: 'ねむっている', rest: 'やすんでいる',
+  play: 'あそんでいる', happy: 'うれしい', faint: 'きぜつ', dead: 'たおれた', train: 'トレーニング', come: 'よばれた', gather: 'しざいを ひろう', build: 'しざいを はこぶ',
+  raid: 'こわしている', march: 'しんぐん中', work: 'トントン つくっている', tend: 'はたけの せわ', assist: 'たすけに むかう',
+}
+const STRUCT_DESC: Record<StructKind, string> = {
+  farm: 'たべものが みのる。はたけがかりが せわをする',
+  well: 'ちかくの みんなの たいりょくが かいふく',
+  tower: 'ちかくの てきを うちおとす',
+  cradle: 'たまごが できやすくなる',
+  wall: 'てきの しんぐんを ふせぐ',
+  castle: 'へいに かこまれた おしろ。ちかくで かいふく',
+  bridge: 'みずうみを あるいて わたれる',
+}
+const ITEM_INFO: Record<string, { name: string; desc: string }> = {
+  sapling: { name: 'なえ・き', desc: 'そだつと みのなる木に。たべものが ふえる' },
+  ball: { name: 'ボール', desc: 'みんなが かってに けって あそぶ' },
+  fire: { name: 'たき火', desc: 'よる あつまって ねむる。たまごが できやすい' },
+  charm: { name: 'おまもり', desc: 'ノイズが あらわれにくくなる' },
+  tools: { name: 'だいくどうぐ', desc: 'ちかくの 家づくりが 2ばい。家が なおる' },
+  fence: { name: 'まもりのさく', desc: 'ちかくの 家の ダメージが はんぶん' },
+  memorial: { name: 'おはか', desc: 'まえの だいの ペットを しのぶ ほしの かざり' },
+}
 interface Fx { sprite: THREE.Sprite; vx: number; vy: number; vz: number; life: number; max: number; grav: number }
 
 export const ICONS = ['ごはん', 'トレーニング', 'バトル', 'ステータス', 'ライト', 'ショップ', 'ワープ', 'よびだし']
@@ -251,7 +275,7 @@ export class World {
   private fx: Fx[] = []
   private fxSheets = FX_SHEETS()
   private eggSheets = Object.fromEntries((Object.keys(EGG_COLORS) as EggKind[]).map((k) => [k, EGG_SHEET(k)])) as Record<EggKind, ReturnType<typeof EGG_SHEET>>
-  private wildEggT = 120
+  private wildEggT = 45
   private shadowGeo = new THREE.CircleGeometry(0.5, 10).rotateX(-Math.PI / 2)
   private shadowMat = new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.3, depthWrite: false })
 
@@ -376,6 +400,7 @@ export class World {
     for (const h of this.houses) this.unmountHouse(h)
     for (const st of this.structs) this.unmountStruct(st)
     this.army = null
+    this.picked = null
     for (const c of this.creatures) c.site = null
     for (const c of this.creatures) this.dropCarry(c, false)
     this.stageIndex = i
@@ -2035,6 +2060,284 @@ export class World {
     return base + ['', 'むら', 'まち', 'じょうかまち'][this.vLv]
   }
 
+  // ================= タップした物の情報・かいたい =================
+  private picked: Pick | null = null
+  private infoBox: { x: number; y: number; w: number; h: number; del: { x: number; y: number; w: number; h: number } | null; close: { x: number; y: number; w: number; h: number } } | null = null
+  private armUntil = 0
+
+  /** タップした場所（液晶の座標）にいちばん近い物をさがす */
+  private pickAt(x: number, y: number): Pick | null {
+    const here = this.stageIndex
+    let best: Pick | null = null
+    let bs = 1
+    // 地面の点と上の点を画面に投影して、見た目の大きさから当たりの半径を決める
+    const test = (px: number, pz: number, h: number, pick: Pick, minR = 9) => {
+      const gy = this.stage.heightAt(px, pz)
+      const a = this.project(new THREE.Vector3(px, gy + h * 0.5, pz))
+      if (!a.on) return
+      const b = this.project(new THREE.Vector3(px, gy + h, pz))
+      const r = Math.max(minR, Math.hypot(a.x - b.x, a.y - b.y) * 1.15)
+      const score = Math.hypot(a.x - x, a.y - y) / r
+      if (score < bs) {
+        bs = score
+        best = pick
+      }
+    }
+    for (const c of this.creatures) if (c.state !== 'dead' && !(c.inside && c.state === 'sleep')) test(c.x, c.z, this.size(c) + c.jy, { type: 'creature', ref: c, armed: false }, 10)
+    for (const h of this.houses) if (h.stage === here && h.mesh) test(h.x, h.z, h.level >= 4 ? 2.2 : h.level >= 3 ? 1.7 : 1, { type: 'house', ref: h, armed: false }, 14)
+    for (const b of this.structs) {
+      if (b.stage !== here || !b.mesh) continue
+      const hgt = { castle: 3.2, tower: 2.5, cradle: 1.5, well: 1.4, farm: 0.8, wall: 0.9, bridge: 0.4 }[b.kind]
+      test(b.x, b.z, hgt, { type: 'struct', ref: b, armed: false }, 12)
+    }
+    for (const it of this.items) if (it.stage === here && it.mesh) test(it.x, it.z, it.kind === 'sapling' ? 0.5 + it.grow : 0.8, { type: 'item', ref: it, armed: false }, 11)
+    for (const e of this.eggs) test(e.x, e.z, 0.6, { type: 'egg', ref: e, armed: false }, 10)
+    for (const r of this.resources) test(r.x, r.z, 0.25, { type: 'res', ref: r, armed: false }, 8)
+    for (const f of this.foods) test(f.x, f.z, 0.3, { type: 'food', ref: f, armed: false }, 8)
+    return best
+  }
+
+  private pickValid(p: Pick) {
+    switch (p.type) {
+      case 'creature': return this.creatures.includes(p.ref) && p.ref.state !== 'dead'
+      case 'house': return this.houses.includes(p.ref)
+      case 'struct': return this.structs.includes(p.ref)
+      case 'item': return this.items.includes(p.ref)
+      case 'egg': return this.eggs.includes(p.ref)
+      case 'res': return this.resources.includes(p.ref)
+      case 'food': return this.foods.includes(p.ref)
+    }
+  }
+
+  private pickPos(p: Pick): { x: number; z: number; h: number } {
+    const r = p.ref
+    switch (p.type) {
+      case 'creature': return { x: r.x, z: r.z, h: this.size(r) + r.jy + 0.4 }
+      case 'house': return { x: r.x, z: r.z, h: r.level >= 4 ? 2.6 : r.level >= 3 ? 2.1 : 1.4 }
+      case 'struct': return { x: r.x, z: r.z, h: { castle: 3.6, tower: 2.9, cradle: 1.8, well: 1.7, farm: 1.2, wall: 1.2, bridge: 0.9 }[r.kind as StructKind] }
+      default: return { x: r.x, z: r.z, h: 1.2 }
+    }
+  }
+
+  /** ひょうじする内容：なまえ・ひとこと・説明・ゲージ・けせるか */
+  private describe(p: Pick): { title: string; sub: string; lines: string[]; bars: [string, number, string][]; del: string | null } {
+    const bars: [string, number, string][] = []
+    const lines: string[] = []
+    switch (p.type) {
+      case 'creature': {
+        const c: Creature = p.ref
+        const team = c.team === 'pet' ? 'ペット' : c.team === 'friend' ? 'なかま' : c.army ? 'てきぐん' : c.sp.temper === 'wild' ? 'てき' : 'やせい'
+        const fam = c.sp.tier ? FAMILY_NAME[familyOf(c.sp.id)] : 'てき'
+        lines.push(`${team}・${fam}・ランク${c.sp.tier || '-'}${c.grow > 0 ? '・こども' : ''}`)
+        lines.push(`こうげき ${Math.round(c.atk)}  すばやさ ${c.sp.speed.toFixed(1)}  ${c.role !== 'free' ? 'やくわり ' + ROLE_NAME[c.role] : ''}`)
+        lines.push(`いま：${STATE_NAME[c.state] ?? c.state}`)
+        bars.push(['たいりょく', c.hp / c.maxHp, '#7cf29b'])
+        if (c.team === 'wild' && c.sp.temper === 'calm') bars.push(['なかよし', Math.min(1, c.affinity / 100), '#ff7eb6'])
+        else if (this.ally(c) && c.sp.tier >= 1 && c.sp.tier <= 3) bars.push(['しんか', Math.min(1, (c === this.pet ? this.xp : c.xp) / XP_NEED[c.sp.tier as 1 | 2 | 3]), '#c9a8ff'])
+        return { title: c.sp.name + (c === this.pet ? ' ★' : ''), sub: c.sp.kind, lines, bars, del: null }
+      }
+      case 'house': {
+        const h: House = p.ref
+        const lv = ['たてはじめ', 'どだい', 'かべ', 'かんせい', 'ぞうちく'][h.level]
+        lines.push(`しざい ${h.mats}/${HOUSE_STEPS[4]}（${lv}）`)
+        lines.push(h.owner ? `すんでいる：${h.owner.sp.name}` : 'あきや（だれかが すみつく）')
+        if (h.level >= 1) bars.push(['じょうぶさ', h.hp / houseMaxHp(h.level), '#ff9f43'])
+        bars.push(['できあがり', h.mats / HOUSE_STEPS[4], '#c8955a'])
+        return { title: `${h.owner ? h.owner.sp.name : SPECIES[h.ownerSp].name}の いえ`, sub: '家', lines, bars, del: 'かいたい' }
+      }
+      case 'struct': {
+        const b: Struct = p.ref
+        const spec = STRUCTS[b.kind]
+        const done = this.structDone(b)
+        lines.push(done ? STRUCT_DESC[b.kind] : `けんせつちゅう：しざい ${b.mats}/${spec.need}`)
+        if (!done) lines.push(STRUCT_DESC[b.kind])
+        bars.push(done ? ['じょうぶさ', b.hp / spec.hp, '#ff9f43'] : ['できあがり', b.mats / spec.need, '#c8955a'])
+        return { title: spec.name, sub: done ? 'たてもの' : 'けんせつちゅう', lines, bars, del: 'かいたい' }
+      }
+      case 'item': {
+        const it: Item = p.ref
+        const info = ITEM_INFO[it.kind] ?? { name: it.kind, desc: '' }
+        lines.push(info.desc)
+        if (it.kind === 'sapling') bars.push(['せいちょう', it.grow, '#7cf29b'])
+        return { title: info.name, sub: 'おきもの', lines, bars, del: 'かたづける' }
+      }
+      case 'egg': {
+        const e: Egg = p.ref
+        lines.push(e.wild ? 'のはらで みつけた たまご' : e.kind === 'inherit' ? `おやの こ（${e.parents.map((id) => SPECIES[id].name).join('・')}）` : 'あたらしい けいとうの たまご')
+        lines.push(`かえるまで あと ${Math.max(0, Math.ceil(e.t))}びょう`)
+        return { title: `${FAMILY_NAME[e.kind]}のたまご`, sub: 'たまご', lines, bars, del: 'どける' }
+      }
+      case 'res': {
+        const r: Res = p.ref
+        lines.push('いえや たてものの ざいりょう。だれかが ひろっていく')
+        return { title: r.kind === 'wood' ? 'もくざい' : 'いし', sub: 'しざい', lines, bars, del: 'かたづける' }
+      }
+      case 'food': {
+        const f: Food = p.ref
+        const name = f.kind === 'stage' ? this.stage.food.name : FOODS[f.kind].name
+        lines.push('おなかが すいた子が たべにくる')
+        return { title: name, sub: 'たべもの', lines, bars, del: 'かたづける' }
+      }
+    }
+  }
+
+  /** かいたい・かたづける。家や建物は しざいがのこる */
+  private removePick(p: Pick) {
+    const rubble = (x: number, z: number, mats: number) => {
+      for (let i = 0; i < Math.min(4, Math.ceil(mats / 3)); i++) this.spawnResource(x + (Math.random() - 0.5) * 2, z + 1 + Math.random(), undefined, true)
+    }
+    switch (p.type) {
+      case 'house': {
+        const h: House = p.ref
+        this.unmountHouse(h)
+        this.houses.splice(this.houses.indexOf(h), 1)
+        for (const c of this.creatures) if (c.raid === h) c.raid = null
+        rubble(h.x, h.z, h.mats)
+        this.burst(h.x, this.stage.heightAt(h.x, h.z) + 0.8, h.z, 'cube', 10, 3)
+        this.say('いえを かいたいした')
+        break
+      }
+      case 'struct': {
+        const b: Struct = p.ref
+        this.unmountStruct(b)
+        this.structs.splice(this.structs.indexOf(b), 1)
+        for (const c of this.creatures) {
+          if (c.site === b) c.site = null
+          if (c.tendTo === b) c.tendTo = null
+        }
+        rubble(b.x, b.z, b.mats)
+        this.burst(b.x, this.stage.heightAt(b.x, b.z) + 0.8, b.z, 'cube', 10, 3)
+        this.say(`${STRUCTS[b.kind].name}を かいたいした`)
+        break
+      }
+      case 'item': {
+        const it: Item = p.ref
+        this.unmountItem(it)
+        this.items.splice(this.items.indexOf(it), 1)
+        this.burst(it.x, this.stage.heightAt(it.x, it.z) + 0.5, it.z, 'cube', 6, 2)
+        this.say(`${(ITEM_INFO[it.kind] ?? { name: 'おきもの' }).name}を かたづけた`)
+        break
+      }
+      case 'egg': {
+        const e: Egg = p.ref
+        this.scene.remove(e.anim.sprite, e.shadow)
+        e.anim.dispose()
+        this.eggs.splice(this.eggs.indexOf(e), 1)
+        this.say('たまごを どけた')
+        break
+      }
+      case 'res': {
+        const r: Res = p.ref
+        this.scene.remove(r.mesh)
+        this.resources.splice(this.resources.indexOf(r), 1)
+        for (const c of this.creatures) if (c.res === r) c.res = null
+        break
+      }
+      case 'food': {
+        const f: Food = p.ref
+        for (const c of this.creatures) if (c.food === f) c.food = null
+        this.removeFood(f)
+        break
+      }
+      default:
+        return
+    }
+    this.onSfx('cancel')
+    this.picked = null
+    this.infoBox = null
+    this.save()
+  }
+
+  /** 情報ウィンドウ（下がわ）と、えらんだ物のしるし */
+  private drawInfo() {
+    const p = this.picked
+    if (!p) return
+    if (!this.pickValid(p)) {
+      this.picked = null
+      this.infoBox = null
+      return
+    }
+    if (p.armed && this.time > this.armUntil) p.armed = false
+    const g = this.hudCtx
+    const pos = this.pickPos(p)
+    const s = this.project(new THREE.Vector3(pos.x, this.stage.heightAt(pos.x, pos.z) + pos.h, pos.z))
+    if (s.on) {
+      const by = s.y - 4 + Math.round(Math.sin(this.time * 6) * 2)
+      g.fillStyle = '#10122a'
+      g.fillRect(s.x - 5, by - 1, 11, 2)
+      g.fillStyle = '#ffd23f'
+      for (let i = 0; i < 4; i++) g.fillRect(s.x - 4 + i, by + i, 9 - i * 2, 1)
+    }
+    const d = this.describe(p)
+    const w = 244
+    const rows = d.lines.length + d.bars.length
+    const h = 36 + rows * 13 + 24
+    const x = (RES.w - w) / 2
+    const y = RES.h - 28 - h
+    this.win(x, y, w, h)
+    this.text(d.title, x + 10, y + 7, '#ffffff', 12)
+    this.text(d.sub, x + w - 10, y + 9, '#9fd8ff', 9, 'right')
+    let ry = y + 25
+    for (const l of d.lines) {
+      this.text(l, x + 10, ry, '#e8eeff', 9)
+      ry += 13
+    }
+    for (const [n, v, col] of d.bars) {
+      this.text(n, x + 10, ry, '#e8eeff', 9)
+      this.bar(x + 74, ry + 4, 150, Math.max(0, Math.min(1, v)), col)
+      ry += 13
+    }
+    // ボタン
+    const by2 = y + h - 21
+    const close = { x: x + (d.del ? w - 88 : w - 88), y: by2, w: 78, h: 15 }
+    const del = d.del ? { x: x + 10, y: by2, w: 120, h: 15 } : null
+    for (const [b, label, col] of [[close, 'とじる', 'rgba(255,255,255,0.18)'], [del, p.armed ? 'ほんとうに？ もういちど' : d.del ?? '', p.armed ? 'rgba(232,90,90,0.95)' : 'rgba(180,70,70,0.7)']] as const) {
+      if (!b) continue
+      g.fillStyle = col
+      g.fillRect(b.x, b.y, b.w, b.h)
+      g.strokeStyle = 'rgba(255,255,255,0.6)'
+      g.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1)
+      this.text(label, b.x + b.w / 2, b.y + 3, '#ffffff', 9, 'center')
+    }
+    this.infoBox = { x, y, w, h, del, close }
+  }
+
+  /** 情報ウィンドウが開いている時のタップ */
+  private tapInfo(x: number, y: number): boolean {
+    const b = this.infoBox
+    const p = this.picked
+    if (!b || !p) return false
+    const inside = (r: { x: number; y: number; w: number; h: number }) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h
+    if (b.del && inside(b.del)) {
+      if (p.armed) this.removePick(p)
+      else {
+        p.armed = true
+        this.armUntil = this.time + 3
+        this.onSfx('select')
+      }
+      return true
+    }
+    if (inside(b.close)) {
+      this.picked = null
+      this.infoBox = null
+      this.onSfx('cancel')
+      return true
+    }
+    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return true
+    // ウィンドウの外：べつの物をえらぶ / 何もなければ閉じる
+    const next = this.pickAt(x, y)
+    if (next) {
+      this.picked = next
+      this.onSfx('select')
+    } else {
+      this.picked = null
+      this.infoBox = null
+      this.onSfx('cancel')
+    }
+    return true
+  }
+
+
   // ================= かいたく =================
   /** 箱庭をひろげる（ステージを作り直す。家・建物・置き物・たまごはそのまま残る） */
   private expandLand(level: number) {
@@ -3556,6 +3859,14 @@ export class World {
       this.run(i)
       return true
     }
+    // 箱庭の中の物をタップ：情報を出す（もう一度さがして、べつの物ならそちらへ）
+    if (this.picked && this.tapInfo(x, y)) return true
+    const hit = this.pickAt(x, y)
+    if (hit) {
+      this.picked = hit
+      this.onSfx('select')
+      return true
+    }
     return false
   }
 
@@ -3900,6 +4211,7 @@ export class World {
 
     if (this.showStatus) this.drawStatus()
     if (this.shopOpen) this.drawShop()
+    this.drawInfo()
 
     if (this.night > 0.05) {
       g.fillStyle = `rgba(8,10,40,${this.night * 0.18})`
