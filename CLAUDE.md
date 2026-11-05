@@ -40,6 +40,7 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - `main` に push すると `.github/workflows/pages.yml` が GitHub Pages に公開する
 - ボタンは A（アイコン選択）/ B（決定・何も選んでいなければステータス）/ C（キャンセル専用）。キー A/B/C・Z/X・1/2/3 でも押せる。**画面に入る・出るは C ではなく外側**：下の「▶ 画面に入る」ボタン / Enter / 画面の中の「本体にもどる」/ Esc
 - **背景の場所**（`places.ts`）：机の上は立てかけ、ほかは「手に持って（すわって）遊んでいる景色」。`PlaceInst.held` の場所は、本体を少し手前に傾けて小さく揺らし、机や床の面（`desk.visible = false`）の代わりに `lapBand()`（ひざ・つくえ・トレー・足もとの絵 + 下へ続く同色の面）を置く。手は描かない。新しい場所を足す時は `HELD` と `lapBand` に足す
+- **おねがい・季節・バッジ**（`src/missions.ts`）：World は出来事のたびに `this.stat('wins')` のように数を足す（`counters`、通算）。日替わりミッションはローカル日付をシードに 3 つ（かんたん/ふつう/むずかしい、テンプレート 21 種）、進捗は日の始まりの `base` との差。時計を戻しても「最後に見た日付」より前にはならない。季節は月から（`?season=spring|summer|autumn|winter` で固定）：春＝花びら / 夏＝夜のちょうちん / 秋＝実り 1.5 倍 / 冬＝雪が出やすい・ゆきだるま。季節の品は `SEASON_SHOP` を `syncSeasonShop()` で `SHOP` の末尾に足し引きする。実績は `ACHIEVEMENTS`（`test(stats, gauges)`）に 1 行足すだけ。色ちがいの機能は `world.stat('shiny')` を呼べば実績が取れる
 - 本体ビューは「液晶 + ボタン」が画面いっぱいになる距離（`resize()` の needW/needH）。本体の縁や背景ははみ出してよい
 - 画質「低」ではボケとブルームを切る（スマホの既定）。新しい重い効果は必ず `applyQuality()` で切り替え可能にする
 - 色は `scene.ts` の MOODS と `device.ts` 先頭の定数に集約する

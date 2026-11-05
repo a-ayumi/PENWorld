@@ -521,9 +521,9 @@ export class World {
       const petal = this.season === 'spring'
       const cols = petal ? ['#ffb3d1', '#ffd6e6', '#ffffff'] : ['#ff9a3c', '#d9531e', '#e8c030']
       const sheets = cols.map((col) => iconSheet(petal ? ['.....', '.oo..', 'ooooo', '..oo.', '.....'] : ['..o..', '.ooo.', 'ooooo', '.ooo.', '..o..'], { o: col }))
-      for (let i = 0; i < 18; i++) {
+      for (let i = 0; i < 26; i++) {
         const kind = petal ? 'petal' : 'leaf'
-        const s = new SpriteAnim(sheets[i % sheets.length], petal ? 0.2 : 0.26)
+        const s = new SpriteAnim(sheets[i % sheets.length], petal ? 0.36 : 0.44)
         s.sprite.center.set(0.5, 0.5)
         s.sprite.visible = false
         this.scene.add(s.sprite)

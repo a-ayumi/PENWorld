@@ -93,7 +93,7 @@ export const TEMPLATES: Template[] = [
   { id: 'army', kind: 'count', key: 'armies', n: [0, 0, 1], text: () => 'てきぐんを おいはらう', ok: (_n, g) => g.vscore >= 5 },
   { id: 'evolves', kind: 'count', key: 'evolves', n: [0, 1, 2], text: (n) => `なかまが ${n}かい しんかする` },
   { id: 'friends', kind: 'count', key: 'friends', n: [0, 1, 2], text: (n) => `なかまが ${n}ひき ふえる`, ok: (n, g) => g.friends + n <= 5 },
-  { id: 'friendsTotal', kind: 'gauge', key: 'friends', n: [2, 3, 4], text: (n) => `なかまを ${n}ひきに する`, ok: (n, g) => g.friends < n },
+  { id: 'friendsTotal', kind: 'gauge', key: 'friends', n: [1, 2, 3], text: (n) => `なかまを ${n}ひきに する`, ok: (n, g) => g.friends < n },
   { id: 'sameFam', kind: 'gauge', key: 'sameFam', n: [0, 2, 3], text: (n) => `おなじ けいとうの なかまを ${n}ひきに する`, ok: (n, g) => g.sameFam < n },
   { id: 'village', kind: 'gauge', key: 'village', n: [0, 2, 3], text: (n) => `${VILLAGE[n]}まで そだてる`, ok: (n, g) => g.village < n },
 ]
