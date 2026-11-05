@@ -11,7 +11,7 @@ import { World, type Sfx } from './world/World'
 import { buildDevice } from './device'
 import { FinishShader, MOODS, dustParticles, moodForHour, type Mood } from './scene'
 import { PLACES, buildPlace, type PlaceId, type PlaceInst } from './places'
-import { SKINS, type SkinId } from './device'
+import { SHAPES, SKINS, type ShapeId, type SkinId } from './device'
 import { Beeper, VOLUME_NAMES } from './beep'
 import { exportCode, importCode, requestPersist } from './backup'
 import { sheetFor, type SpeciesId } from './world/monsters'
@@ -80,7 +80,16 @@ try {
   /* noop */
 }
 const world = new World(charaStyle)
-const device = buildDevice(world.texture)
+// 本体のかたち（かわいい系・きかい系）。保存してあるものがあれば それで始める
+let shapeId: ShapeId = (() => {
+  try {
+    const v = localStorage.getItem('pulsar-shape')
+    return v && Object.prototype.hasOwnProperty.call(SHAPES, v) ? (v as ShapeId) : 'egg'
+  } catch {
+    return 'egg'
+  }
+})()
+let device = buildDevice(world.texture, shapeId)
 scene.add(device.group)
 const beeper = new Beeper()
 
@@ -131,7 +140,7 @@ let currentMood = ''
 const load = <T extends string>(k: string, fallback: T, valid: object): T => {
   try {
     const v = localStorage.getItem(k)
-    if (v && v in valid) return v as T
+    if (v && Object.prototype.hasOwnProperty.call(valid, v)) return v as T
   } catch {
     /* noop */
   }
@@ -202,6 +211,27 @@ chips(document.getElementById('skin-list')!, SKINS, () => skinId, (id) => {
   skinId = id as SkinId
   save('pulsar-skin', id)
   device.setSkin(skinId)
+})
+/** 本体のかたちを作り直す（古いモデルは捨てて、いまの柄をつけ直す） */
+function setShape(id: ShapeId) {
+  scene.remove(device.group)
+  device.group.traverse((o) => {
+    const m = o as THREE.Mesh
+    m.geometry?.dispose()
+    const mat = m.material as THREE.Material | THREE.Material[] | undefined
+    if (Array.isArray(mat)) mat.forEach((x) => x.dispose())
+    else mat?.dispose?.()
+  })
+  device = buildDevice(world.texture, id)
+  device.setSkin(skinId)
+  scene.add(device.group)
+  buttonList = Object.values(device.buttons)
+}
+const SHAPE_CHIPS = Object.fromEntries(Object.entries(SHAPES).map(([k, v]) => [k, { name: `${v.name}（${v.kind}）` }]))
+chips(document.getElementById('shape-list')!, SHAPE_CHIPS, () => shapeId, (id) => {
+  shapeId = id as ShapeId
+  save('pulsar-shape', id)
+  setShape(shapeId)
 })
 chips(document.getElementById('place-list')!, PLACES, () => placeId, (id) => {
   placeId = id as PlaceId
@@ -490,7 +520,7 @@ window.addEventListener('keydown', (e) => {
 // クリック / タップでボタン、ドラッグで本体を傾ける
 const ray = new THREE.Raycaster()
 const ndc = new THREE.Vector2()
-const buttonList = Object.values(device.buttons)
+let buttonList = Object.values(device.buttons)
 function hitButton(e: PointerEvent): 'A' | 'B' | 'C' | null {
   const r = canvas.getBoundingClientRect()
   ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1)
@@ -729,7 +759,10 @@ renderer.setAnimationLoop((t) => {
   press,
   state: () => ({ mode, quality, mood: currentMood, world: world.debug() }),
   world,
-  device,
+  get device() {
+    return device
+  },
+  setShape: (id: ShapeId) => ((shapeId = id), setShape(id)),
   setMood: (m: keyof typeof MOODS) => applyMood(m),
   setPlace: (id: PlaceId) => ((placeId = id), rebuildPlace()),
   setSkin: (id: SkinId) => device.setSkin(id),

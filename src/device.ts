@@ -120,8 +120,21 @@ function roundedRect(w: number, h: number, r: number) {
   return s
 }
 
+/** 本体のかたち（かわいい系・きかい系・まる） */
+export type ShapeId = 'egg' | 'bear' | 'flower' | 'robo' | 'mecha'
+export const SHAPES: Record<ShapeId, { name: string; kind: string }> = {
+  egg: { name: 'たまご', kind: 'まる' },
+  bear: { name: 'くま', kind: 'かわいい' },
+  flower: { name: 'おはな', kind: 'かわいい' },
+  robo: { name: 'ロボ', kind: 'きかい' },
+  mecha: { name: 'メカ', kind: 'きかい' },
+}
+
 /** フェイスプレートに印刷する文字・マーク */
-function printTexture(ink = '#3b3a36') {
+const SUBTITLE: Record<ShapeId, string> = {
+  egg: 'POCKET LIFE MONITOR', bear: 'LITTLE FRIEND', flower: 'FLOWER PET DAYS', robo: 'UNIT 01  LIFE LINK', mecha: 'TACTICAL LIFE UNIT',
+}
+function printTexture(ink = '#3b3a36', shape: ShapeId = 'egg') {
   const c = document.createElement('canvas')
   c.width = 1024
   c.height = 512
@@ -134,33 +147,106 @@ function printTexture(ink = '#3b3a36') {
   g.font = '700 44px system-ui, sans-serif'
   ;['A', 'B', 'C'].forEach((t, i) => g.fillText(t, 512 + (i - 1) * 282, 238))
   // ロゴ
-  g.font = '900 92px "Arial Black", system-ui, sans-serif'
-  g.letterSpacing = '18px'
+  g.font = shape === 'mecha' || shape === 'robo' ? '900 92px "Arial Black", Impact, system-ui, sans-serif' : '900 92px "Arial Black", system-ui, sans-serif'
+  g.letterSpacing = shape === 'bear' || shape === 'flower' ? '10px' : '18px'
   g.fillText('PULSAR', 520, 360)
   g.letterSpacing = '6px'
   g.font = '600 30px system-ui, sans-serif'
   g.globalAlpha = 0.7
-  g.fillText('POCKET LIFE MONITOR', 516, 436)
+  g.fillText(SUBTITLE[shape], 516, 436)
+  if (shape === 'bear' || shape === 'flower') {
+    // かわいい系：ロゴの左右に小さなハート
+    g.globalAlpha = 0.85
+    for (const x of [90, 940]) {
+      g.beginPath()
+      g.moveTo(x, 372)
+      g.bezierCurveTo(x - 46, 330, x - 22, 296, x, 322)
+      g.bezierCurveTo(x + 22, 296, x + 46, 330, x, 372)
+      g.fill()
+    }
+  }
   const tex = new THREE.CanvasTexture(c)
   tex.colorSpace = THREE.SRGBColorSpace
   tex.anisotropy = 8
   return tex
 }
 
-export function buildDevice(screenTexture: THREE.Texture): Device {
+/** かどを斜めに落とした八角形（メカ用） */
+function chamferRect(w: number, h: number, c: number) {
+  const s = new THREE.Shape()
+  const x = -w / 2
+  const y = -h / 2
+  s.moveTo(x + c, y)
+  s.lineTo(x + w - c, y)
+  s.lineTo(x + w, y + c)
+  s.lineTo(x + w, y + h - c)
+  s.lineTo(x + w - c, y + h)
+  s.lineTo(x + c, y + h)
+  s.lineTo(x, y + h - c)
+  s.lineTo(x, y + c)
+  s.closePath()
+  return s
+}
+
+/** ふちが花びらのようにふくらむ形（おはな用） */
+function scallop(rx: number, ry: number, petals: number, amp: number) {
+  const s = new THREE.Shape()
+  const N = 220
+  for (let i = 0; i <= N; i++) {
+    const t = (i / N) * Math.PI * 2
+    // 角を少し丸い四角に寄せる（スーパー楕円）+ 花びら
+    const ex = 2 / 2.6
+    const cx = Math.sign(Math.cos(t)) * Math.abs(Math.cos(t)) ** ex
+    const cy = Math.sign(Math.sin(t)) * Math.abs(Math.sin(t)) ** ex
+    const k = 1 + amp * Math.cos(petals * t)
+    const x = rx * cx * k
+    const y = ry * cy * k
+    if (i === 0) s.moveTo(x, y)
+    else s.lineTo(x, y)
+  }
+  s.closePath()
+  return s
+}
+
+function heartShape(sz: number) {
+  const s = new THREE.Shape()
+  s.moveTo(0, -sz)
+  s.bezierCurveTo(-sz * 1.5, -sz * 0.1, -sz * 0.9, sz * 0.9, 0, sz * 0.35)
+  s.bezierCurveTo(sz * 0.9, sz * 0.9, sz * 1.5, -sz * 0.1, 0, -sz)
+  return s
+}
+
+interface ShapeSpec { BW: number; BH: number; BEV: number; bevelSize: number; shell: THREE.Shape; plate: THREE.Shape; plateR: number }
+function shapeSpec(shape: ShapeId): ShapeSpec {
+  switch (shape) {
+    case 'bear':
+      return { BW: 2.62, BH: 3.05, BEV: 0.22, bevelSize: 0.18, shell: roundedRect(2.62, 3.05, 1.2), plate: roundedRect(2.14, 2.72, 0.95), plateR: 0.95 }
+    case 'flower':
+      return { BW: 2.64, BH: 3.32, BEV: 0.2, bevelSize: 0.14, shell: scallop(1.32, 1.66, 10, 0.03), plate: roundedRect(2.0, 2.72, 0.95), plateR: 0.95 }
+    case 'robo':
+      return { BW: 2.5, BH: 3.1, BEV: 0.1, bevelSize: 0.08, shell: roundedRect(2.5, 3.1, 0.34), plate: roundedRect(2.14, 2.76, 0.16), plateR: 0.16 }
+    case 'mecha':
+      return { BW: 2.72, BH: 3.2, BEV: 0.12, bevelSize: 0.08, shell: chamferRect(2.72, 3.2, 0.62), plate: chamferRect(2.22, 2.78, 0.42), plateR: 0.2 }
+    default:
+      return { BW: 2.5, BH: 3.2, BEV: 0.2, bevelSize: 0.16, shell: roundedRect(2.5, 3.2, 1.05), plate: roundedRect(2.08, 2.78, 0.82), plateR: 0.82 }
+  }
+}
+
+export function buildDevice(screenTexture: THREE.Texture, shape: ShapeId = 'egg'): Device {
   const group = new THREE.Group()
+  const sp = shapeSpec(shape)
+  const cute = shape === 'bear' || shape === 'flower'
+  const tech = shape === 'robo' || shape === 'mecha'
 
   // ---- シェル ----
-  const BW = 2.5
-  const BH = 3.2
-  const DEPTH = 0.55
-  const BEV = 0.2
-  const shellGeo = new THREE.ExtrudeGeometry(roundedRect(BW, BH, 1.05), {
-    depth: DEPTH, bevelEnabled: true, bevelThickness: BEV, bevelSize: 0.16, bevelSegments: 10, curveSegments: 48,
+  const { BW, BH, BEV } = sp
+  const DEPTH = shape === 'robo' ? 0.62 : shape === 'mecha' ? 0.6 : 0.55
+  const shellGeo = new THREE.ExtrudeGeometry(sp.shell, {
+    depth: DEPTH, bevelEnabled: true, bevelThickness: BEV, bevelSize: sp.bevelSize, bevelSegments: tech ? 3 : 10, curveSegments: 48,
   })
   shellGeo.translate(0, 0, -DEPTH / 2)
   const shellMat = new THREE.MeshPhysicalMaterial({
-    color: '#2f6f73', roughness: 0.42, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.25, sheen: 0.3, sheenColor: '#ffffff',
+    color: '#2f6f73', roughness: tech ? 0.5 : 0.42, metalness: tech ? 0.25 : 0, clearcoat: 0.6, clearcoatRoughness: 0.25, sheen: 0.3, sheenColor: '#ffffff',
   })
   const shell = new THREE.Mesh(shellGeo, shellMat)
   shell.castShadow = true
@@ -170,32 +256,30 @@ export function buildDevice(screenTexture: THREE.Texture): Device {
 
   // 側面のグリップ溝（左右に数本）
   const grooveMat = new THREE.MeshStandardMaterial({ color: '#244f52', roughness: 0.7 })
-  for (const side of [-1, 1])
-    for (let i = 0; i < 5; i++) {
-      const g = new THREE.Mesh(new THREE.CapsuleGeometry(0.025, 0.32, 4, 8), grooveMat)
-      g.position.set(side * (BW / 2 + 0.155), -0.55 + i * 0.13, 0)
-      g.rotation.x = Math.PI / 2
-      group.add(g)
-    }
+  if (shape === 'egg')
+    for (const side of [-1, 1])
+      for (let i = 0; i < 5; i++) {
+        const g = new THREE.Mesh(new THREE.CapsuleGeometry(0.025, 0.32, 4, 8), grooveMat)
+        g.position.set(side * (BW / 2 + 0.155), -0.55 + i * 0.13, 0)
+        g.rotation.x = Math.PI / 2
+        group.add(g)
+      }
 
   // ---- フェイスプレート ----
-  const PW = 2.08
-  const PH = 2.78
-  const plateGeo = new THREE.ExtrudeGeometry(roundedRect(PW, PH, 0.82), {
+  const plateGeo = new THREE.ExtrudeGeometry(sp.plate, {
     depth: 0.03, bevelEnabled: true, bevelThickness: 0.025, bevelSize: 0.025, bevelSegments: 4, curveSegments: 48,
   })
-  const plateMat = new THREE.MeshPhysicalMaterial({ color: '#efe6d2', roughness: 0.55, clearcoat: 0.3, clearcoatRoughness: 0.4 })
+  const plateMat = new THREE.MeshPhysicalMaterial({ color: '#efe6d2', roughness: tech ? 0.4 : 0.55, metalness: tech ? 0.35 : 0, clearcoat: 0.3, clearcoatRoughness: 0.4 })
   const plate = new THREE.Mesh(plateGeo, plateMat)
   plate.position.z = front - 0.03
   plate.receiveShadow = true
   group.add(plate)
   const pz = front + 0.026
 
-  // ---- 液晶（4:3 のカラー液晶）----
-  // 正方形の液晶
+  // ---- 液晶（正方形のカラー液晶）----
   const SCREEN_Y = 0.46
   const bezel = new THREE.Mesh(
-    new THREE.ShapeGeometry(roundedRect(1.52, 1.52, 0.14), 16),
+    new THREE.ShapeGeometry(roundedRect(1.52, 1.52, tech ? 0.06 : 0.14), 16),
     new THREE.MeshStandardMaterial({ color: BEZEL, roughness: 0.6 }),
   )
   bezel.position.set(0, SCREEN_Y, pz + 0.002)
@@ -212,7 +296,7 @@ export function buildDevice(screenTexture: THREE.Texture): Device {
 
   // 液晶カバー（映り込み用のガラス）
   const glass = new THREE.Mesh(
-    new THREE.ShapeGeometry(roundedRect(1.48, 1.48, 0.12), 16),
+    new THREE.ShapeGeometry(roundedRect(1.48, 1.48, tech ? 0.05 : 0.12), 16),
     new THREE.MeshPhysicalMaterial({
       color: '#ffffff', roughness: 0.04, metalness: 0, transparent: true, opacity: 0.08, clearcoat: 1, envMapIntensity: 1.6,
       depthWrite: false,
@@ -221,70 +305,241 @@ export function buildDevice(screenTexture: THREE.Texture): Device {
   glass.position.set(0, SCREEN_Y, pz + 0.03)
   group.add(glass)
 
-  // 液晶上の小さな飾りランプ
+  // 液晶の右下の小さな飾りランプ
   const lamp = new THREE.Mesh(
     new THREE.SphereGeometry(0.035, 16, 8),
     new THREE.MeshStandardMaterial({ color: '#ff6b4a', emissive: '#ff4a2a', emissiveIntensity: 2.2, roughness: 0.2 }),
   )
-  // 液晶が大きくなったので、ランプは液晶の右下へ
   lamp.position.set(0.82, -0.27, pz + 0.01)
   lamp.name = 'lamp'
   group.add(lamp)
 
   // ---- 印刷 ----
-  const printMat = new THREE.MeshStandardMaterial({ map: printTexture(), transparent: true, roughness: 0.6, depthWrite: false })
+  const printMat = new THREE.MeshStandardMaterial({ map: printTexture('#3b3a36', shape), transparent: true, roughness: 0.6, depthWrite: false })
   const print = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.95), printMat)
   print.position.set(0, -0.86, pz + 0.003)
   group.add(print)
 
-  // スピーカー穴
+  // スピーカー穴（きかい系は排気スリット、かわいい系はほっぺ）
   const holeMat = new THREE.MeshStandardMaterial({ color: '#3b3a36', roughness: 0.9 })
-  const holeGeo = new THREE.CircleGeometry(0.022, 12)
-  for (let i = 0; i < 3; i++)
-    for (let j = 0; j < 3; j++) {
-      if ((i + j) % 2) continue
-      const h = new THREE.Mesh(holeGeo, holeMat)
-      h.position.set(0.62 + i * 0.07, -1.0 + j * 0.07 - 0.07, pz + 0.003)
-      group.add(h)
+  if (cute) {
+    const cheek = new THREE.MeshBasicMaterial({ color: '#ff9eb5', transparent: true, opacity: 0.7, depthWrite: false })
+    for (const sx of [-1, 1]) {
+      const c = new THREE.Mesh(new THREE.CircleGeometry(0.1, 24), cheek)
+      c.position.set(sx * 0.86, -1.02, pz + 0.004)
+      c.scale.y = 0.7
+      group.add(c)
     }
+  } else if (tech) {
+    for (let i = 0; i < 5; i++) {
+      const v = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.025, 0.02), holeMat)
+      v.position.set(0.7, -0.94 - i * 0.07, pz + 0.004)
+      group.add(v)
+    }
+  } else {
+    const holeGeo = new THREE.CircleGeometry(0.022, 12)
+    for (let i = 0; i < 3; i++)
+      for (let j = 0; j < 3; j++) {
+        if ((i + j) % 2) continue
+        const h = new THREE.Mesh(holeGeo, holeMat)
+        h.position.set(0.62 + i * 0.07, -1.0 + j * 0.07 - 0.07, pz + 0.003)
+        group.add(h)
+      }
+  }
 
   // ---- ボタン ----
   const buttonMat = new THREE.MeshPhysicalMaterial({ color: '#f2b134', roughness: 0.32, clearcoat: 0.8, clearcoatRoughness: 0.15 })
-  const ringMat = new THREE.MeshStandardMaterial({ color: '#cfc4ab', roughness: 0.6 })
+  const ringMat = new THREE.MeshStandardMaterial({ color: tech ? '#8a919a' : '#cfc4ab', roughness: tech ? 0.35 : 0.6, metalness: tech ? 0.8 : 0 })
   const buttons = {} as Device['buttons']
+  const heartGeo = cute && shape === 'flower' ? new THREE.ExtrudeGeometry(heartShape(0.16), { depth: 0.08, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.025, bevelSegments: 4, curveSegments: 16 }) : null
   ;(['A', 'B', 'C'] as const).forEach((k, i) => {
     const x = (i - 1) * 0.52
     const y = -0.56 - (i === 1 ? 0.05 : 0)
-    // くぼみのリング
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.025, 10, 40), ringMat)
-    ring.position.set(x, y, pz + 0.005)
-    group.add(ring)
-    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.175, 0.12, 40), buttonMat)
-    b.rotation.x = Math.PI / 2
-    b.position.set(x, y, pz + 0.05)
+    // くぼみ
+    if (shape === 'mecha') {
+      const inset = new THREE.Mesh(new THREE.ShapeGeometry(roundedRect(0.46, 0.36, 0.05), 8), new THREE.MeshStandardMaterial({ color: '#23262b', roughness: 0.8 }))
+      inset.position.set(x, y, pz + 0.004)
+      group.add(inset)
+    } else if (shape === 'robo') {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.025, 6, 6), ringMat)
+      ring.position.set(x, y, pz + 0.005)
+      group.add(ring)
+    } else {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.025, 10, 40), ringMat)
+      ring.position.set(x, y, pz + 0.005)
+      group.add(ring)
+    }
+    let b: THREE.Mesh
+    if (heartGeo) {
+      b = new THREE.Mesh(heartGeo, buttonMat)
+      b.position.set(x, y + 0.02, pz + 0.04)
+    } else if (shape === 'robo') {
+      b = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.185, 0.12, 6), buttonMat)
+      b.rotation.set(Math.PI / 2, 0, Math.PI / 6)
+      b.position.set(x, y, pz + 0.05)
+    } else if (shape === 'mecha') {
+      b = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.26, 0.12), buttonMat)
+      b.position.set(x, y, pz + 0.05)
+    } else {
+      b = new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.175, 0.12, 40), buttonMat)
+      b.rotation.x = Math.PI / 2
+      b.position.set(x, y, pz + 0.05)
+      // 上面を少し丸く見せるキャップ
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(0.165, 32, 12, 0, Math.PI * 2, 0, Math.PI * 0.18), buttonMat)
+      const capTheta = Math.PI * 0.18
+      cap.scale.y = 0.55
+      cap.position.y = 0.06 - 0.55 * 0.165 * Math.cos(capTheta)
+      b.add(cap)
+    }
     b.castShadow = true
-    b.userData = { key: k, restZ: pz + 0.05, press: 0 }
-    // 上面を少し丸く見せるキャップ
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.165, 32, 12, 0, Math.PI * 2, 0, Math.PI * 0.18), buttonMat)
-    // 球の上部だけを薄く潰して、円柱の上面（y = 0.06）に載せる
-    const capTheta = Math.PI * 0.18
-    cap.scale.y = 0.55
-    cap.position.y = 0.06 - 0.55 * 0.165 * Math.cos(capTheta)
-    b.add(cap)
+    b.userData = { key: k, restZ: b.position.z, press: 0 }
     group.add(b)
     buttons[k] = b
   })
 
-  // ---- ストラップリング ----
+  // ---- かたち別の飾り ----
   const metal = new THREE.MeshStandardMaterial({ color: '#d9d6cf', metalness: 1, roughness: 0.22 })
-  const lug = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.22, 24), shellMat)
-  lug.position.set(0, BH / 2 + 0.17, 0)
-  group.add(lug)
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.035, 16, 48), metal)
-  ring.position.set(0, BH / 2 + 0.42, 0)
-  ring.rotation.y = Math.PI / 2
-  ring.castShadow = true
-  group.add(ring)
+  const darkMetal = new THREE.MeshStandardMaterial({ color: '#4a4f57', metalness: 0.9, roughness: 0.35 })
+  const pink = new THREE.MeshStandardMaterial({ color: '#ff9eb5', roughness: 0.6 })
+  const addRing = (y: number, r = 0.2, m: THREE.Material = metal) => {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.035, 16, 48), m)
+    ring.position.set(0, y, 0)
+    ring.rotation.y = Math.PI / 2
+    ring.castShadow = true
+    group.add(ring)
+  }
+  if (shape === 'egg') {
+    const lug = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.22, 24), shellMat)
+    lug.position.set(0, BH / 2 + 0.17, 0)
+    group.add(lug)
+    addRing(BH / 2 + 0.42)
+  } else if (shape === 'bear') {
+    // くまの耳：まるい耳と、中のピンク
+    for (const sx of [-1, 1]) {
+      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.48, 32, 20), shellMat)
+      ear.position.set(sx * 0.98, BH / 2 - 0.06, -0.04)
+      ear.scale.set(1, 1, 0.78)
+      ear.castShadow = true
+      group.add(ear)
+      const inner = new THREE.Mesh(new THREE.SphereGeometry(0.3, 24, 16), pink)
+      inner.position.set(sx * 0.98, BH / 2 - 0.08, 0.2)
+      inner.scale.set(1, 1, 0.5)
+      group.add(inner)
+    }
+    const lug = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 0.2, 20), shellMat)
+    lug.position.set(0, BH / 2 + 0.06, 0)
+    group.add(lug)
+    addRing(BH / 2 + 0.3, 0.18)
+    // 顔：小さな はな と くち（プレートの上の飾り）
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 8), new THREE.MeshStandardMaterial({ color: '#5a3a3a', roughness: 0.4 }))
+    nose.position.set(0, 1.3, pz + 0.01)
+    nose.scale.set(1.3, 0.9, 0.6)
+    group.add(nose)
+  } else if (shape === 'flower') {
+    const lug = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 0.2, 20), shellMat)
+    lug.position.set(0, BH / 2 + 0.05, 0)
+    group.add(lug)
+    addRing(BH / 2 + 0.3, 0.18)
+    // 葉っぱ 2 まい
+    const leafMat = new THREE.MeshStandardMaterial({ color: '#7fd18b', roughness: 0.6 })
+    for (const sx of [-1, 1]) {
+      const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 10), leafMat)
+      leaf.scale.set(1.5, 0.45, 0.8)
+      leaf.position.set(sx * 0.3, BH / 2 + 0.02, 0.05)
+      leaf.rotation.z = sx * 0.5
+      group.add(leaf)
+    }
+    // ふちのシール（小さなドット）
+    const dotCols = ['#ffffff', '#ffd1e0', '#fff1a8']
+    for (let i = 0; i < 14; i++) {
+      const t = (i / 14) * Math.PI * 2 + 0.2
+      const d = new THREE.Mesh(new THREE.CircleGeometry(0.045, 12), new THREE.MeshBasicMaterial({ color: dotCols[i % 3] }))
+      d.position.set(Math.cos(t) * 1.18, Math.sin(t) * 1.52, front + 0.004)
+      group.add(d)
+    }
+  } else if (shape === 'robo') {
+    // ロボの頭：左右の耳（ボルト）、角のネジ、アンテナ、わき腹のボルト
+    for (const sx of [-1, 1]) {
+      const ear = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.3, 20), darkMetal)
+      ear.rotation.z = Math.PI / 2
+      ear.position.set(sx * (BW / 2 + 0.13), 0.9, 0)
+      ear.castShadow = true
+      group.add(ear)
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.06, 16), metal)
+      cap.rotation.z = Math.PI / 2
+      cap.position.set(sx * (BW / 2 + 0.3), 0.9, 0)
+      group.add(cap)
+      for (const sy of [-1, 1]) {
+        const screw = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.03, 12), metal)
+        screw.rotation.x = Math.PI / 2
+        screw.position.set(sx * 0.96, sy * 1.27, pz + 0.004)
+        group.add(screw)
+        const slot = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.014, 0.01), darkMetal)
+        slot.position.set(sx * 0.96, sy * 1.27, pz + 0.021)
+        slot.rotation.z = sx * sy * 0.6
+        group.add(slot)
+      }
+    }
+    const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.5, 8), metal)
+    stick.position.set(0, BH / 2 + 0.25, 0)
+    group.add(stick)
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 12), new THREE.MeshStandardMaterial({ color: '#ff5e5e', emissive: '#ff2a2a', emissiveIntensity: 1.4, roughness: 0.3 }))
+    ball.position.set(0, BH / 2 + 0.55, 0)
+    group.add(ball)
+    // はいきスリットの下にしま模様（ききゅう注意）
+    const stripe = document.createElement('canvas')
+    stripe.width = 256
+    stripe.height = 32
+    const sg = stripe.getContext('2d')!
+    sg.fillStyle = '#ffd23f'
+    sg.fillRect(0, 0, 256, 32)
+    sg.fillStyle = '#222'
+    for (let x = -32; x < 288; x += 48) {
+      sg.beginPath()
+      sg.moveTo(x, 32)
+      sg.lineTo(x + 24, 32)
+      sg.lineTo(x + 56, 0)
+      sg.lineTo(x + 32, 0)
+      sg.fill()
+    }
+    const st = new THREE.CanvasTexture(stripe)
+    st.colorSpace = THREE.SRGBColorSpace
+    const strip = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.07), new THREE.MeshBasicMaterial({ map: st }))
+    strip.position.set(0, -1.31, pz + 0.004)
+    group.add(strip)
+  } else if (shape === 'mecha') {
+    // メカ：肩のバンパー、わきの装甲、発光ライン、ごついフック
+    for (const sx of [-1, 1]) {
+      const bump = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.2, 0.42), darkMetal)
+      bump.position.set(sx * 0.82, BH / 2 + 0.03, 0.02)
+      bump.rotation.z = sx * -0.08
+      bump.castShadow = true
+      group.add(bump)
+      const armor = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.5, 0.36), darkMetal)
+      armor.position.set(sx * (BW / 2 + 0.03), -0.2, 0)
+      group.add(armor)
+      for (let k = 0; k < 3; k++) {
+        const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.05, 8), metal)
+        bolt.rotation.z = Math.PI / 2
+        bolt.position.set(sx * (BW / 2 + 0.09), 0.3 - k * 0.5, 0.1)
+        group.add(bolt)
+      }
+      const led = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.2, 0.012), new THREE.MeshStandardMaterial({ color: '#5ef2ff', emissive: '#2ad4ff', emissiveIntensity: 2.4 }))
+      led.position.set(sx * 1.05, 0.38, pz + 0.004)
+      group.add(led)
+    }
+    // 液晶まわりの ななめのカット線
+    for (const sx of [-1, 1]) {
+      const cut = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.015, 0.01), darkMetal)
+      cut.position.set(sx * 0.95, 1.28, pz + 0.004)
+      cut.rotation.z = sx * -0.6
+      group.add(cut)
+    }
+    const hook = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.22, 0.3), darkMetal)
+    hook.position.set(0, BH / 2 + 0.1, 0)
+    group.add(hook)
+    addRing(BH / 2 + 0.34, 0.22, darkMetal)
+  }
 
   const setSkin = (id: SkinId) => {
     const sk = SKINS[id] ?? SKINS.teal
@@ -294,16 +549,15 @@ export function buildDevice(screenTexture: THREE.Texture): Device {
     // 透明シェル：中が少し透けるプラスチック
     shellMat.transmission = sk.clear ? 0.75 : 0
     shellMat.thickness = sk.clear ? 0.6 : 0
-    shellMat.roughness = sk.clear ? 0.12 : 0.42
+    shellMat.roughness = sk.clear ? 0.12 : tech ? 0.5 : 0.42
     shellMat.sheenColor.set(sk.shell).lerp(new THREE.Color('#ffffff'), 0.5)
     shellMat.needsUpdate = true
     plateMat.color.set(sk.plate)
     buttonMat.color.set(sk.button)
     grooveMat.color.set(sk.groove)
     printMat.map?.dispose()
-    printMat.map = printTexture(sk.ink)
+    printMat.map = printTexture(sk.ink, shape)
     printMat.needsUpdate = true
   }
   return { group, buttons, screen, setSkin }
 }
-
