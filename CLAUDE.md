@@ -62,3 +62,4 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - セーブは localStorage の `pulsar-save-v1`（10 秒ごと + 画面を離れた時）。項目を増やしたら `save()` と `load()` の両方を直す
 - データの書き出し・読み込み・やり直しは `src/backup.ts`（コードは `PULSAR1:` + base64 の JSON）。設定のキーを増やしたら `KEYS` にも足す。読み込み・やり直しの前は `world.saveLocked = true` にして上書きを防ぐ。起動時に `navigator.storage.persist()` を頼む
 - テストは `window.__pulsar.press('A')` / `.state()` / `.setMood('night')`、箱庭は `.world.run(i)` と `.world.update(1/30)` の早送りで確認する
+- **もくひょう（章立て）**：`src/roadmap.ts` が章（10 章）→ 目標 → 判定のデータ表。`World.updateRoad()` が 1 秒に 1 回 `roadState()` を読んで判定（達成はラッチ）。HUD は村チップの下に 1 行、パネルは `#road-btn`（`world.roadInfo()`）。第 9 章は `callArmy(n, true)` の大軍勢（`Army.boss`・`launchBoss` / `updateBoss`・北と東・大ボス）。勝つと `crown`（おうかんの置き物）。セーブは `road`（`loadRoad` で ID を表と照合、無ければ実績から `backfill`）

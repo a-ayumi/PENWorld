@@ -34,21 +34,21 @@ kbd { display: inline-block; min-width: 18px; margin: 0 2px; padding: 0 4px; bor
 #hint.fade { opacity: 0; }
 
 /* きせかえ */
-#dress, #dex-btn { position: fixed; top: calc(env(safe-area-inset-top) + 12px); left: calc(env(safe-area-inset-left) + 12px);
+#dress, #dex-btn, #road-btn { position: fixed; top: calc(env(safe-area-inset-top) + 12px); left: calc(env(safe-area-inset-left) + 12px);
   border: 0; border-radius: 999px; padding: 8px 14px; font-size: 12px; font-weight: 700; color: var(--ink);
   background: var(--chip); backdrop-filter: blur(6px); cursor: pointer; }
-#dress-panel, #dex-panel { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; max-height: 60%; overflow: auto;
+#dress-panel, #dex-panel, #road-panel { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; max-height: 60%; overflow: auto;
   padding: 14px max(16px, env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 18px) max(16px, env(safe-area-inset-left));
   background: rgba(29, 26, 23, 0.86); backdrop-filter: blur(10px); border-radius: 18px 18px 0 0; color: var(--ink); }
 .dress-head { display: flex; align-items: center; justify-content: space-between; }
-#dress-panel h2, #dex-panel h2 { margin: 0; font-size: 16px; }
+#dress-panel h2, #dex-panel h2, #road-panel h2 { margin: 0; font-size: 16px; }
 #dress-panel h3, #dex-panel h3 { margin: 14px 0 8px; font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: .06em; }
-#dress-close, #dex-close { border: 0; border-radius: 999px; padding: 6px 12px; background: rgba(255,255,255,.12); color: var(--ink); cursor: pointer; }
+#dress-close, #dex-close, #road-close { border: 0; border-radius: 999px; padding: 6px 12px; background: rgba(255,255,255,.12); color: var(--ink); cursor: pointer; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { border: 1.5px solid rgba(243,234,216,.3); background: transparent; color: var(--ink); border-radius: 999px;
   padding: 8px 14px; font-size: 13px; cursor: pointer; min-height: 36px; }
 .chip[aria-pressed="true"] { background: #f2b134; border-color: #f2b134; color: #3a2a00; font-weight: 700; }
-#dress:focus-visible, #dex-btn:focus-visible, .chip:focus-visible, #dress-close:focus-visible, #dex-close:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+#dress:focus-visible, #dex-btn:focus-visible, #road-btn:focus-visible, #road-close:focus-visible, #road-boss-btn:focus-visible, .chip:focus-visible, #dress-close:focus-visible, #dex-close:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
 /* データの書き出し・読み込み */
 .chip.danger { border-color: rgba(255,120,120,.5); color: #ffb3b3; }
@@ -64,7 +64,7 @@ kbd { display: inline-block; min-width: 18px; margin: 0 2px; padding: 0 4px; bor
 #data-msg { margin: 8px 0 0; font-size: 12px; color: var(--muted); min-height: 1em; }
 
 /* 眺めるモード：画面の何もない所をタップすると、ボタンや案内をすべて隠す */
-body.clean #toolbar, body.clean #dress, body.clean #dress-panel, body.clean #dex-btn, body.clean #dex-panel, body.clean #hint, body.clean #pad { display: none !important; }
+body.clean #toolbar, body.clean #dress, body.clean #dress-panel, body.clean #dex-btn, body.clean #dex-panel, body.clean #road-btn, body.clean #road-panel, body.clean #hint, body.clean #pad { display: none !important; }
 
 /* ずかん */
 #dex-btn { top: calc(env(safe-area-inset-top) + 54px); }
@@ -87,3 +87,38 @@ body.clean #toolbar, body.clean #dress, body.clean #dress-panel, body.clean #dex
 #enter-btn:active { transform: translateX(-50%) scale(.97); }
 #enter-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 body.clean #enter-btn { display: none !important; }
+
+/* もくひょう（章立ての長い目標） */
+#road-btn { top: calc(env(safe-area-inset-top) + 96px); }
+#road-panel { max-height: 72%; }
+#road-title { margin: 10px 0 6px; font-size: 13px; }
+#road-title b { color: #ffe27a; }
+#road-bar { height: 8px; border-radius: 99px; background: rgba(255,255,255,.12); overflow: hidden; margin-bottom: 10px; }
+#road-bar span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #f2b134, #ffe27a); transition: width .4s; }
+#road-boss { margin: 0 0 10px; padding: 10px; border-radius: 12px; background: rgba(232,90,90,.16); border: 1.5px solid rgba(255,140,140,.45); }
+#road-boss[hidden] { display: none; }
+#road-boss .chip { background: #e85a5a; border-color: #e85a5a; color: #fff; font-weight: 700; }
+#road-boss .chip:disabled { background: transparent; color: var(--muted); border-color: rgba(243,234,216,.3); font-weight: 400; cursor: default; }
+#road-boss-note { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.road-ch { margin: 0 0 8px; border-radius: 12px; background: rgba(255,255,255,.06); font-size: 13px; }
+.road-ch > summary, .road-ch > .road-sum { display: flex; align-items: center; gap: 8px; padding: 10px 12px; min-height: 44px; cursor: pointer; list-style: none; }
+.road-ch > summary::-webkit-details-marker { display: none; }
+.road-ch > .road-sum { cursor: default; }
+.road-ch .no { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.road-ch .nm { flex: 1; font-weight: 700; }
+.road-ch .tag { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: rgba(255,255,255,.12); white-space: nowrap; }
+.road-ch.done .tag { background: #5cc25a; color: #0e2a0e; }
+.road-ch.now { background: rgba(242,177,52,.16); box-shadow: inset 0 0 0 1.5px rgba(242,177,52,.6); }
+.road-ch.now .tag { background: #f2b134; color: #3a2a00; font-weight: 700; }
+.road-ch.next { color: var(--muted); }
+.road-body { padding: 0 12px 12px; }
+.road-story { margin: 0 0 8px; font-size: 12px; line-height: 1.7; color: var(--muted); white-space: pre-line; }
+.road-goals { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
+.road-goals li { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 2px 6px; }
+.road-goals .ck { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid rgba(243,234,216,.45); display: grid; place-items: center; font-size: 12px; line-height: 1; }
+.road-goals li.ok .ck { background: #5cc25a; border-color: #5cc25a; color: #0e2a0e; }
+.road-goals li.ok .tx { opacity: .75; }
+.road-goals .ct { font-size: 11px; color: var(--muted); }
+.road-goals .pg { grid-column: 2 / 4; height: 4px; border-radius: 9px; background: rgba(255,255,255,.12); overflow: hidden; }
+.road-goals .pg i { display: block; height: 100%; background: #f2b134; }
+.road-reward { margin: 0; font-size: 11px; color: #ffe27a; }

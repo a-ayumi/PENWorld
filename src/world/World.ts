@@ -7,6 +7,7 @@ import { Tex } from './textures'
 import { SNAP_GLSL, snapUniform } from './psx'
 import { HALF, LAND_SIZES, STAGES, setLandSize, type Stage } from './stages'
 import { STRUCTS, buildStructModel, isStructKind, styleOf, type StructKind } from './structures'
+import { BOSS_CHAPTER, CHAPTERS, backfill, bossReady, loadRoad, newRoad, nowGoal, roadStep, roadView, saveRoad, type Chapter, type Road, type RoadState } from '../roadmap'
 
 /**
  * 箱庭の世界。モンスターが自分で考えて暮らす（歩く・食べる・眠る・遊ぶ・戦う・仲間になる・たまごを産む）。
@@ -55,6 +56,8 @@ interface Creature {
   site: Struct | null
   /** 敵軍の一員 */
   army: boolean
+  /** 大軍勢の大ボス（大きく描く） */
+  boss?: boolean
   /** ぷにぷに動き：着地のつぶれ・前の高さ */
   squash: number
   pj: number
@@ -107,11 +110,13 @@ interface Struct {
   mats: number; hp: number; mesh: THREE.Group | null; shake: number; q: number; t: number; alerted: number
 }
 /** 敵軍：warn = 近づいている / on = 攻めてきている */
-interface Army { phase: 'warn' | 'on'; t: number; left: Creature[]; n: number; castle: boolean; wave: number }
+interface Army { phase: 'warn' | 'on'; t: number; left: Creature[]; n: number; castle: boolean; wave: number; boss?: boolean }
+/** 物語カード（章のはじめ・おわり）*/
+interface Card { title: string; sub: string; lines: string[]; color: string; at: number; t0: number }
 type Weather = 'sun' | 'cloud' | 'rain' | 'snow' | 'ember'
 type FoodKind = 'stage' | 'meat' | 'sweet' | 'nut'
 interface Food { mesh: THREE.Group; x: number; z: number; y: number; vy: number; landed: boolean; taken: Creature | null; bite: number; kind: FoodKind }
-type ItemKind = 'sapling' | 'ball' | 'fire' | 'charm' | 'tools' | 'fence' | 'memorial'
+type ItemKind = 'sapling' | 'ball' | 'fire' | 'charm' | 'tools' | 'fence' | 'memorial' | 'crown'
 /** 村での役割（だいく・はたけがかり・みはり） */
 type Role = 'free' | 'builder' | 'farmer' | 'guard'
 const ROLE_NAME: Record<Role, string> = { free: 'じゆう', builder: 'だいく', farmer: 'はたけがかり', guard: 'みはり' }
@@ -144,6 +149,7 @@ const ITEM_INFO: Record<string, { name: string; desc: string }> = {
   tools: { name: 'だいくどうぐ', desc: 'ちかくの 家づくりが 2ばい。家が なおる' },
   fence: { name: 'まもりのさく', desc: 'ちかくの 家の ダメージが はんぶん' },
   memorial: { name: 'おはか', desc: 'まえの だいの ペットを しのぶ ほしの かざり' },
+  crown: { name: 'えいゆうの おうかん', desc: 'だいぐんぜいを うちやぶった しるし。いろが かわる' },
 }
 interface Fx { sprite: THREE.Sprite; vx: number; vy: number; vz: number; life: number; max: number; grav: number }
 
@@ -310,6 +316,10 @@ export class World {
   private army: Army | null = null
   private armyCd = 180
   private armyWave = 0
+  /** もくひょう（章立ての長い目標）*/
+  road: Road = newRoad()
+  private cards: Card[] = []
+  private bossT = -1
   private villageSeen = 0
   private villageT = 0
   private rockTex: THREE.Texture | null = null
@@ -555,7 +565,7 @@ export class World {
   }
 
   private size(c: Creature) {
-    return c.sp.height * (c.grow > 0 ? 0.55 + 0.45 * c.grow : 1)
+    return c.sp.height * (c.grow > 0 ? 0.55 + 0.45 * c.grow : 1) * (c.boss ? 1.7 : 1)
   }
 
   private ground(c: Creature) {
@@ -1414,6 +1424,24 @@ export class World {
         f.position.set(dx, 0.08, dz)
         g.add(f)
       }
+    } else if (it.kind === 'crown') {
+      // えいゆうの おうかん：石のだいざと、宝石の色が かわる金のかんむり
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 0.3, 8), this.lam('#c9ced6', { map: Tex.rock() }))
+      base.position.y = 0.15
+      const gold = new THREE.MeshBasicMaterial({ color: '#ffd23f', side: THREE.DoubleSide })
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.26, 0.22, 10, 1, true), gold)
+      band.position.y = 0.42
+      g.add(base, band)
+      for (let k = 0; k < 5; k++) {
+        const a = (k / 5) * Math.PI * 2
+        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.24, 4), gold)
+        tip.position.set(Math.cos(a) * 0.28, 0.65, Math.sin(a) * 0.28)
+        const jewel = new THREE.Mesh(new THREE.OctahedronGeometry(0.06, 0), new THREE.MeshBasicMaterial({ color: '#ff5e5e' }))
+        jewel.position.set(Math.cos(a) * 0.3, 0.8, Math.sin(a) * 0.3)
+        jewel.name = 'jewel'
+        g.add(tip, jewel)
+      }
+      g.scale.setScalar(1.3)
     } else {
       const stone = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.6, 0.3), this.lam('#9aa1ab'))
       stone.position.y = 0.3
@@ -1490,6 +1518,11 @@ export class World {
         const f = 0.85 + Math.sin(this.time * 17) * 0.1 + Math.sin(this.time * 7.3) * 0.08
         it.mesh.children.forEach((o) => o.name === 'flame' && o.scale.set(f, f * (1.1 + Math.sin(this.time * 11) * 0.1), f))
         if (it.light) it.light.intensity = (0.6 + this.night * 3) * f
+      } else if (it.kind === 'crown') {
+        // 宝石の色が ゆっくり かわる
+        let k = 0
+        for (const o of it.mesh.children) if (o.name === 'jewel') ((o as THREE.Mesh).material as THREE.MeshBasicMaterial).color.setHSL((this.time * 0.25 + k++ * 0.2) % 1, 0.9, 0.6)
+        it.mesh.rotation.y += dt * 0.5
       } else {
         const gem = it.mesh.getObjectByName('gem')
         if (gem) {
@@ -2159,7 +2192,7 @@ export class World {
         const info = ITEM_INFO[it.kind] ?? { name: it.kind, desc: '' }
         lines.push(info.desc)
         if (it.kind === 'sapling') bars.push(['せいちょう', it.grow, '#7cf29b'])
-        return { title: info.name, sub: 'おきもの', lines, bars, del: 'かたづける' }
+        return { title: info.name, sub: 'おきもの', lines, bars, del: it.kind === 'crown' ? null : 'かたづける' }
       }
       case 'egg': {
         const e: Egg = p.ref
@@ -2526,6 +2559,7 @@ export class World {
     this.villageT = 0
     this.calcVillage()
     this.updateDex()
+    this.updateRoad()
     this.roleT += 1
     if (this.roleT >= 15) {
       this.roleT = 0
@@ -2551,20 +2585,130 @@ export class World {
   }
   private autoPlanT = 0
 
+  // ================= もくひょう（ロードマップ）=================
+  /** 判定に使ういまの数字。条件は roadmap.ts の表にあり、ここは読み取るだけ */
+  roadState(): RoadState {
+    const built = { farm: 0, well: 0, tower: 0, cradle: 0, wall: 0, castle: 0, bridge: 0 }
+    for (const b of this.structs) if (this.structDone(b)) built[b.kind]++
+    const dex = this.dexInfo()
+    let stages = 0
+    for (let i = 0; i < STAGES.length; i++) if (this.road.visited & (1 << i)) stages++
+    return {
+      time: (this.stats.gen - 1) * LIFESPAN + this.stats.petAge,
+      houses: this.houses.filter((h) => h.level >= 3).length,
+      vLv: this.vLv,
+      built,
+      friends: this.creatures.filter((c) => c.team === 'friend' && c.state !== 'dead').length,
+      children: this.stats.children,
+      wins: this.stats.wins,
+      dexOwned: dex.owned,
+      dexTotal: dex.total,
+      gen: this.stats.gen,
+      land: this.land,
+      stages,
+      armyWins: this.road.wins,
+      bossWins: this.road.bossWins,
+    }
+  }
+
+  /** 1 秒に 1 回：目標の判定・章のクリア・大軍勢のきっかけ */
+  private updateRoad() {
+    this.road.visited |= 1 << this.stageIndex
+    const ev = roadStep(this.road, this.roadState())
+    for (const g of ev.goals) {
+      if (ev.clear) break
+      this.say(`もくひょう たっせい！ ${g.text}`)
+      this.confetti(8)
+      this.onSfx('win')
+    }
+    if (ev.clear) this.roadClear(ev.clear)
+    if (ev.intro) this.cards.push({ title: `だい${ev.intro.no}しょう ${ev.intro.name}`, sub: 'あたらしい しょう', lines: ev.intro.intro, color: '#9fd8ff', at: this.time + (ev.intro.no === 1 ? 6 : 3), t0: 0 })
+    // 第 9 章のじゅんびが終わったら、予告のあと自動で大軍勢が来る（負けたあとは「もくひょう」から自分でいどむ）
+    const ok = bossReady(this.road) && this.road.bossTry === 0 && this.road.bossWins === 0 && this.vScore >= 5 && this.alive(this.pet)
+    if (!ok) this.bossT = -1
+    else if (!this.army) {
+      if (this.bossT < 0) {
+        this.bossT = 60
+        this.cards.push({ title: 'ノイズの おうが めざめた…', sub: 'いちぶんごに だいぐんぜいが くる', lines: ['きたと ひがしから、おおぜいの', 'ノイズが せめてくる。', 'おしろと みはりを かためておこう。'], color: '#ff9a9a', at: this.time, t0: 0 })
+        this.say('だいぐんぜいの よかん… じゅんびを いそごう')
+        this.onSfx('boom')
+      } else if (--this.bossT <= 0) {
+        this.bossT = -1
+        this.callArmy(undefined, true)
+      }
+    }
+  }
+
+  private confetti(n: number) {
+    const x = this.look.x
+    const z = this.look.z
+    const y = this.stage.heightAt(x, z) + 1
+    this.burst(x, y, z, 'coin', Math.ceil(n / 2), 3)
+    this.burst(x, y, z, 'spark', n, 3)
+    this.burst(x, y, z, 'heart', Math.ceil(n / 3), 2.5)
+  }
+
+  private roadClear(c: Chapter) {
+    const w = c.reward
+    this.earn(w.coins)
+    if (w.egg) {
+      const p = this.freePos(1.2, this.look.x, this.look.z, 3)
+      this.layEgg(p.x, p.z, [], 40, w.egg)
+    }
+    if (w.crown && !this.road.crown) {
+      this.road.crown = true
+      this.placeItem('crown')
+    }
+    this.cards.push({
+      title: `だい${c.no}しょう クリア！`, sub: `しょうごう「${w.title}」`, color: '#ffe27a', at: this.time, t0: 0,
+      lines: [...c.outro, `コイン+${w.coins}${w.egg ? ' ・たまご' : ''}${w.crown ? ' ・おうかん' : ''}`],
+    })
+    this.say(`だい${c.no}しょう「${c.name}」クリア！ しょうごう「${w.title}」`)
+    this.confetti(22)
+    this.onSfx('evolve')
+    this.shake = Math.max(this.shake, 0.2)
+    this.save()
+  }
+
+  /** パネル用：章の一覧と、大軍勢にいどむ ボタンの状態 */
+  roadInfo() {
+    const view = roadView(this.road, this.roadState())
+    return { ...view, boss: this.bossStatus() }
+  }
+
+  private bossStatus(): { can: boolean; label: string; note: string } | null {
+    if (this.road.cleared !== BOSS_CHAPTER) return null
+    if (this.army?.boss) return { can: false, label: 'たたかい ちゅう！', note: this.army.phase === 'warn' ? `あと ${Math.ceil(this.army.t)}びょうで せめてくる` : `のこり ${this.army.left.length}たい` }
+    if (!bossReady(this.road)) return { can: false, label: 'じゅんびちゅう', note: 'うえの じゅんびの もくひょうを たっせいすると いどめる' }
+    if (this.vScore < 5) return { can: false, label: 'いどめない', note: 'むらの ある ばしょ（★5いじょう）で いどもう' }
+    if (this.army) return { can: false, label: 'いどめない', note: 'いまの てきぐんが おわってから' }
+    return { can: true, label: this.road.bossTry ? 'もういちど いどむ' : 'いま いどむ', note: this.bossT > 0 ? `なにも しなければ あと ${this.bossT}びょうで はじまる` : 'おしろと みはりを かためて、よびだそう' }
+  }
+
+  /** 大軍勢をよぶ（パネルのボタン）。よべたら true */
+  challengeBoss(): boolean {
+    if (!this.bossStatus()?.can) return false
+    this.bossT = -1
+    this.callArmy(undefined, true)
+    return true
+  }
+
   // ================= 敵軍 =================
   /** 敵軍をよぶ（村がある程度育つと自分でも来る）。n = 敵の数 */
-  callArmy(n?: number) {
+  callArmy(n?: number, boss = false) {
     if (this.army) return
     this.armyWave++
     this.calcVillage()
     const castle = this.structs.some((b) => b.stage === this.stageIndex && b.kind === 'castle')
-    this.army = { phase: 'warn', t: 18, left: [], n: n ?? Math.min(12, 3 + Math.floor(this.vScore * 0.7)), castle, wave: this.armyWave }
-    this.say('てきぐんが ちかづいている…！ そなえよう')
+    const big = boss ? 15 + Math.min(5, Math.floor(this.vScore / 6)) : 0
+    this.army = { phase: 'warn', t: boss ? 25 : 18, left: [], n: n ?? (boss ? big : Math.min(12, 3 + Math.floor(this.vScore * 0.7))), castle, wave: this.armyWave, boss }
+    this.say(boss ? 'だいぐんぜいが ちかづいている…！ きたと ひがしから くるぞ' : 'てきぐんが ちかづいている…！ そなえよう')
     this.onSfx('boom')
     this.shake = Math.max(this.shake, 0.3)
   }
 
   private launchArmy(a: Army) {
+    if (a.boss) return this.launchBoss(a)
     a.phase = 'on'
     a.t = 150
     const mult = 1 + 0.15 * (a.wave - 1)
@@ -2607,6 +2751,7 @@ export class World {
       return
     }
     a.left = a.left.filter((c) => this.creatures.includes(c) && c.state !== 'dead')
+    if (a.boss && this.updateBoss(a)) return
     for (const c of a.left) {
       c.energy = Math.max(c.energy, 60)
       c.hunger = Math.max(c.hunger, 50)
@@ -2614,6 +2759,7 @@ export class World {
     if (!a.left.length) {
       const reward = 20 + a.n * 5 + (a.castle && this.structs.some((b) => b.kind === 'castle' && b.stage === this.stageIndex) ? 20 : 0)
       this.say(`てきぐんを おいはらった！ コイン+${reward}`)
+      this.road.wins++
       this.earn(reward)
       this.onSfx('win')
       for (let i = 0; i < 3; i++) this.spawnResource(undefined, undefined, undefined, true)
@@ -2625,6 +2771,70 @@ export class World {
       this.army = null
       this.armyCd = 200 + Math.random() * 60
     }
+  }
+
+  // ---- 大軍勢（最終章のボス戦）----
+  /** 北と東から、数が多くて強い敵軍。さいしょの 1 体が大ボス（ノイズの おう） */
+  private launchBoss(a: Army) {
+    a.phase = 'on'
+    a.t = 240
+    const mult = Math.max(1.5, 1 + 0.15 * (a.wave - 1))
+    for (let i = 0; i < a.n; i++) {
+      const king = i === 0
+      const elite = !king && i < 4
+      const r = Math.random()
+      const id: SpeciesId = king || elite ? 'gougan' : r < 0.55 ? 'noiz' : 'togebug'
+      const east = !king && i % 2 === 1
+      const x = east ? HALF - 0.6 - Math.random() * 1.2 : king ? 0 : THREE.MathUtils.clamp((Math.random() * 2 - 1) * (HALF - 1), -HALF, HALF)
+      const z = east ? THREE.MathUtils.clamp((Math.random() * 2 - 1) * (HALF - 2), -HALF, HALF) : -HALF + 0.6 + Math.random() * 1.2
+      const c = this.spawn(id, 'wild', x, z)
+      c.army = true
+      c.boss = king
+      c.maxHp = Math.round(c.sp.hp * mult * (king ? 7 : elite ? 1.4 : 1))
+      c.hp = c.maxHp
+      c.atk = c.sp.atk * mult * (king ? 1.5 : elite ? 1.1 : 1)
+      c.anim.setHeight(this.size(c))
+      if (king) {
+        this.ring(x, z, '#ff3a3a', 4.2, 1.2)
+        this.popups.push({ pos: new THREE.Vector3(x, this.size(c) + 0.6, z), text: 'ノイズの おう！', color: '#ff5a5a', t: 0, big: true })
+      }
+      this.setState(c, 'march', 8)
+      a.left.push(c)
+    }
+    this.say(`だいぐんぜい ${a.n}たい！ ノイズの おうが あらわれた！`)
+    this.onSfx('boom')
+    this.shake = Math.max(this.shake, 0.6)
+  }
+
+  /** 大軍勢の勝ち負け。おうを たおせば勝ち（のこりは にげる）。おしろが おちる・時間切れで負け（ペナルティは軽い）。扱ったら true */
+  private updateBoss(a: Army): boolean {
+    const castleLost = a.castle && !this.structs.some((b) => b.stage === this.stageIndex && b.kind === 'castle')
+    const kingDown = !a.left.some((c) => c.boss)
+    if (kingDown || castleLost || a.t <= 0) for (const c of a.left) this.setState(c, 'dead', 0.8)
+    if (kingDown) {
+      const reward = 100 + a.n * 5
+      this.say(`ノイズの おうを たおした！ コイン+${reward}`)
+      this.earn(reward)
+      this.onSfx('win')
+      this.shake = Math.max(this.shake, 0.5)
+      for (let i = 0; i < 4; i++) this.spawnResource(undefined, undefined, undefined, true)
+      this.road.wins++
+      this.road.bossWins++
+      this.army = null
+      this.armyCd = 240
+      return true
+    }
+    if (castleLost || a.t <= 0) {
+      const lost = Math.min(40, Math.floor(this.coins * 0.1))
+      this.coins -= lost
+      this.road.bossTry++
+      this.say(castleLost ? 'おしろが おちた… でも あきらめない！ もういちど いどもう' : 'だいぐんぜいは ひいていった… もういちど いどもう')
+      this.onSfx('lose')
+      this.army = null
+      this.armyCd = 240
+      return true
+    }
+    return false
   }
 
   private spawnResource(x?: number, z?: number, want?: ResKind, force = false) {
@@ -3829,6 +4039,11 @@ export class World {
     if (this.cleanView) return false
     const x = u * RES.w
     const y = (1 - v) * RES.h
+    // 物語カードは、しばらく見せたあとならタップで閉じる
+    if (this.cards[0]?.t0 && this.time - this.cards[0].t0 > 1) {
+      this.cards.shift()
+      return true
+    }
     if (this.shopOpen) {
       const wx = 24
       const wy = 28
@@ -3893,7 +4108,7 @@ export class World {
     const friends = this.creatures.filter((c) => c.team === 'friend')
     const ownerKey = (h: House) => (h.owner === this.pet ? 'pet' : h.owner && friends.includes(h.owner) ? `f${friends.indexOf(h.owner)}` : '')
     const data = {
-      land: this.land, dex: this.dex, dexClaimed: this.dexClaimed,
+      land: this.land, dex: this.dex, dexClaimed: this.dexClaimed, road: saveRoad(this.road),
       coins: this.coins, stage: this.stageIndex, care: this.care, xp: this.xp, stats: this.stats, night: this.nightTarget,
       pet: c2(this.pet),
       friends: friends.map(c2),
@@ -3979,10 +4194,35 @@ export class World {
         if (kind === 'inherit' && !parents.length) continue
         this.layEgg(num(e.x, -HALF, HALF), num(e.z, -HALF, HALF), parents, num(e.t, 0, 120, 35), kind, !!e.wild)
       }
+      this.loadRoadState(d.road)
       this.say(`おかえり！ ${this.pet.sp.name}が まっていたよ`)
       return true
     } catch {
       return false
+    }
+  }
+
+  /** もくひょうの進みを読む。保存が無い（古いセーブ）なら、これまでの実績から章をさかのぼって進める */
+  private loadRoadState(raw: unknown) {
+    const saved = loadRoad(raw)
+    this.calcVillage()
+    if (saved) {
+      this.road = saved
+      return
+    }
+    const r = newRoad()
+    // 昔のセーブには敵軍の記録が無い：村がにぎわっていれば（★5 から敵軍が来る）1 回は追いはらったとみなす
+    r.wins = this.vScore >= 5 ? 1 : 0
+    for (const h of this.houses) r.visited |= 1 << h.stage
+    for (const b of this.structs) r.visited |= 1 << b.stage
+    r.visited |= 1 << this.stageIndex
+    this.road = r
+    const cleared = backfill(r, this.roadState())
+    if (cleared.length) {
+      const coins = cleared.reduce((n, c) => n + c.reward.coins + (c.reward.egg ? 20 : 0), 0)
+      this.coins += coins
+      this.say(`これまでの あゆみから だい${cleared.length}しょうまで すすんだよ！ コイン+${coins}`)
+      if (cleared.some((c) => c.reward.crown)) r.crown = true
     }
   }
 
@@ -4026,6 +4266,25 @@ export class World {
     g.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1)
     g.strokeStyle = 'rgba(120,150,255,0.8)'
     g.strokeRect(x + 2.5, y + 2.5, w - 5, h - 5)
+  }
+
+  /** 章のはじめ・おわりの物語カード（しばらくしたら消える。タップでも消える） */
+  private drawCard() {
+    const c = this.cards[0]
+    if (!c || this.time < c.at) return
+    if (!c.t0) c.t0 = this.time
+    const age = this.time - c.t0
+    if (age > 9) return void this.cards.shift()
+    const g = this.hudCtx
+    const h = 34 + c.lines.length * 12
+    const slide = Math.min(1, age / 0.35)
+    const y = Math.round(104 - (1 - slide) * 20)
+    g.globalAlpha = Math.min(1, slide * 1.2) * (age > 8.4 ? (9 - age) / 0.6 : 1)
+    this.win(12, y, RES.w - 24, h)
+    this.text(c.title, RES.w / 2, y + 7, c.color, 11, 'center')
+    this.text(c.sub, RES.w / 2, y + 20, '#9fd8ff', 8, 'center')
+    c.lines.forEach((l, i) => this.text(l, RES.w / 2, y + 34 + i * 12, '#ffffff', 9, 'center'))
+    g.globalAlpha = 1
   }
 
   private bar(x: number, y: number, w: number, ratio: number, color?: string) {
@@ -4118,14 +4377,38 @@ export class World {
       g.fillRect(6, 27, vw, 14)
       this.text(t, 11, 29, '#ffe9a8', 9)
     }
+    // いまの もくひょう（村の名前の下に 1 行）
+    if (this.banner <= 0 && this.road.cleared < CHAPTERS.length) {
+      const ng = nowGoal(this.road, this.roadState())
+      if (ng) {
+        let t = bossReady(this.road) && !this.army ? 'だいぐんぜいに そなえよう' : ng.goal.text + (ng.need > 1 ? ` ${Math.floor(ng.val)}/${ng.need}` : '')
+        g.font = `9px ${FONT}`
+        const full = `もくひょう ${t}`
+        let w = Math.ceil(g.measureText(full).width) + 10
+        while (w > RES.w - 12 && t.length > 4) {
+          t = t.slice(0, -2) + '…'
+          w = Math.ceil(g.measureText(`もくひょう ${t}`).width) + 10
+        }
+        g.fillStyle = 'rgba(10,14,40,0.7)'
+        g.fillRect(6, 43, w, 14)
+        this.text('もくひょう', 11, 45, '#9fd8ff', 9)
+        this.text(t, 11 + Math.ceil(g.measureText('もくひょう ').width), 45, '#ffffff', 9)
+      }
+    }
     if (this.army) {
       const a = this.army
-      const t = a.phase === 'warn' ? `てきぐん せっきん！ ${Math.ceil(a.t)}` : `てきぐん のこり ${a.left.length}`
+      const nm = a.boss ? 'だいぐんぜい' : 'てきぐん'
+      const t = a.phase === 'warn' ? `${nm} せっきん！ ${Math.ceil(a.t)}` : `${nm} のこり ${a.left.length}`
       g.font = `9px ${FONT}`
       const aw = Math.ceil(g.measureText(t).width) + 10
       g.fillStyle = Math.floor(this.time * 3) % 2 ? 'rgba(120,20,30,0.85)' : 'rgba(80,14,24,0.85)'
-      g.fillRect(6, 43, aw, 14)
-      this.text(t, 11, 45, '#ffd0d0', 9)
+      g.fillRect(6, 59, aw, 14)
+      this.text(t, 11, 61, '#ffd0d0', 9)
+      const king = a.left.find((c) => c.boss)
+      if (a.phase === 'on' && king) {
+        this.text('ノイズの おう', 6, 75, '#ff9a9a', 9)
+        this.bar(6, 87, 96, king.hp / king.maxHp, '#ff4d6d')
+      }
     }
     // 建物：建てている途中はできあがり具合、こわされていれば残り
     for (const b of this.structs) {
@@ -4209,6 +4492,7 @@ export class World {
       this.text(label, 18, RES.h - 50, '#ffffff', 11)
     }
 
+    this.drawCard()
     if (this.showStatus) this.drawStatus()
     if (this.shopOpen) this.drawShop()
     this.drawInfo()
@@ -4311,6 +4595,7 @@ export class World {
       gen: `だい${this.stats.gen}せだい age=${Math.round(this.stats.petAge)}s dex=${Object.keys(this.dex).length} land=${this.land}`,
       roles: this.creatures.filter((c) => c.role !== 'free').map((c) => `${c.sp.name}:${c.role}`),
       village: `${this.villageName()} ★${this.vScore} L${this.vLv}`,
+      road: `ch${this.road.cleared} wins=${this.road.wins} boss=${this.road.bossWins}/${this.road.bossTry} done=${[...this.road.done].join(',')}`,
       army: this.army ? `${this.army.phase}:${Math.ceil(this.army.t)}s:${this.army.left.length}/${this.army.n}` : null,
       resources: this.resources.length,
       eggs: this.eggs.length,
