@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { OUT, RES, SCENE, makePostMaterial, psx } from './psx'
 import { SpriteAnim, iconSheet } from './sprites'
 import { MonsterModel, hasModel } from './models'
-import { BRANCH, SPECIES, SpriteMonster, XP_NEED, type Care, type MonsterView, type Species, type SpeciesId } from './monsters'
+import { BABY, EGG_COLORS, FAMILY_NAME, NEW_SKILLS, SPECIES, STAGE_EGGS, SpriteMonster, XP_NEED, familyOf, nextForm, type Care, type EggKind, type MonsterView, type Species, type SpeciesId } from './monsters'
 import { Tex } from './textures'
 import { SNAP_GLSL, snapUniform } from './psx'
 import { HALF, STAGES, type Stage } from './stages'
@@ -64,7 +64,7 @@ interface Creature {
 
 /** 技：種族ごとに 1 つ。演出の種類（shot = 弾 / burst = 衝撃 / dash = 突進 / rain = 降りそそぐ / heal = 回復 / wave = 地面の波）*/
 interface Skill { name: string; kind: 'shot' | 'burst' | 'dash' | 'rain' | 'heal' | 'wave'; color: string; mult: number }
-const SKILLS: Record<SpeciesId, Skill> = {
+const SKILLS: Record<string, Skill> = {
   mebu: { name: 'はっぱとばし', kind: 'shot', color: '#7cf29b', mult: 1.6 },
   pikori: { name: 'でんきゅうフラッシュ', kind: 'burst', color: '#fff27a', mult: 1.8 },
   gorota: { name: 'けっしょうつぶて', kind: 'shot', color: '#5ef2ff', mult: 1.8 },
@@ -80,6 +80,7 @@ const SKILLS: Record<SpeciesId, Skill> = {
   yamikage: { name: 'かげぬい', kind: 'dash', color: '#9a6aff', mult: 1.9 },
   gougan: { name: 'マグマパンチ', kind: 'wave', color: '#ff7a2a', mult: 2.2 },
 }
+for (const [id, sk] of Object.entries(NEW_SKILLS)) SKILLS[id] = sk
 interface Shot { sprite: THREE.Sprite; from: THREE.Vector3; src: Creature; dst: Creature; t: number; dur: number; dmg: number; skill: Skill; arc: number }
 interface Ring { mesh: THREE.Mesh; t: number; dur: number; size: number }
 interface Later { t: number; run: () => void }
@@ -102,7 +103,7 @@ type FoodKind = 'stage' | 'meat' | 'sweet' | 'nut'
 interface Food { mesh: THREE.Group; x: number; z: number; y: number; vy: number; landed: boolean; taken: Creature | null; bite: number; kind: FoodKind }
 type ItemKind = 'sapling' | 'ball' | 'fire' | 'charm' | 'tools' | 'fence'
 interface Item { kind: ItemKind; stage: number; x: number; z: number; grow: number; vx: number; vz: number; mesh: THREE.Group | null; light?: THREE.PointLight }
-interface Egg { x: number; z: number; t: number; anim: SpriteAnim; shadow: THREE.Mesh; parents: SpeciesId[] }
+interface Egg { x: number; z: number; t: number; anim: SpriteAnim; shadow: THREE.Mesh; parents: SpeciesId[]; kind: EggKind; wild: boolean }
 interface Popup { pos: THREE.Vector3; text: string; color: string; t: number; big?: boolean }
 interface Fx { sprite: THREE.Sprite; vx: number; vy: number; vz: number; life: number; max: number; grav: number }
 
@@ -127,7 +128,7 @@ const FOODS: Record<Exclude<FoodKind, 'stage'>, { name: string; color: string; l
 }
 const CARE_NAME: Record<Care, string> = { power: 'ちから', guard: 'まもり', spirit: 'こころ' }
 
-interface ShopItem { id: string; name: string; price: number; desc: string; food?: Exclude<FoodKind, 'stage'>; item?: ItemKind; max?: number; kit?: boolean; plan?: StructKind }
+interface ShopItem { id: string; name: string; price: number; desc: string; egg?: EggKind | 'random'; food?: Exclude<FoodKind, 'stage'>; item?: ItemKind; max?: number; kit?: boolean; plan?: StructKind }
 /** セーブデータ・読み込んだコードは信用しない：種族は自前のキーだけ、数値は範囲に収める */
 const isSpecies = (v: unknown): v is SpeciesId => typeof v === 'string' && Object.prototype.hasOwnProperty.call(SPECIES, v)
 const num = (v: unknown, min: number, max: number, def = min) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : def)
@@ -143,6 +144,14 @@ const SHOP: ShopItem[] = [
   { id: 'kit', name: 'ざいもくセット', price: 35, desc: '木3つと 石2つを まとめて おく（家づくり用）', kit: true },
   { id: 'tools', name: 'だいくどうぐ', price: 60, desc: 'ちかくで たてると しざいが 2ばい・家が なおる', item: 'tools', max: 1 },
   { id: 'fence', name: 'まもりのさく', price: 45, desc: 'ちかくの 家の ダメージが はんぶんに', item: 'fence', max: 2 },
+  { id: 'egg-random', name: 'ふしぎなたまご', price: 70, desc: 'なにが うまれるか わからない', egg: 'random' },
+  { id: 'egg-machine', name: 'きかいのたまご', price: 110, desc: 'ネジルが うまれる（ロボの系統）', egg: 'machine' },
+  { id: 'egg-dragon', name: 'りゅうのたまご', price: 140, desc: 'リュウコが うまれる（りゅうの系統）', egg: 'dragon' },
+  { id: 'egg-cat', name: 'ねこのたまご', price: 100, desc: 'ミミコが うまれる（ねこの系統）', egg: 'cat' },
+  { id: 'egg-dog', name: 'いぬのたまご', price: 100, desc: 'ワンコが うまれる（いぬの系統）', egg: 'dog' },
+  { id: 'egg-bird', name: 'とりのたまご', price: 90, desc: 'ピヨが うまれる（とりの系統）', egg: 'bird' },
+  { id: 'egg-water', name: 'みずのたまご', price: 100, desc: 'シズクが うまれる（みずの系統）', egg: 'water' },
+  { id: 'egg-monster', name: 'モンスターのたまご', price: 120, desc: 'ガブコが うまれる（おばけの系統）', egg: 'monster' },
   { id: 'bp-farm', name: 'せっけいず：はたけ', price: 40, desc: 'たべものが じわじわ みのる', plan: 'farm' },
   { id: 'bp-well', name: 'せっけいず：いど', price: 35, desc: 'ちかくで たいりょくが かいふくする', plan: 'well' },
   { id: 'bp-cradle', name: 'せっけいず：ゆりかご', price: 60, desc: 'たまごが できやすくなる', plan: 'cradle' },
@@ -159,11 +168,14 @@ const FX_SHEETS = () => ({
   hit: iconSheet(['#...#', '.#.#.', '..#..', '.#.#.', '#...#'], { '#': '#ffffff' }),
   coin: iconSheet(['.###.', '##.##', '#.#.#', '##.##', '.###.'], { '#': '#ffd23f' }),
 })
-const EGG_SHEET = () =>
-  iconSheet(
-    ['...###...', '..#####..', '.##o####.', '.#######.', '##o###o##', '#########', '###o#####', '.#######.', '..#####..'],
-    { '#': '#fff6e8', o: '#7fd1ff' },
+/** たまごのから（系統ごとに色ともようが違う） */
+const EGG_SHEET = (kind: EggKind) => {
+  const [shell, shade, light, mark] = EGG_COLORS[kind]
+  return iconSheet(
+    ['...hh....', '..#####..', '.##o####.', '.#######.', '##o###o##', '#########', '###o####d', '.######dd', '..####ddd'],
+    { '#': shell, o: mark, h: light, d: shade },
   )
+}
 
 /** 少し見下ろす箱庭カメラ（手前の木でキャラが隠れにくい角度） */
 const CAM_OFF = new THREE.Vector3(0, 6.6, 5.8)
@@ -220,7 +232,8 @@ export class World {
   private popups: Popup[] = []
   private fx: Fx[] = []
   private fxSheets = FX_SHEETS()
-  private eggSheet = EGG_SHEET()
+  private eggSheets = Object.fromEntries((Object.keys(EGG_COLORS) as EggKind[]).map((k) => [k, EGG_SHEET(k)])) as Record<EggKind, ReturnType<typeof EGG_SHEET>>
+  private wildEggT = 120
   private shadowGeo = new THREE.CircleGeometry(0.5, 10).rotateX(-Math.PI / 2)
   private shadowMat = new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.3, depthWrite: false })
 
@@ -1076,7 +1089,7 @@ export class World {
     // ペットは育て方どおり。ほかの子は生まれつきの性格と気まぐれも入る
     const score = (k: Care) => care[k] + (c === this.pet ? 0 : (c.bias === k ? 3 : 0) + Math.random() * 2.5)
     const top = (['power', 'guard', 'spirit'] as Care[]).sort((a, b) => score(b) - score(a))[0]
-    this.evolve(c, BRANCH[tier][top])
+    this.evolve(c, nextForm(c.sp.id, tier, top))
   }
 
   private evolve(c: Creature, to: SpeciesId) {
@@ -2149,21 +2162,46 @@ export class World {
     const chance = 0.22 * (nearFire ? 2 : 1) * (this.night > 0.5 ? 1.5 : 1) * (cradle ? 1.8 : 1)
     if (Math.random() > chance) return
     this.breedCd = 90
-    this.layEgg((p.x + mate.x) / 2, (p.z + mate.z) / 2, [p.sp.id, mate.sp.id])
+    // たまごの系統：親の系統を受けつぐ（ときどき この場所らしい系統に突然変異）
+    const fams = [familyOf(p.sp.id), familyOf(mate.sp.id)].filter((f) => f !== 'plain') as EggKind[]
+    let kind: EggKind = 'inherit'
+    const r = Math.random()
+    if (fams.length && r < 0.6) kind = fams[Math.floor(Math.random() * fams.length)]
+    else if (r > 0.75) kind = this.stageEggKind()
+    this.layEgg((p.x + mate.x) / 2, (p.z + mate.z) / 2, [p.sp.id, mate.sp.id], 35, kind)
     this.burst(p.x, this.ground(p) + 1, p.z, 'heart', 6, 1.5)
     this.say(`${p.sp.name}と ${mate.sp.name}に たまごが できた！`)
     this.onSfx('egg')
   }
 
-  private layEgg(x: number, z: number, parents: SpeciesId[], t = 35) {
-    const anim = new SpriteAnim(this.eggSheet, 0.6)
+  /** この場所でよく見つかる系統のたまご */
+  private stageEggKind(): EggKind {
+    const pool = STAGE_EGGS[this.stageIndex] ?? STAGE_EGGS[0]
+    return pool[Math.floor(Math.random() * pool.length)]
+  }
+
+  private layEgg(x: number, z: number, parents: SpeciesId[], t = 35, kind: EggKind = 'inherit', wild = false) {
+    const anim = new SpriteAnim(this.eggSheets[kind], kind === 'inherit' ? 0.6 : 0.68)
     const shadow = new THREE.Mesh(this.shadowGeo, this.shadowMat)
     shadow.scale.setScalar(0.5)
     this.scene.add(anim.sprite, shadow)
-    this.eggs.push({ x, z, t, anim, shadow, parents })
+    this.eggs.push({ x, z, t, anim, shadow, parents, kind, wild })
+  }
+
+  /** ときどき、その場所らしい系統のたまごが野原に落ちている（かえった子は野生で、仲良くなると仲間に） */
+  private updateWildEgg(dt: number) {
+    this.wildEggT -= dt
+    if (this.wildEggT > 0) return
+    this.wildEggT = 150 + Math.random() * 100
+    if (this.eggs.length >= 3) return
+    const q = this.freePos(3)
+    const kind = this.stageEggKind()
+    this.layEgg(q.x, q.z, [], 60, kind, true)
+    if (Math.hypot(q.x - this.look.x, q.z - this.look.z) < 10) this.say(`${FAMILY_NAME[kind]}のたまごが おちている！`)
   }
 
   private updateEggs(dt: number) {
+    this.updateWildEgg(dt)
     for (const e of [...this.eggs]) {
       e.t -= dt
       const y = this.stage.heightAt(e.x, e.z)
@@ -2175,16 +2213,21 @@ export class World {
         this.scene.remove(e.anim.sprite, e.shadow)
         e.anim.dispose()
         this.eggs.splice(this.eggs.indexOf(e), 1)
-        const id = e.parents[Math.floor(Math.random() * e.parents.length)]
-        const baby = this.spawn(id, 'friend', e.x, e.z, 0.01)
+        const fam = e.kind !== 'inherit'
+        const id = (fam ? BABY[e.kind] : e.parents[Math.floor(Math.random() * e.parents.length)]) as SpeciesId
+        const baby = this.spawn(id, e.wild ? 'wild' : 'friend', e.x, e.z, e.wild ? 0 : 0.01)
         baby.anim.setHeight(this.size(baby))
-        baby.maxHp = Math.round(SPECIES[id].hp * 0.6)
+        baby.maxHp = Math.round(SPECIES[id].hp * (e.wild ? 1 : 0.6))
         baby.hp = baby.maxHp
-        this.stats.children++
         this.burst(e.x, y + 0.3, e.z, 'spark', 14, 2.5)
-        this.say(`たまごから ${SPECIES[id].name}の こどもが うまれた！`)
-        this.onSfx('evolve')
-        this.earn(20)
+        if (e.wild) {
+          if (Math.hypot(e.x - this.look.x, e.z - this.look.z) < 10) this.say(`${FAMILY_NAME[e.kind]}のたまごから ${SPECIES[id].name}が うまれた！ なかよく なれるかな`)
+        } else {
+          this.stats.children++
+          this.say(fam ? `${FAMILY_NAME[e.kind]}のたまごから ${SPECIES[id].name}が うまれた！` : `たまごから ${SPECIES[id].name}の こどもが うまれた！`)
+          this.onSfx('evolve')
+          this.earn(20)
+        }
       }
     }
   }
@@ -2234,6 +2277,20 @@ export class World {
     if (s.item && this.items.filter((it) => it.kind === s.item && it.stage === this.stageIndex).length >= (s.max ?? 1)) {
       this.say('この箱庭には もう おけない')
       return this.onSfx('cancel')
+    }
+    if (s.egg) {
+      if (this.eggs.length >= 3) {
+        this.say('たまごは これいじょう おけない')
+        return this.onSfx('cancel')
+      }
+      const kind: EggKind = s.egg === 'random' ? (['machine', 'dragon', 'cat', 'dog', 'bird', 'water', 'monster'] as EggKind[])[Math.floor(Math.random() * 7)] : s.egg
+      this.coins -= s.price
+      this.onSfx('coin')
+      const pt = this.pet
+      this.layEgg(pt.x + pt.anim.facing * 1.1, pt.z + 0.4, [], 40, kind)
+      this.say(s.egg === 'random' ? 'ふしぎなたまごを おいた！' : `${FAMILY_NAME[kind]}のたまごを おいた！`)
+      this.shopOpen = false
+      return
     }
     if (s.plan) {
       // せっけいず：見ている所のまわりに建設現場ができる（みんなが資材を運んで建てる）
@@ -3163,7 +3220,7 @@ export class World {
       houses: this.houses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, ownerSp: h.ownerSp, owner: ownerKey(h), mats: h.mats, hp: Math.round(h.hp) })),
       structs: this.structs.map((b) => ({ kind: b.kind, stage: b.stage, x: b.x, z: b.z, rot: b.rot, len: b.len, mats: b.mats, hp: Math.round(b.hp) })),
       items: this.items.map((it) => ({ kind: it.kind, stage: it.stage, x: it.x, z: it.z, grow: it.grow })),
-      eggs: this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents })),
+      eggs: this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild })),
     }
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(data))
@@ -3225,7 +3282,13 @@ export class World {
         const owner = h.owner === 'pet' ? this.pet : h.owner.startsWith('f') ? friends[Number(h.owner.slice(1))] : undefined
         this.houses[i].owner = owner ?? null
       })
-      for (const e of d.eggs ?? []) this.layEgg(e.x, e.z, e.parents, e.t)
+      for (const e of (Array.isArray(d.eggs) ? d.eggs : []).slice(0, 6)) {
+        if (!e) continue
+        const kind: EggKind = typeof e.kind === 'string' && Object.prototype.hasOwnProperty.call(EGG_COLORS, e.kind) ? e.kind : 'inherit'
+        const parents = (Array.isArray(e.parents) ? e.parents : []).filter(isSpecies).slice(0, 2)
+        if (kind === 'inherit' && !parents.length) continue
+        this.layEgg(num(e.x, -HALF, HALF), num(e.z, -HALF, HALF), parents, num(e.t, 0, 120, 35), kind, !!e.wild)
+      }
       this.say(`おかえり！ ${this.pet.sp.name}が まっていたよ`)
       return true
     } catch {
