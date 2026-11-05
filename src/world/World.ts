@@ -5,7 +5,7 @@ import { MonsterModel, hasModel } from './models'
 import { BABY, EGG_COLORS, FAMILY_NAME, NEW_SKILLS, SPECIES, STAGE_EGGS, SpriteMonster, XP_NEED, familyOf, nextForm, type Care, type EggKind, type MonsterView, type Species, type SpeciesId } from './monsters'
 import { Tex } from './textures'
 import { SNAP_GLSL, snapUniform } from './psx'
-import { HALF, STAGES, type Stage } from './stages'
+import { HALF, LAND_SIZES, STAGES, setLandSize, type Stage } from './stages'
 import { STRUCTS, buildStructModel, isStructKind, styleOf, type StructKind } from './structures'
 
 /**
@@ -18,7 +18,7 @@ export type Sfx = 'select' | 'ok' | 'cancel' | 'hit' | 'crit' | 'win' | 'lose' |
 type Team = 'pet' | 'friend' | 'wild'
 type State =
   | 'idle' | 'wander' | 'hunt' | 'fight' | 'assist' | 'seek' | 'eat' | 'sleep' | 'rest' | 'play'
-  | 'happy' | 'faint' | 'dead' | 'train' | 'come' | 'gather' | 'build' | 'raid' | 'march' | 'work'
+  | 'happy' | 'faint' | 'dead' | 'train' | 'come' | 'gather' | 'build' | 'raid' | 'march' | 'work' | 'tend'
 
 interface Creature {
   sp: Species; team: Team; anim: MonsterView; shadow: THREE.Mesh
@@ -60,6 +60,8 @@ interface Creature {
   pj: number
   /** 組み立て作業の終わりにやること（かなづちの動きのあと実行） */
   finish: (() => void) | null
+  role: Role
+  tendTo: Struct | null
 }
 
 /** 技：種族ごとに 1 つ。演出の種類（shot = 弾 / burst = 衝撃 / dash = 突進 / rain = 降りそそぐ / heal = 回復 / wave = 地面の波）*/
@@ -101,7 +103,13 @@ interface Army { phase: 'warn' | 'on'; t: number; left: Creature[]; n: number; c
 type Weather = 'sun' | 'cloud' | 'rain' | 'snow' | 'ember'
 type FoodKind = 'stage' | 'meat' | 'sweet' | 'nut'
 interface Food { mesh: THREE.Group; x: number; z: number; y: number; vy: number; landed: boolean; taken: Creature | null; bite: number; kind: FoodKind }
-type ItemKind = 'sapling' | 'ball' | 'fire' | 'charm' | 'tools' | 'fence'
+type ItemKind = 'sapling' | 'ball' | 'fire' | 'charm' | 'tools' | 'fence' | 'memorial'
+/** 村での役割（だいく・はたけがかり・みはり） */
+type Role = 'free' | 'builder' | 'farmer' | 'guard'
+const ROLE_NAME: Record<Role, string> = { free: 'じゆう', builder: 'だいく', farmer: 'はたけがかり', guard: 'みはり' }
+const ROLE_COLOR: Record<Role, string> = { free: '#ffffff', builder: '#ffb84d', farmer: '#7cf29b', guard: '#6fd6ff' }
+/** ペットの じゅみょう（あそんでいる時間・秒） */
+const LIFESPAN = 3 * 3600
 interface Item { kind: ItemKind; stage: number; x: number; z: number; grow: number; vx: number; vz: number; mesh: THREE.Group | null; light?: THREE.PointLight }
 interface Egg { x: number; z: number; t: number; anim: SpriteAnim; shadow: THREE.Mesh; parents: SpeciesId[]; kind: EggKind; wild: boolean }
 interface Popup { pos: THREE.Vector3; text: string; color: string; t: number; big?: boolean }
@@ -128,7 +136,7 @@ const FOODS: Record<Exclude<FoodKind, 'stage'>, { name: string; color: string; l
 }
 const CARE_NAME: Record<Care, string> = { power: 'ちから', guard: 'まもり', spirit: 'こころ' }
 
-interface ShopItem { id: string; name: string; price: number; desc: string; egg?: EggKind | 'random'; food?: Exclude<FoodKind, 'stage'>; item?: ItemKind; max?: number; kit?: boolean; plan?: StructKind }
+interface ShopItem { id: string; name: string; price: number; desc: string; egg?: EggKind | 'random'; food?: Exclude<FoodKind, 'stage'>; item?: ItemKind; max?: number; kit?: boolean; plan?: StructKind; land?: 1 | 2 }
 /** セーブデータ・読み込んだコードは信用しない：種族は自前のキーだけ、数値は範囲に収める */
 const isSpecies = (v: unknown): v is SpeciesId => typeof v === 'string' && Object.prototype.hasOwnProperty.call(SPECIES, v)
 const num = (v: unknown, min: number, max: number, def = min) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : def)
@@ -152,6 +160,8 @@ const SHOP: ShopItem[] = [
   { id: 'egg-bird', name: 'とりのたまご', price: 90, desc: 'ピヨが うまれる（とりの系統）', egg: 'bird' },
   { id: 'egg-water', name: 'みずのたまご', price: 100, desc: 'シズクが うまれる（みずの系統）', egg: 'water' },
   { id: 'egg-monster', name: 'モンスターのたまご', price: 120, desc: 'ガブコが うまれる（おばけの系統）', egg: 'monster' },
+  { id: 'land1', name: 'かいたく ①', price: 250, desc: 'はこにわが 20 → 26 に ひろがる', land: 1 },
+  { id: 'land2', name: 'かいたく ②', price: 500, desc: 'はこにわが 26 → 32 に ひろがる', land: 2 },
   { id: 'bp-farm', name: 'せっけいず：はたけ', price: 40, desc: 'たべものが じわじわ みのる', plan: 'farm' },
   { id: 'bp-well', name: 'せっけいず：いど', price: 35, desc: 'ちかくで たいりょくが かいふくする', plan: 'well' },
   { id: 'bp-cradle', name: 'せっけいず：ゆりかご', price: 60, desc: 'たまごが できやすくなる', plan: 'cradle' },
@@ -286,7 +296,17 @@ export class World {
   coins = 50
   care: Record<Care, number> = { power: 0, guard: 0, spirit: 0 }
   xp = 0
-  stats = { trains: 0, wins: 0, mood: 80, born: Date.now(), children: 0 }
+  stats = { trains: 0, wins: 0, mood: 80, born: Date.now(), children: 0, gen: 1, petAge: 0, lineage: [] as string[] }
+  /** かいたく（0 = 20 / 1 = 26 / 2 = 32）*/
+  land = 0
+  /** ずかん：1 = みつけた / 2 = なかまにした */
+  dex: Record<string, 1 | 2> = {}
+  private dexClaimed = 0
+  private dexNew: string[] = []
+  private dexMsgT = 6
+  private oldWarned = false
+  private retiring = false
+  private roleT = 0
   /** 視点：top = 見下ろし / behind = ペットの少し後ろ / eye = ペットの目線 */
   view: 'top' | 'behind' | 'eye' = 'top'
   /** ピンチで寄る・引く（1 = ふつう） */
@@ -460,7 +480,7 @@ export class World {
       phase: Math.random() * 10, affinity: 0, grow,
       xp: 0, care: { power: 0, guard: 0, spirit: 0 }, bias: (['power', 'guard', 'spirit'] as Care[])[Math.floor(Math.random() * 3)],
       spar: false, carry: null, carryMesh: null, res: null, raid: null, inside: false,
-      skillCd: 3 + Math.random() * 5, cheer: false, sleepFrom: null, site: null, army: false, squash: 0, pj: 0, finish: null,
+      skillCd: 3 + Math.random() * 5, cheer: false, sleepFrom: null, site: null, army: false, squash: 0, pj: 0, finish: null, role: 'free', tendTo: null,
     }
     this.creatures.push(c)
     this.burst(x, this.ground(c) + 0.5, z, 'cube', 8, 2)
@@ -548,7 +568,7 @@ export class World {
   /** ステージの障害物 + 置き物 */
   private obstacles() {
     const extra = this.items
-      .filter((it) => it.stage === this.stageIndex && (it.kind === 'fire' || it.kind === 'charm' || it.kind === 'tools' || it.kind === 'fence' || (it.kind === 'sapling' && it.grow >= 1)))
+      .filter((it) => it.stage === this.stageIndex && (it.kind === 'fire' || it.kind === 'charm' || it.kind === 'tools' || it.kind === 'fence' || it.kind === 'memorial' || (it.kind === 'sapling' && it.grow >= 1)))
       .map((it) => ({ x: it.x, z: it.z, r: it.kind === 'sapling' ? 0.35 : it.kind === 'fence' ? 0.55 : it.kind === 'tools' ? 0.45 : 0.3, water: false }))
     const homes = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 1).map((h) => ({ x: h.x, z: h.z, r: 0.85, water: false }))
     const bridged = (o: { x: number; z: number; water?: boolean }) =>
@@ -647,6 +667,14 @@ export class World {
         return this.setState(c, 'hunt', 6)
       }
     }
+    // みはり：持ち場の近くの敵は、すこし遠くからでも見つけて追いはらう
+    if (c.role === 'guard' && c.hp > c.maxHp * 0.4 && c.energy > 20) {
+      const foe = this.nearest(c, (o) => o.sp.temper === 'wild' && !o.inside, 7)
+      if (foe) {
+        c.foe = foe
+        return this.setState(c, 'hunt', 8)
+      }
+    }
     // 雨・ひのこ・夜は自分の家に入って休む
     const home = this.homeOf(c)
     if (!wild && home && home.level >= 2 && (this.weather === 'rain' || this.weather === 'ember' || this.night > 0.5) && Math.random() < 0.7) {
@@ -691,8 +719,16 @@ export class World {
     }
     const ball = this.item('ball')
     if (ball && !wild && c.energy > 40 && Math.random() < 0.25 && Math.hypot(ball.x - c.x, ball.z - c.z) < 8) return this.setState(c, 'play', 6)
+    // はたけがかり：はたけの世話をして、みのりを早める
+    if (c.role === 'farmer' && c.energy > 25 && Math.random() < 0.5) {
+      const farm = this.structs.find((b) => b.stage === this.stageIndex && b.kind === 'farm' && this.structDone(b))
+      if (farm) {
+        c.tendTo = farm
+        return this.setState(c, 'tend', 12)
+      }
+    }
     // 家づくり：資材を集めて自分の家を建てる・直す
-    if (!wild && c.grow === 0 && c.energy > 30 && Math.random() < 0.45) {
+    if (!wild && c.grow === 0 && c.energy > 30 && Math.random() < (c.role === 'builder' ? 0.8 : c.role === 'free' ? 0.45 : 0.25)) {
       let h = home
       if (!h) h = this.claimHouse(c)
       const site = this.openSite(c)
@@ -704,7 +740,7 @@ export class World {
         if (r && Math.hypot(r.x - c.x, r.z - c.z) < 14) {
           r.taken = c
           c.res = r
-          c.site = site && (!wantHouse || Math.random() < 0.7) ? site : null
+          c.site = site && (!wantHouse || c.role === 'builder' || Math.random() < 0.7) ? site : null
           return this.setState(c, 'gather', 14)
         }
       }
@@ -732,6 +768,19 @@ export class World {
     }
     if (c.energy < 28 && c.state !== 'sleep' && Math.random() < 0.25)
       this.popups.push({ pos: new THREE.Vector3(c.x, this.ground(c) + this.size(c) + 0.3, c.z), text: 'ふぁ…', color: '#9fd8ff', t: 0 })
+    // みはり：みはりとう・おしろのそばで見まわる
+    if (c.role === 'guard' && Math.random() < 0.7) {
+      const post = this.guardPost(c)
+      if (post) {
+        if (Math.hypot(post.x - c.x, post.z - c.z) > 2.4) {
+          c.tx = post.x + (Math.random() - 0.5) * 1.6
+          c.tz = post.z + 1.5 + Math.random()
+          return this.setState(c, 'wander', 4)
+        }
+        c.anim.facing = Math.random() < 0.5 ? 1 : -1
+        return this.setState(c, 'idle', 3 + Math.random() * 3)
+      }
+    }
     // 仲間はペットのそばを離れすぎない
     if (c.team === 'friend' && Math.hypot(p.x - c.x, p.z - c.z) > 3.5) {
       c.tx = p.x + (Math.random() - 0.5) * 2.5
@@ -1252,6 +1301,19 @@ export class World {
         rail.rotation.set(Math.PI / 2, 0, Math.PI / 2 - 0.9)
         rail.position.set(0, y, -0.3)
         g.add(rail)
+      }
+    } else if (it.kind === 'memorial') {
+      // おはか：丸い石と、ほしのかざり、まわりの花
+      const stone = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 0.7, 7), this.lam('#c9ced6', { map: Tex.rock() }))
+      stone.position.y = 0.35
+      const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), new THREE.MeshBasicMaterial({ color: '#ffe27a' }))
+      star.position.y = 1.0
+      star.name = 'gem'
+      g.add(stone, star)
+      for (const [dx, dz, col] of [[-0.4, 0.2, '#ff8fb1'], [0.4, 0.25, '#ffffff'], [0, 0.45, '#ffd23f']] as const) {
+        const f = new THREE.Mesh(new THREE.SphereGeometry(0.07, 5, 4), new THREE.MeshBasicMaterial({ color: col }))
+        f.position.set(dx, 0.08, dz)
+        g.add(f)
       }
     } else {
       const stone = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.6, 0.3), this.lam('#9aa1ab'))
@@ -1899,11 +1961,199 @@ export class World {
     return base + ['', 'むら', 'まち', 'じょうかまち'][this.vLv]
   }
 
+  // ================= かいたく =================
+  /** 箱庭をひろげる（ステージを作り直す。家・建物・置き物・たまごはそのまま残る） */
+  private expandLand(level: number) {
+    const eggs = this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild }))
+    this.land = level
+    setLandSize(LAND_SIZES[level])
+    this.flash = 1
+    this.loadStage(this.stageIndex)
+    for (const e of eggs) this.layEgg(e.x, e.z, e.parents, e.t, e.kind, e.wild)
+    this.say(`はこにわが ${LAND_SIZES[level]} に ひろがった！`)
+    this.onSfx('warp')
+    this.save()
+  }
+
+  // ================= ずかん =================
+  private updateDex() {
+    const add = (id: string, lv: 1 | 2) => {
+      const cur: number = this.dex[id] ?? 0
+      if (cur < lv) {
+        this.dex[id] = lv
+        if (cur === 0) this.dexNew.push(id)
+      }
+    }
+    for (const c of this.creatures) if (c.state !== 'dead') add(c.sp.id, this.ally(c) ? 2 : 1)
+    if (this.dexNew.length && --this.dexMsgT <= 0) {
+      const names = this.dexNew.splice(0).map((id) => SPECIES[id as SpeciesId].name)
+      this.say(`ずかんに とうろく：${names.slice(0, 3).join('・')}${names.length > 3 ? ' ほか' : ''}`)
+      this.dexMsgT = 4
+    }
+    const TH = [5, 10, 20, 30, 40, 49]
+    const RW = [30, 50, 100, 150, 200, 500]
+    const owned = Object.values(this.dex).filter((v) => v === 2).length
+    while (this.dexClaimed < TH.length && owned >= TH[this.dexClaimed]) {
+      this.say(`ずかん ${TH[this.dexClaimed]}しゅ たっせい！ コイン+${RW[this.dexClaimed]}`)
+      this.earn(RW[this.dexClaimed])
+      this.dexClaimed++
+    }
+  }
+
+  /** ずかんの一覧（系統ごと・段階の順） */
+  dexList() {
+    const order = ['めばえ', 'きかい', 'りゅう', 'ねこ', 'いぬ', 'とり', 'みず', 'モンスター', 'てき']
+    const fam = (id: SpeciesId) => (SPECIES[id].tier ? FAMILY_NAME[familyOf(id)] : 'てき')
+    return (Object.values(SPECIES) as Species[])
+      .map((sp) => ({ id: sp.id, name: sp.name, kind: sp.kind, tier: sp.tier, family: fam(sp.id), state: this.dex[sp.id] ?? 0 }))
+      .sort((a, b) => order.indexOf(a.family) - order.indexOf(b.family) || a.tier - b.tier)
+  }
+  dexInfo() {
+    const all = Object.values(SPECIES) as Species[]
+    return {
+      owned: Object.values(this.dex).filter((v) => v === 2).length,
+      total: all.filter((s) => s.tier > 0).length,
+      seen: Object.keys(this.dex).length,
+      all: all.length,
+      gen: this.stats.gen,
+      lineage: this.stats.lineage,
+      pet: this.pet.sp.name,
+      life: Math.min(1, this.stats.petAge / LIFESPAN),
+    }
+  }
+
+  // ================= 役割分担 =================
+  /** 仲間を だいく・はたけがかり・みはりに わりふる（性格と、村に何が足りないかで決める） */
+  private assignRoles() {
+    const allies = this.creatures.filter((c) => c.team === 'friend' && c.grow === 0 && c.sp.tier >= 2 && this.alive(c))
+    const done = (k: StructKind) => this.structs.filter((b) => b.stage === this.stageIndex && b.kind === k && this.structDone(b)).length
+    const want: Record<Role, number> = {
+      farmer: done('farm'),
+      guard: done('tower') + done('castle') * 2 + (this.vLv >= 1 ? 1 : 0),
+      builder: 99,
+      free: 0,
+    }
+    const count: Record<Role, number> = { free: 0, builder: 0, farmer: 0, guard: 0 }
+    let said = false
+    for (const c of allies) {
+      const pref: Role[] = c.bias === 'power' ? ['guard', 'builder', 'farmer'] : c.bias === 'guard' ? ['builder', 'guard', 'farmer'] : ['farmer', 'builder', 'guard']
+      const role = pref.find((r) => count[r] < want[r]) ?? 'free'
+      count[role]++
+      if (role !== c.role) {
+        c.role = role
+        if (!said && role !== 'free' && Math.hypot(c.x - this.look.x, c.z - this.look.z) < 10) {
+          said = true
+          this.say(`${c.sp.name}は ${ROLE_NAME[role]}に なった`)
+        }
+      }
+    }
+    for (const c of this.creatures) if (!allies.includes(c)) c.role = 'free'
+  }
+
+  /** みはりの立つ場所（みはりとう・おしろのそば） */
+  private guardPost(c: Creature) {
+    let best: Struct | null = null
+    let bd = 99
+    for (const b of this.structs) {
+      if (b.stage !== this.stageIndex || !this.structDone(b) || (b.kind !== 'tower' && b.kind !== 'castle')) continue
+      const d = Math.hypot(b.x - c.x, b.z - c.z)
+      if (d < bd) {
+        bd = d
+        best = b
+      }
+    }
+    return best
+  }
+
+  // ================= 世代交代 =================
+  /** あそんだ時間をすすめる（テスト用：minutes 分ぶん） */
+  ageUp(minutes: number) {
+    this.stats.petAge += minutes * 60
+  }
+
+  private updateAge(dt: number) {
+    if (this.retiring || !this.alive(this.pet)) return
+    this.stats.petAge += dt
+    const life = this.stats.petAge / LIFESPAN
+    if (!this.oldWarned && life > 0.85) {
+      this.oldWarned = true
+      this.say(`${this.pet.sp.name}も ずいぶん としを とった… そろそろ じゅみょうが ちかい`)
+    }
+    if (life >= 1 && this.pet.state !== 'fight' && this.pet.grow === 0) this.retirePet()
+  }
+
+  /** ペットが ねんれいで ねむり、たまごから 次の代が うまれる */
+  private retirePet() {
+    const p = this.pet
+    const old = p.sp
+    this.retiring = true
+    this.say(`${old.name}は ねんれいを むかえ… やすらかに ねむりについた`)
+    this.onSfx('lose')
+    this.flash = 0.7
+    this.setState(p, 'sleep', 4)
+    this.placeMemorial(p.x, p.z)
+    this.burst(p.x, this.ground(p) + 0.8, p.z, 'heart', 8, 2)
+    this.after(3.4, () => this.rebirth(old))
+  }
+
+  private rebirth(old: Species) {
+    const p = this.pet
+    const fam = familyOf(old.id)
+    // 親の系統の赤ちゃん（ときどき、その場所らしい系統に突然変異）
+    let kind: EggKind = fam === 'plain' ? 'inherit' : (fam as EggKind)
+    if (Math.random() < 0.25) kind = this.stageEggKind()
+    const id = (kind === 'inherit' ? 'mebu' : BABY[kind]) as SpeciesId
+    const sp = SPECIES[id]
+    this.stats.lineage = [...this.stats.lineage, old.name].slice(-12)
+    this.stats.gen++
+    this.stats.petAge = 0
+    this.oldWarned = false
+    // 育ちの傾向は 3 割だけ引きつぐ。代をかさねるほど少し強く生まれる
+    this.care = { power: this.care.power * 0.3, guard: this.care.guard * 0.3, spirit: this.care.spirit * 0.3 }
+    this.xp = 0
+    const legacy = 1 + Math.min(0.4, 0.05 * (this.stats.gen - 1))
+    p.sp = sp
+    p.grow = 0.01
+    p.maxHp = Math.round(sp.hp * 0.6 * legacy)
+    p.hp = p.maxHp
+    p.atk = Math.round(sp.atk * legacy * 10) / 10
+    p.hunger = 100
+    p.energy = 100
+    p.anim.setSpecies(id, this.size(p))
+    this.setState(p, 'happy', 2)
+    this.burst(p.x, this.ground(p) + 0.8, p.z, 'spark', 20, 3)
+    this.ring(p.x, p.z, '#ffe27a', 3, 0.9)
+    this.flash = 1
+    this.onSfx('evolve')
+    this.say(`たまごが ひかり ${sp.name}が うまれた！ だい${this.stats.gen}せだい`)
+    this.earn(50)
+    this.retiring = false
+  }
+
+  /** おはか（ほしの かざり）。4 つまで */
+  private placeMemorial(x: number, z: number) {
+    const here = this.items.filter((it) => it.kind === 'memorial')
+    if (here.length >= 4) {
+      const old = here[0]
+      this.unmountItem(old)
+      this.items.splice(this.items.indexOf(old), 1)
+    }
+    const it: Item = { kind: 'memorial', stage: this.stageIndex, x: x + 0.9, z, grow: 1, vx: 0, vz: 0, mesh: null }
+    this.items.push(it)
+    this.mountItem(it)
+  }
+
   private updateVillage(dt: number) {
     this.villageT += dt
     if (this.villageT < 1) return
     this.villageT = 0
     this.calcVillage()
+    this.updateDex()
+    this.roleT += 1
+    if (this.roleT >= 15) {
+      this.roleT = 0
+      this.assignRoles()
+    }
     if (this.vLv > this.villageSeen) {
       this.say(this.vLv === 1 ? `${this.villageName()}が うまれた！` : this.vLv === 2 ? `${this.villageName()}に はったつした！` : `${this.villageName()}が さかえている！`)
       this.earn(this.vLv * 15)
@@ -2278,6 +2528,21 @@ export class World {
       this.say('この箱庭には もう おけない')
       return this.onSfx('cancel')
     }
+    if (s.land) {
+      if (this.land >= s.land) {
+        this.say('その かいたくは もう すんでいる')
+        return this.onSfx('cancel')
+      }
+      if (this.land < s.land - 1) {
+        this.say('さきに かいたく ① を しよう')
+        return this.onSfx('cancel')
+      }
+      this.coins -= s.price
+      this.onSfx('coin')
+      this.expandLand(s.land)
+      this.shopOpen = false
+      return
+    }
     if (s.egg) {
       if (this.eggs.length >= 3) {
         this.say('たまごは これいじょう おけない')
@@ -2479,6 +2744,7 @@ export class World {
     this.updateHouses(dt)
     this.updateStructs(dt)
     this.updateVillage(dt)
+    this.updateAge(dt)
     this.updateArmy(dt)
     this.updateItems(dt)
     this.updateAmbient(dt)
@@ -2839,6 +3105,31 @@ export class World {
           c.finish = null
           if (f) f()
           else this.setState(c, 'idle', 0.3)
+        }
+        break
+      }
+      case 'tend': {
+        // はたけの世話：行って しゃがんで、みのりを早める
+        anim = 'walk'
+        const b = c.tendTo
+        if (!b || !this.structs.includes(b) || c.t <= 0) {
+          c.tendTo = null
+          this.setState(c, 'idle', 0.5)
+          break
+        }
+        if (this.moveTo(c, b.x + 0.2, b.z + 1.1, sp.speed * 0.9, dt) < 0.5) {
+          c.anim.facing = b.x > c.x ? 1 : -1
+          c.tendTo = null
+          c.finish = () => {
+            if (this.structs.includes(b)) {
+              b.t += 9
+              this.burst(b.x, this.stage.heightAt(b.x, b.z) + 0.5, b.z, 'heart', 2, 1)
+            }
+            this.addCare(c, 'spirit', 0.5)
+            this.gainXp(c, 1)
+            this.setState(c, 'happy', 0.6)
+          }
+          this.setState(c, 'work', 1.4)
         }
         break
       }
@@ -3214,6 +3505,7 @@ export class World {
     const friends = this.creatures.filter((c) => c.team === 'friend')
     const ownerKey = (h: House) => (h.owner === this.pet ? 'pet' : h.owner && friends.includes(h.owner) ? `f${friends.indexOf(h.owner)}` : '')
     const data = {
+      land: this.land, dex: this.dex, dexClaimed: this.dexClaimed,
       coins: this.coins, stage: this.stageIndex, care: this.care, xp: this.xp, stats: this.stats, night: this.nightTarget,
       pet: c2(this.pet),
       friends: friends.map(c2),
@@ -3244,6 +3536,16 @@ export class World {
       this.care = { power: 0, guard: 0, spirit: 0, ...d.care }
       this.xp = d.xp ?? 0
       this.stats = { ...this.stats, ...d.stats }
+      this.stats.gen = Math.round(num(this.stats.gen, 1, 999, 1))
+      this.stats.petAge = num(this.stats.petAge, 0, 1e7, 0)
+      this.stats.lineage = (Array.isArray(this.stats.lineage) ? this.stats.lineage : []).filter((n: unknown) => typeof n === 'string').slice(-12).map((n: string) => n.slice(0, 12))
+      this.oldWarned = this.stats.petAge / LIFESPAN > 0.85
+      this.land = Math.round(num(d.land, 0, LAND_SIZES.length - 1, 0))
+      setLandSize(LAND_SIZES[this.land])
+      this.dex = {}
+      if (d.dex && typeof d.dex === 'object' && !Array.isArray(d.dex))
+        for (const [k, v] of Object.entries(d.dex)) if (isSpecies(k) && (v === 1 || v === 2)) this.dex[k] = v
+      this.dexClaimed = Math.round(num(d.dexClaimed, 0, 6, 0))
       this.nightTarget = this.night = d.night ?? 0
       this.items = (d.items ?? []).map((it: Item) => ({ ...it, vx: 0, vz: 0, mesh: null }))
       type SavedHouse = { stage: number; x: number; z: number; ownerSp: SpeciesId; owner: string; mats: number; hp: number }
@@ -3470,7 +3772,13 @@ export class World {
         g.fillRect(top.x - 4, by - 1, 9, 2)
         g.fillStyle = '#ffd23f'
         for (let i = 0; i < 3; i++) g.fillRect(top.x - 3 + i, by + i, 7 - i * 2, 1)
-      } else if (c.team === 'friend') this.heartMark(top.x, top.y - 9)
+      } else if (c.team === 'friend') {
+        this.heartMark(top.x, top.y - 9)
+        if (c.role !== 'free') {
+          g.fillStyle = ROLE_COLOR[c.role]
+          g.fillRect(top.x + 6, top.y - 9, 3, 3)
+        }
+      }
       else if (c.affinity > 30 && c.sp.temper === 'calm') {
         // 仲良くなりかけ：小さなハートゲージ
         g.fillStyle = 'rgba(255,126,182,0.85)'
@@ -3527,15 +3835,14 @@ export class World {
     const p = this.pet
     const x = 40
     const y = 28
-    this.win(x, y, 240, 150)
+    this.win(x, y, 240, 164)
     this.text(p.sp.name, x + 12, y + 8, '#ffffff', 13)
     this.text(p.sp.kind, x + 12, y + 25, '#9fd8ff', 9)
-    const age = Math.floor((Date.now() - this.stats.born) / 60000)
-    this.text(`${age}ふん`, x + 228, y + 9, '#ffd23f', 9, 'right')
+    this.text(`だい${this.stats.gen}せだい`, x + 228, y + 9, '#ffd23f', 9, 'right')
     const need = p.sp.tier >= 1 && p.sp.tier <= 3 ? XP_NEED[p.sp.tier as 1 | 2 | 3] : 0
     const rows: [string, number, number, string?][] = [
       ['たいりょく', p.hp, p.maxHp], ['おなか', p.hunger, 100, '#ff9f43'], ['げんき', p.energy, 100, '#6fe7ff'],
-      ['きげん', this.stats.mood, 100, '#ff7eb6'], ['しんか', need ? this.xp : 1, need || 1, '#c9a8ff'],
+      ['きげん', this.stats.mood, 100, '#ff7eb6'], ['しんか', need ? this.xp : 1, need || 1, '#c9a8ff'], ['じゅみょう', Math.max(0, 1 - this.stats.petAge / LIFESPAN), 1, '#9be28a'],
     ]
     rows.forEach(([n, v, m, col], i) => {
       this.text(n, x + 12, y + 40 + i * 14, '#e8eeff', 9)
@@ -3547,7 +3854,7 @@ export class World {
     const friends = this.creatures.filter((c) => c.team === 'friend').length
     const home = this.homeOf(p)
     const homeText = home ? ['たてはじめ', 'どだい', 'かべ', 'かんせい'][home.level] : 'なし'
-    this.text(`なかま ${friends}  こども ${this.stats.children}  いえ ${homeText}`, x + 12, y + 128, '#ffe9a8', 9)
+    this.text(`なかま ${friends}  こども ${this.stats.children}  いえ ${homeText}`, x + 12, y + 142, '#ffe9a8', 9)
   }
 
   private shopTop() {
@@ -3612,6 +3919,8 @@ export class World {
       weather: this.weather,
       houses: this.houses.map((h) => `${h.ownerSp}${h.owner ? '' : '(空き家)'}@${h.stage}:L${h.level}:${h.mats}/8:hp${Math.round(h.hp)}`),
       structs: this.structs.map((b) => `${b.kind}@${b.stage}:${b.mats}/${STRUCTS[b.kind].need}:hp${Math.round(b.hp)}`),
+      gen: `だい${this.stats.gen}せだい age=${Math.round(this.stats.petAge)}s dex=${Object.keys(this.dex).length} land=${this.land}`,
+      roles: this.creatures.filter((c) => c.role !== 'free').map((c) => `${c.sp.name}:${c.role}`),
       village: `${this.villageName()} ★${this.vScore} L${this.vLv}`,
       army: this.army ? `${this.army.phase}:${Math.ceil(this.army.t)}s:${this.army.left.length}/${this.army.n}` : null,
       resources: this.resources.length,

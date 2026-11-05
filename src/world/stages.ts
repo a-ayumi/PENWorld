@@ -7,8 +7,16 @@ import type { SpeciesId } from './monsters'
  * オリジナルのステージ 5 種。どれも「デジタル空間に浮かぶ四角い箱庭」。
  * 地形・小物はローポリ + Gouraud（頂点ライティング）+ Nearest テクスチャで PS1 風に。
  */
-export const SIZE = 20
-export const HALF = SIZE / 2 - 0.8
+export let SIZE = 20
+export let HALF = SIZE / 2 - 0.8
+/** 箱庭の広さ（かいたくで ひろがる）。ステージを作り直す前に呼ぶ */
+export const LAND_SIZES = [20, 26, 32]
+export function setLandSize(n: number) {
+  SIZE = n
+  HALF = n / 2 - 0.8
+}
+/** 広くなったぶん、木や岩などの小物も増やす */
+const dens = (n: number) => Math.round(n * (SIZE / 20) ** 2)
 
 /** water = 水場（泳げる/浮けるモンスターだけ入れる） */
 export interface Obstacle { x: number; z: number; r: number; water?: boolean }
@@ -94,7 +102,7 @@ function voidSpace(color: string) {
   const r = rng(9)
   const data = Array.from({ length: 36 }, () => {
     const a = r() * Math.PI * 2
-    const d = 13 + r() * 14
+    const d = SIZE * 0.65 + r() * 14
     return { x: Math.cos(a) * d, z: Math.sin(a) * d, y: -6 + r() * 12, s: 0.4 + r() * 1.2, p: r() * 10 }
   })
   g.add(cubes)
@@ -246,7 +254,7 @@ function seedGrove(): Stage {
   const bark = lambert('#6d4c41', { map: Tex.bark() })
   const leafA = lambert('#3f9e4a')
   const leafB = lambert('#5cc25a')
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < dens(7); i++) {
     const p = put(0.6)
     if (!p) break
     const s = 0.9 + p.r() * 0.5
@@ -275,7 +283,7 @@ function seedGrove(): Stage {
   // きのこ・岩
   const capMat = psx(new THREE.MeshLambertMaterial({ map: Tex.mushroom() }))
   const stemMat = lambert('#f4ead6')
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < dens(7); i++) {
     const p = put(0.25, 1.5)
     if (!p) break
     const m = new THREE.Group()
@@ -288,7 +296,7 @@ function seedGrove(): Stage {
     m.position.set(p.x, heightAt(p.x, p.z), p.z)
     group.add(m)
   }
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < dens(5); i++) {
     const p = put(0.5)
     if (!p) break
     const s = 0.35 + p.r() * 0.35
@@ -350,7 +358,7 @@ function glassDunes(): Stage {
     lambert('#5ef2ff', { emissive: '#1a6f88' }),
     lambert('#ff7ad9', { emissive: '#7a1f68' }),
   ]
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < dens(8); i++) {
     const p = put(0.6)
     if (!p) break
     const c = new THREE.Group()
@@ -382,7 +390,7 @@ function glassDunes(): Stage {
   beam.position.set(-2.4, heightAt(-2.4, -3) + 2.5, -3)
   beam.rotation.z = 0.05
   group.add(beam)
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < dens(4); i++) {
     const p = put(0.5)
     if (!p) break
     pillar(p.x, p.z, 0.8 + p.r() * 1.6, (p.r() - 0.5) * 0.5)
@@ -433,7 +441,7 @@ function frostCircuit(): Stage {
   const pineL = lambert('#2e7a5e')
   const snow = lambert('#f4f8ff')
   const trunk = lambert('#5d4037')
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < dens(10); i++) {
     const p = put(0.5)
     if (!p) break
     const t = new THREE.Group()
@@ -457,7 +465,7 @@ function frostCircuit(): Stage {
   }
   // こおりのトゲ
   const ice = lambert('#9be7ff', { emissive: '#1d5a78' })
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < dens(7); i++) {
     const p = put(0.4)
     if (!p) break
     const g = new THREE.Group()
@@ -590,7 +598,7 @@ function coralCove(): Stage {
   const palmMat = lambert('#3fae5a')
   const palmMat2 = lambert('#5ccf6e')
   const nutMat = lambert('#8a5a2b')
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < dens(7); i++) {
     const p = put(0.5)
     if (!p) break
     const t = new THREE.Group()
@@ -625,7 +633,7 @@ function coralCove(): Stage {
   }
   // 貝がら・岩
   const shellMats = [lambert('#ffd6e0'), lambert('#fff6e8')]
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < dens(12); i++) {
     const p = put(0.1, 1)
     if (!p) break
     const sh = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.1, 6), shellMats[i % 2])
@@ -633,7 +641,7 @@ function coralCove(): Stage {
     group.add(sh)
   }
   const stoneMat = lambert('#8a919b', { map: Tex.rock() })
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < dens(4); i++) {
     const p = put(0.5)
     if (!p) break
     const s = 0.35 + p.r() * 0.3
@@ -733,7 +741,7 @@ function cottonField(): Stage {
   const fluffA = lambert('#f4f8ff')
   const fluffB = lambert('#d6e4fa')
   const berry = lambert('#ff9ecb', { emissive: '#ff6fae', emissiveIntensity: 0.2 })
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < dens(7); i++) {
     const p = put(0.55)
     if (!p) break
     const t = new THREE.Group()
@@ -760,7 +768,7 @@ function cottonField(): Stage {
   // 雪だまのオブジェ（2 段の雪玉 + 小枝）
   const snowMat = lambert('#fbfdff')
   const twig = lambert('#6d4c41')
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < dens(3); i++) {
     const p = put(0.5)
     if (!p) break
     const g = new THREE.Group()

@@ -14,6 +14,7 @@ import { PLACES, buildPlace, type PlaceId, type PlaceInst } from './places'
 import { SKINS, type SkinId } from './device'
 import { Beeper, VOLUME_NAMES } from './beep'
 import { exportCode, importCode, requestPersist } from './backup'
+import { sheetFor, type SpeciesId } from './world/monsters'
 
 // ---------------- レンダラー ----------------
 const canvas = document.getElementById('scene') as HTMLCanvasElement
@@ -253,6 +254,7 @@ chips(document.getElementById('chara-list')!, CHARA, () => charaStyle, (id) => {
 dressBtn.addEventListener('click', () => {
   dressPanel.hidden = !dressPanel.hidden
   dressBtn.setAttribute('aria-expanded', String(!dressPanel.hidden))
+  if (!dressPanel.hidden) dexPanel.hidden = true
 })
 // ---------------- データ（書き出し・読み込み・やり直し）----------------
 void requestPersist()
@@ -338,6 +340,61 @@ resetBtn.addEventListener('click', () => {
   }, 4000)
 })
 
+// ---------------- ずかん ----------------
+const dexBtn = document.getElementById('dex-btn') as HTMLButtonElement
+const dexPanel = document.getElementById('dex-panel') as HTMLElement
+function renderDex() {
+  const info = world.dexInfo()
+  document.getElementById('dex-summary')!.textContent = `なかま ${info.owned}/${info.total}　みつけた ${info.seen}/${info.all}　いまは だい${info.gen}せだい（じゅみょう ${Math.round((1 - info.life) * 100)}%）`
+  const grid = document.getElementById('dex-grid')!
+  grid.replaceChildren()
+  let fam = ''
+  for (const e of world.dexList()) {
+    if (e.family !== fam) {
+      fam = e.family
+      const h = document.createElement('h3')
+      h.className = 'dex-fam'
+      h.textContent = fam
+      grid.appendChild(h)
+    }
+    const cell = document.createElement('div')
+    cell.className = 'dex-cell' + (e.state === 2 ? ' own' : e.state === 1 ? ' seen' : '')
+    const cv = document.createElement('canvas')
+    cv.width = 56
+    cv.height = 52
+    const g = cv.getContext('2d')
+    if (g && e.state > 0) {
+      const sh = sheetFor(e.id as SpeciesId)
+      g.imageSmoothingEnabled = false
+      g.drawImage(sh.texture.image as CanvasImageSource, 0, 0, sh.cellW, sh.cellH, 0, 0, 56, 52)
+    } else if (g) {
+      g.fillStyle = 'rgba(243,234,216,.35)'
+      g.font = '28px sans-serif'
+      g.textAlign = 'center'
+      g.fillText('?', 28, 38)
+    }
+    const name = document.createElement('span')
+    name.textContent = e.state > 0 ? e.name : '？？？'
+    const sub = document.createElement('small')
+    sub.textContent = e.state === 2 ? `なかま ・ ${e.tier ? 'ランク' + e.tier : ''}` : e.state === 1 ? 'みつけた' : ''
+    cell.append(cv, name, sub)
+    grid.appendChild(cell)
+  }
+  document.getElementById('dex-lineage')!.textContent = info.lineage.length ? `${info.lineage.join(' → ')} → ${info.pet}（いま）` : `${info.pet}（はじめの だい）`
+}
+dexBtn.addEventListener('click', () => {
+  dexPanel.hidden = !dexPanel.hidden
+  dexBtn.setAttribute('aria-expanded', String(!dexPanel.hidden))
+  if (!dexPanel.hidden) {
+    dressPanel.hidden = true
+    renderDex()
+  }
+})
+document.getElementById('dex-close')!.addEventListener('click', () => {
+  dexPanel.hidden = true
+  dexBtn.setAttribute('aria-expanded', 'false')
+})
+
 document.getElementById('dress-close')!.addEventListener('click', () => {
   dressPanel.hidden = true
   dressBtn.setAttribute('aria-expanded', 'false')
@@ -381,7 +438,8 @@ function setMode(m: Mode) {
   pad.hidden = m !== 'inside'
   qualityBtn.hidden = m === 'inside'
   dressBtn.hidden = m === 'inside'
-  if (m === 'inside') dressPanel.hidden = true
+  dexBtn.hidden = m === 'inside'
+  if (m === 'inside') dressPanel.hidden = dexPanel.hidden = true
   document.getElementById('hint')!.hidden = m === 'inside'
 }
 
@@ -461,7 +519,7 @@ function tapScreen(e: PointerEvent): boolean {
 function toggleChrome() {
   world.cleanView = !world.cleanView
   document.body.classList.toggle('clean', world.cleanView)
-  if (world.cleanView) dressPanel.hidden = true
+  if (world.cleanView) dressPanel.hidden = dexPanel.hidden = true
 }
 
 // ---------------- 指の操作 ----------------
