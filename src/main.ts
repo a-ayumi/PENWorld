@@ -11,7 +11,7 @@ import { World, type Sfx } from './world/World'
 import { buildDevice } from './device'
 import { FinishShader, MOODS, dustParticles, moodForHour, type Mood } from './scene'
 import { PLACES, buildPlace, type PlaceId, type PlaceInst } from './places'
-import { SKINS, type SkinId } from './device'
+import { SKINS, buildHands, type SkinId } from './device'
 import { Beeper, VOLUME_NAMES } from './beep'
 import { exportCode, importCode, requestPersist } from './backup'
 import { sheetFor, type SpeciesId } from './world/monsters'
@@ -34,6 +34,7 @@ scene.environmentIntensity = 0.55
 // ---------------- 背景（壁・机） ----------------
 // 背景の「場所」（机・電車・通学路…）は places.ts。ここでは差し替え口だけ持つ
 let place: PlaceInst | null = null
+let hands: THREE.Group | null = null
 
 const desk = new THREE.Mesh(
   new THREE.PlaneGeometry(40, 24),
@@ -154,6 +155,21 @@ function rebuildPlace() {
   }
   place = buildPlace(placeId, currentMood as keyof typeof MOODS)
   scene.add(place.group)
+  // 手に持って（すわって）遊ぶ場所：手と、ひざ・つくえ・足もとの景色。机の上は立てかけたまま
+  if (hands) {
+    device.group.remove(hands)
+    hands.traverse((o) => {
+      const m = o as THREE.Mesh
+      m.geometry?.dispose()
+      ;(m.material as THREE.Material | undefined)?.dispose?.()
+    })
+    hands = null
+  }
+  if (place.held) {
+    hands = buildHands(place.sleeve ?? '#3b4d7a')
+    device.group.add(hands)
+  }
+  desk.position.y = place.held ? -3.6 : -2.05
   const dm = desk.material as THREE.MeshStandardMaterial
   dm.map = place.surface
   dm.needsUpdate = true
@@ -431,6 +447,7 @@ const diveQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBas
 diveScene.add(diveQuad)
 diveScene.background = new THREE.Color('#05060f')
 const pad = document.getElementById('pad')!
+const enterBtn = document.getElementById('enter-btn') as HTMLButtonElement
 
 function setMode(m: Mode) {
   mode = m
@@ -439,6 +456,7 @@ function setMode(m: Mode) {
   qualityBtn.hidden = m === 'inside'
   dressBtn.hidden = m === 'inside'
   dexBtn.hidden = m === 'inside'
+  enterBtn.hidden = m !== 'device'
   if (m === 'inside') dressPanel.hidden = dexPanel.hidden = true
   document.getElementById('hint')!.hidden = m === 'inside'
 }
@@ -455,13 +473,8 @@ function press(key: 'A' | 'B' | 'C') {
     tilt.vy += (key === 'A' ? -1 : key === 'C' ? 1 : 0) * 0.6
     tilt.vx += 0.8
   }
-  const used = world.press(key)
-  // 何も選んでいない時の C = 画面に入る / 出る
-  if (!used && key === 'C') {
-    beeper.beep(1200, 0.05)
-    if (mode === 'device') setMode('entering')
-    else if (mode === 'inside') setMode('leaving')
-  }
+  // C は「もどる」専用（画面に入る・出るは、外の「画面に入る」ボタン / Enter / Esc / 「本体にもどる」）
+  world.press(key)
 }
 document.querySelectorAll<HTMLButtonElement>('#pad [data-key]').forEach((b) =>
   b.addEventListener('pointerdown', (e) => {
@@ -470,6 +483,11 @@ document.querySelectorAll<HTMLButtonElement>('#pad [data-key]').forEach((b) =>
   }),
 )
 document.getElementById('pad-exit')!.addEventListener('click', () => mode === 'inside' && setMode('leaving'))
+enterBtn.addEventListener('click', () => {
+  beeper.unlock()
+  beeper.beep(1200, 0.05)
+  if (mode === 'device') setMode('entering')
+})
 
 window.addEventListener('keydown', (e) => {
   if (e.repeat) return
@@ -477,6 +495,10 @@ window.addEventListener('keydown', (e) => {
   const k = map[e.code]
   if (k) press(k)
   if (e.code === 'Escape' && mode === 'inside') setMode('leaving')
+  if ((e.code === 'Enter' || e.code === 'NumpadEnter') && mode === 'device' && !e.repeat && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement)) {
+    beeper.beep(1200, 0.05)
+    setMode('entering')
+  }
 })
 
 // クリック / タップでボタン、ドラッグで本体を傾ける
@@ -661,9 +683,11 @@ renderer.setAnimationLoop((t) => {
   // 場所ごとの揺れ（電車・歩き）+ ふわふわ
   place?.update(elapsed, dt)
   const sw = place ? place.sway(elapsed) : { y: 0, rx: 0, rz: 0 }
-  device.group.position.y = Math.sin(elapsed * 1.1) * 0.05 + sw.y
+  // 手に持っている時は、少し手前に傾けて、手のふるえのような小さな揺れを足す
+  const heldNow = !!place?.held
+  device.group.position.y = Math.sin(elapsed * 1.1) * 0.05 + sw.y + (heldNow ? 0.22 + Math.sin(elapsed * 2.3) * 0.012 : 0)
   device.group.rotation.set(
-    -0.08 + tilt.x + Math.sin(elapsed * 0.7) * 0.015 + sw.rx,
+    (heldNow ? -0.2 : -0.08) + tilt.x + Math.sin(elapsed * 0.7) * 0.015 + sw.rx,
     tilt.y + Math.sin(elapsed * 0.5) * 0.06,
     Math.sin(elapsed * 0.6) * 0.01 + sw.rz,
   )

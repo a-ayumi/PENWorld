@@ -79,3 +79,11 @@ body.clean #toolbar, body.clean #dress, body.clean #dress-panel, body.clean #dex
 .dex-cell.seen canvas { opacity: .55; }
 .dex-cell small { font-size: 9px; opacity: .7; }
 #dex-lineage { margin: 0; font-size: 12px; line-height: 1.7; color: var(--ink); }
+
+/* 画面に入る（Cボタンは「もどる」専用なので、入るのは外のボタン） */
+#enter-btn { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom) + 52px); z-index: 4;
+  border: 0; border-radius: 999px; padding: 10px 20px; font-size: 14px; font-weight: 700; color: #3a2a00; background: #f2b134;
+  box-shadow: 0 4px 14px rgba(0,0,0,.35); cursor: pointer; }
+#enter-btn:active { transform: translateX(-50%) scale(.97); }
+#enter-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+body.clean #enter-btn { display: none !important; }
