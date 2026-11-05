@@ -6,6 +6,7 @@ import { BRANCH, SPECIES, SpriteMonster, XP_NEED, type Care, type MonsterView, t
 import { Tex } from './textures'
 import { SNAP_GLSL, snapUniform } from './psx'
 import { HALF, STAGES, type Stage } from './stages'
+import { STRUCTS, buildStructModel, isStructKind, styleOf, type StructKind } from './structures'
 
 /**
  * 箱庭の世界。モンスターが自分で考えて暮らす（歩く・食べる・眠る・遊ぶ・戦う・仲間になる・たまごを産む）。
@@ -17,7 +18,7 @@ export type Sfx = 'select' | 'ok' | 'cancel' | 'hit' | 'crit' | 'win' | 'lose' |
 type Team = 'pet' | 'friend' | 'wild'
 type State =
   | 'idle' | 'wander' | 'hunt' | 'fight' | 'assist' | 'seek' | 'eat' | 'sleep' | 'rest' | 'play'
-  | 'happy' | 'faint' | 'dead' | 'train' | 'come' | 'gather' | 'build' | 'raid'
+  | 'happy' | 'faint' | 'dead' | 'train' | 'come' | 'gather' | 'build' | 'raid' | 'march'
 
 interface Creature {
   sp: Species; team: Team; anim: MonsterView; shadow: THREE.Mesh
@@ -50,6 +51,10 @@ interface Creature {
   cheer: boolean
   /** 眠りはじめた時の げんき・たいりょく（起きた時に増えた分を出す） */
   sleepFrom: { e: number; h: number } | null
+  /** 資材を運んでいく建設現場（なければ自分の家） */
+  site: Struct | null
+  /** 敵軍の一員 */
+  army: boolean
 }
 
 /** 技：種族ごとに 1 つ。演出の種類（shot = 弾 / burst = 衝撃 / dash = 突進 / rain = 降りそそぐ / heal = 回復 / wave = 地面の波）*/
@@ -80,6 +85,13 @@ interface House {
   /** 運びこまれた資材の数（2 = 土台 / 5 = かべ / 8 = 屋根まで完成） */
   mats: number; hp: number; mesh: THREE.Group | null; shake: number; level: number; alerted: number
 }
+/** 家のほかの建物（はたけ・いど・みはりとう・ゆりかごごや・へい・おしろ・はし）。mats が need になると完成 */
+interface Struct {
+  kind: StructKind; stage: number; x: number; z: number; rot: number; len: number
+  mats: number; hp: number; mesh: THREE.Group | null; shake: number; q: number; t: number; alerted: number
+}
+/** 敵軍：warn = 近づいている / on = 攻めてきている */
+interface Army { phase: 'warn' | 'on'; t: number; left: Creature[]; n: number; castle: boolean; wave: number }
 type Weather = 'sun' | 'cloud' | 'rain' | 'snow' | 'ember'
 type FoodKind = 'stage' | 'meat' | 'sweet' | 'nut'
 interface Food { mesh: THREE.Group; x: number; z: number; y: number; vy: number; landed: boolean; taken: Creature | null; bite: number; kind: FoodKind }
@@ -110,7 +122,7 @@ const FOODS: Record<Exclude<FoodKind, 'stage'>, { name: string; color: string; l
 }
 const CARE_NAME: Record<Care, string> = { power: 'ちから', guard: 'まもり', spirit: 'こころ' }
 
-interface ShopItem { id: string; name: string; price: number; desc: string; food?: Exclude<FoodKind, 'stage'>; item?: ItemKind; max?: number; kit?: boolean }
+interface ShopItem { id: string; name: string; price: number; desc: string; food?: Exclude<FoodKind, 'stage'>; item?: ItemKind; max?: number; kit?: boolean; plan?: StructKind }
 /** セーブデータ・読み込んだコードは信用しない：種族は自前のキーだけ、数値は範囲に収める */
 const isSpecies = (v: unknown): v is SpeciesId => typeof v === 'string' && Object.prototype.hasOwnProperty.call(SPECIES, v)
 const num = (v: unknown, min: number, max: number, def = min) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : def)
@@ -126,6 +138,12 @@ const SHOP: ShopItem[] = [
   { id: 'kit', name: 'ざいもくセット', price: 35, desc: '木3つと 石2つを まとめて おく（家づくり用）', kit: true },
   { id: 'tools', name: 'だいくどうぐ', price: 60, desc: 'ちかくで たてると しざいが 2ばい・家が なおる', item: 'tools', max: 1 },
   { id: 'fence', name: 'まもりのさく', price: 45, desc: 'ちかくの 家の ダメージが はんぶんに', item: 'fence', max: 2 },
+  { id: 'bp-farm', name: 'せっけいず：はたけ', price: 40, desc: 'たべものが じわじわ みのる', plan: 'farm' },
+  { id: 'bp-well', name: 'せっけいず：いど', price: 35, desc: 'ちかくで たいりょくが かいふくする', plan: 'well' },
+  { id: 'bp-cradle', name: 'せっけいず：ゆりかご', price: 60, desc: 'たまごが できやすくなる', plan: 'cradle' },
+  { id: 'bp-bridge', name: 'せっけいず：はし', price: 45, desc: 'みずうみを あるいて わたれる', plan: 'bridge' },
+  { id: 'bp-tower', name: 'せっけいず：みはりとう', price: 70, desc: 'てきを みつけて うちおとす', plan: 'tower' },
+  { id: 'bp-castle', name: 'せっけいず：おしろ', price: 160, desc: 'へいに かこまれた おしろ', plan: 'castle' },
 ]
 
 const FX_SHEETS = () => ({
@@ -146,10 +164,13 @@ const EGG_SHEET = () =>
 const CAM_OFF = new THREE.Vector3(0, 6.6, 5.8)
 const FONT = '"DotGothic16", ui-monospace, monospace'
 const SAVE_KEY = 'pulsar-save-v1'
-const HOUSE_STEPS = [0, 2, 5, 8]
+const HOUSE_STEPS = [0, 2, 5, 8, 12]
+const MAX_STRUCTS = 26
+/** ショップは 9 行ずつ見せてスクロールする */
+const SHOP_ROWS = 9
 const MAX_HOUSES = 6
-const MAX_RES = 10
-const houseLevel = (mats: number) => (mats >= 8 ? 3 : mats >= 5 ? 2 : mats >= 2 ? 1 : 0)
+const MAX_RES = 12
+const houseLevel = (mats: number) => (mats >= 12 ? 4 : mats >= 8 ? 3 : mats >= 5 ? 2 : mats >= 2 ? 1 : 0)
 const houseMaxHp = (level: number) => level * 25
 /** 家の屋根の色（建てた種族の色） */
 const ROOF: Partial<Record<SpeciesId, string>> = {
@@ -222,6 +243,14 @@ export class World {
   private orbSheets = new Map<string, ReturnType<typeof iconSheet>>()
   private resources: Res[] = []
   private houses: House[] = []
+  private structs: Struct[] = []
+  private army: Army | null = null
+  private armyCd = 180
+  private armyWave = 0
+  private villageSeen = 0
+  private villageT = 0
+  private rockTex: THREE.Texture | null = null
+  private barkTex: THREE.Texture | null = null
   private resT = 0
   private nightSpawnT = 0
   weather: Weather = 'sun'
@@ -296,6 +325,9 @@ export class World {
     this.rings = []
     this.later = []
     for (const h of this.houses) this.unmountHouse(h)
+    for (const st of this.structs) this.unmountStruct(st)
+    this.army = null
+    for (const c of this.creatures) c.site = null
     for (const c of this.creatures) this.dropCarry(c, false)
     this.stageIndex = i
     this.stage = STAGES[i]()
@@ -313,6 +345,10 @@ export class World {
       if (h.owner && h.owner.team === 'wild') h.owner = null
       if (h.stage === i) this.mountHouse(h)
     }
+    for (const st of this.structs) if (st.stage === i) this.mountStruct(st)
+    this.armyCd = 150
+    this.calcVillage()
+    this.villageSeen = this.vLv
     for (let k = 0; k < 5; k++) this.spawnResource()
     this.setWeather(this.pickWeather(), true)
     s.residents.forEach((id) => {
@@ -362,7 +398,7 @@ export class World {
       phase: Math.random() * 10, affinity: 0, grow,
       xp: 0, care: { power: 0, guard: 0, spirit: 0 }, bias: (['power', 'guard', 'spirit'] as Care[])[Math.floor(Math.random() * 3)],
       spar: false, carry: null, carryMesh: null, res: null, raid: null, inside: false,
-      skillCd: 3 + Math.random() * 5, cheer: false, sleepFrom: null,
+      skillCd: 3 + Math.random() * 5, cheer: false, sleepFrom: null, site: null, army: false,
     }
     this.creatures.push(c)
     this.burst(x, this.ground(c) + 0.5, z, 'cube', 8, 2)
@@ -453,7 +489,11 @@ export class World {
       .filter((it) => it.stage === this.stageIndex && (it.kind === 'fire' || it.kind === 'charm' || it.kind === 'tools' || it.kind === 'fence' || (it.kind === 'sapling' && it.grow >= 1)))
       .map((it) => ({ x: it.x, z: it.z, r: it.kind === 'sapling' ? 0.35 : it.kind === 'fence' ? 0.55 : it.kind === 'tools' ? 0.45 : 0.3, water: false }))
     const homes = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 1).map((h) => ({ x: h.x, z: h.z, r: 0.85, water: false }))
-    return [...this.stage.obstacles, ...extra, ...homes]
+    const bridged = (o: { x: number; z: number; water?: boolean }) =>
+      !!o.water && this.structs.some((b) => b.kind === 'bridge' && b.stage === this.stageIndex && b.mats >= STRUCTS.bridge.need && Math.hypot(b.x - o.x, b.z - o.z) < 0.6)
+    const land = this.stage.obstacles.filter((o) => !bridged(o))
+    const builds = this.structs.filter((b) => b.stage === this.stageIndex && STRUCTS[b.kind].r > 0 && b.mesh).map((b) => ({ x: b.x, z: b.z, r: STRUCTS[b.kind].r, water: false }))
+    return [...land, ...extra, ...homes, ...builds]
   }
 
   private collide(c: Creature) {
@@ -500,6 +540,23 @@ export class World {
   private think(c: Creature) {
     const wild = c.sp.temper === 'wild'
     const p = this.pet
+    // 敵軍：近くの味方がいれば戦い、いなければ建物を目指して進む
+    if (c.army) {
+      const prey = this.nearest(c, (o) => this.ally(o) || o.sp.temper === 'calm', 3.2)
+      if (prey) {
+        c.foe = prey
+        return this.setState(c, 'hunt', 6)
+      }
+      return this.setState(c, 'march', 8)
+    }
+    // 敵軍が攻めてきたら、ペットと仲間は迎えうつ
+    if (this.army?.phase === 'on' && !wild && c.team !== 'wild' && c.grow === 0 && c.hp > c.maxHp * 0.4 && c.energy > 15) {
+      const foe = this.nearest(c, (o) => o.army, 10)
+      if (foe) {
+        c.foe = foe
+        return this.setState(c, 'hunt', 8)
+      }
+    }
     // 家をこわしたがる敵（ゴウガン）・ひのこの日の敵は家をねらう
     if (wild && c.energy > 25 && (c.sp.habit === 'raid' || (this.weather === 'ember' && Math.random() < 0.3) || Math.random() < 0.08)) {
       const h = this.nearestHouse(c, (h) => h.level >= 1, c.sp.habit === 'raid' ? 14 : 7)
@@ -576,13 +633,16 @@ export class World {
     if (!wild && c.grow === 0 && c.energy > 30 && Math.random() < 0.45) {
       let h = home
       if (!h) h = this.claimHouse(c)
-      if (h && (h.level < 3 || h.hp < houseMaxHp(h.level))) {
+      const site = this.openSite(c)
+      const wantHouse = !!h && (h.level < 4 || h.hp < houseMaxHp(h.level))
+      if (site || wantHouse) {
         const r = this.resources
           .filter((r) => !r.taken)
           .sort((a, b) => Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z))[0]
         if (r && Math.hypot(r.x - c.x, r.z - c.z) < 14) {
           r.taken = c
           c.res = r
+          c.site = site && (!wantHouse || Math.random() < 0.7) ? site : null
           return this.setState(c, 'gather', 14)
         }
       }
@@ -697,7 +757,7 @@ export class World {
     }
     this.setState(loser, 'dead', 1)
     const enemy = loser.sp.temper === 'wild'
-    if (loser.sp.habit !== 'night' && !(enemy && this.hasItem('charm') && Math.random() < 0.6))
+    if (loser.sp.habit !== 'night' && !loser.army && !(enemy && this.hasItem('charm') && Math.random() < 0.6))
       this.respawn.push({ id: loser.sp.id, t: (loser.sp.habit === 'raid' ? 40 : 14) + Math.random() * 10 })
     // 勝った子は（仲間でも野生でも）それぞれ強くなる
     winner.atk += 1
@@ -1251,7 +1311,7 @@ export class World {
     const before = h.level
     // だいくどうぐ の近くなら 1 回で 2 個分
     const bonus = this.nearItem('tools', h.x, h.z, 6) ? 2 : 1
-    h.mats = Math.min(HOUSE_STEPS[3], h.mats + bonus)
+    h.mats = Math.min(HOUSE_STEPS[4], h.mats + bonus)
     h.level = houseLevel(h.mats)
     h.hp = Math.min(houseMaxHp(h.level), h.hp + 9)
     this.burst(h.x, this.stage.heightAt(h.x, h.z) + 0.8, h.z, 'spark', 4, 1.5)
@@ -1259,9 +1319,9 @@ export class World {
       this.refreshHouse(h)
       const who = by.sp.name
       if (this.ally(by)) {
-        this.say(h.level === 3 ? `${who}の いえが かんせい！` : h.level === 2 ? `${who}の いえに かべが できた` : `${who}の いえの どだいが できた`)
-        if (h.level === 3) this.earn(10, h.x, h.z)
-      } else if (h.level === 3 && Math.hypot(h.x - this.look.x, h.z - this.look.z) < 9) this.say(`やせいの ${who}が いえを たてた`)
+        this.say(h.level === 4 ? `${who}の いえが ぞうちくされた！` : h.level === 3 ? `${who}の いえが かんせい！` : h.level === 2 ? `${who}の いえに かべが できた` : `${who}の いえの どだいが できた`)
+        if (h.level >= 3) this.earn(h.level === 4 ? 15 : 10, h.x, h.z)
+      } else if (h.level >= 3 && Math.hypot(h.x - this.look.x, h.z - this.look.z) < 9) this.say(`やせいの ${who}が いえを たてた`)
     }
   }
 
@@ -1316,8 +1376,9 @@ export class World {
     h.level = houseLevel(h.mats)
     const g = new THREE.Group()
     g.userData.level = h.level
-    const stone = this.lam('#9aa1ab', { map: Tex.rock() })
-    const wood = this.lam('#a0703f', { map: Tex.bark() })
+    const st = styleOf(h.stage)
+    const stone = this.lam(st.stone, { map: this.rock() })
+    const wood = this.lam(st.wall, { map: this.bark() })
     if (h.level === 0) {
       // 建てる場所の目印：杭と、運びこまれた資材の山
       for (const [x, z] of [[-0.65, -0.55], [0.65, -0.55], [-0.65, 0.55], [0.65, 0.55]]) {
@@ -1347,12 +1408,31 @@ export class World {
       g.add(walls, door, win)
     }
     if (h.level >= 3) {
-      const roof = new THREE.Mesh(new THREE.ConeGeometry(1.05, 0.7, 4), this.lam(ROOF[h.ownerSp] ?? '#b85a4a'))
-      roof.position.y = 1.32
-      roof.rotation.y = Math.PI / 4
+      // 屋根の形は住む種族で変わる（四角・六角・八角）
+      const sides = [4, 6, 8][(h.ownerSp.charCodeAt(0) + h.ownerSp.length) % 3]
+      const up = h.level >= 4 ? 0.45 : 0
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(h.level >= 4 ? 0.95 : 1.05, 0.7, sides), this.lam(ROOF[h.ownerSp] ?? st.roof))
+      roof.position.y = 1.32 + up
+      if (sides === 4) roof.rotation.y = Math.PI / 4
       const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.34, 0.16), stone)
-      chimney.position.set(-0.32, 1.45, -0.15)
+      chimney.position.set(-0.32, 1.45 + up, -0.15)
       g.add(roof, chimney)
+    }
+    if (h.level >= 4) {
+      // 増築：2 階・ベランダ・庭の花・ランプ
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.45, 0.8), wood).translateY(1.2))
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.05, 0.3), wood).translateY(0.99).translateZ(0.62))
+      const win2 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.18, 0.05), new THREE.MeshBasicMaterial({ color: '#ffd27a' }))
+      win2.position.set(0, 1.22, 0.41)
+      g.add(win2)
+      for (const [x, z, col] of [[-0.8, 0.8, '#ff8fb1'], [0.8, 0.85, '#ffd23f'], [-0.55, 0.95, '#ffffff'], [0.45, 0.98, '#ff8fb1'], [0.95, 0.5, '#9fd8ff']] as const) {
+        const f = new THREE.Mesh(new THREE.SphereGeometry(0.07, 5, 4), new THREE.MeshBasicMaterial({ color: col }))
+        f.position.set(x, 0.1, z)
+        g.add(f)
+      }
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.06, 5, 4), new THREE.MeshBasicMaterial({ color: st.accent }))
+      lamp.position.set(-0.3, 0.75, 0.56)
+      g.add(lamp)
     }
     g.position.set(h.x, this.stage.heightAt(h.x, h.z) - 0.02, h.z)
     this.scene.add(g)
@@ -1396,6 +1476,407 @@ export class World {
     }
   }
 
+  // ================= 建物（はたけ・いど・みはりとう・ゆりかごごや・へい・おしろ・はし）=================
+  private rock() {
+    return (this.rockTex ??= Tex.rock())
+  }
+  private bark() {
+    return (this.barkTex ??= Tex.bark())
+  }
+
+  private structDone(b: Struct) {
+    return b.mats >= STRUCTS[b.kind].need
+  }
+  private structMaxHp(b: Struct) {
+    const spec = STRUCTS[b.kind]
+    return this.structDone(b) ? spec.hp : spec.hp * (0.3 + 0.7 * (b.mats / spec.need))
+  }
+
+  /** 建てかけの建物のうち、いちばん近いもの */
+  private openSite(c: Creature | null): Struct | null {
+    let best: Struct | null = null
+    let bd = 99
+    for (const b of this.structs) {
+      if (b.stage !== this.stageIndex || this.structDone(b) || !b.mesh) continue
+      const d = c ? Math.hypot(b.x - c.x, b.z - c.z) : 0
+      if (d < bd) {
+        bd = d
+        best = b
+      }
+    }
+    return best
+  }
+
+  /** 建てる場所を決めて、建設現場（資材 0）を置く。人がせっけいずを買った時は「見ている所」のまわり */
+  private planStruct(kind: StructKind, nx = this.look.x, nz = this.look.z, quiet = false): Struct | null {
+    const spec = STRUCTS[kind]
+    const here = this.structs.filter((b) => b.stage === this.stageIndex)
+    const fail = (t: string) => {
+      if (!quiet) this.say(t)
+      return null
+    }
+    if (here.length >= MAX_STRUCTS) return fail('もう たてる ばしょが ない…')
+    if (kind === 'castle' && here.some((b) => b.kind === 'castle')) return fail('おしろは ひとつだけ')
+    if (kind !== 'wall' && kind !== 'castle' && here.filter((b) => b.kind === kind).length >= 3) return fail(`${spec.name}は これいじょう いらない`)
+    let x = 0
+    let z = 0
+    let len = 0
+    if (kind === 'bridge') {
+      const pools = this.stage.obstacles.filter((o) => o.water && !here.some((b) => b.kind === 'bridge' && Math.hypot(b.x - o.x, b.z - o.z) < 0.6))
+      pools.sort((a, b) => Math.hypot(a.x - nx, a.z - nz) - Math.hypot(b.x - nx, b.z - nz))
+      if (!pools[0]) return fail('ここには わたる みずうみが ない')
+      x = pools[0].x
+      z = pools[0].z
+      len = pools[0].r * 2 + 1.6
+    } else {
+      const big = kind === 'castle'
+      const edge = HALF - (big ? 3.8 : 1.4)
+      let ok = false
+      for (let i = 0; i < 90 && !ok; i++) {
+        x = THREE.MathUtils.clamp(nx + (Math.random() * 2 - 1) * (3 + i * 0.06), -edge, edge)
+        z = THREE.MathUtils.clamp(nz + (Math.random() * 2 - 1) * (3 + i * 0.06), -edge, edge)
+        const clear = big ? 3.1 : 2
+        ok =
+          !this.houses.some((h) => h.stage === this.stageIndex && Math.hypot(h.x - x, h.z - z) < clear) &&
+          !here.some((b) => Math.hypot(b.x - x, b.z - z) < (big || b.kind === 'castle' ? 3.2 : 2)) &&
+          !this.stage.obstacles.some((o) => Math.hypot(o.x - x, o.z - z) < o.r + (big ? 2.0 : 1.3))
+      }
+      if (!ok) return fail('ここには たてられない（ひろい所へ）')
+    }
+    const b: Struct = { kind, stage: this.stageIndex, x, z, rot: 0, len, mats: 0, hp: spec.hp * 0.3, mesh: null, shake: 0, q: -1, t: 0, alerted: 0 }
+    this.structs.push(b)
+    this.mountStruct(b)
+    this.burst(x, this.stage.heightAt(x, z) + 0.5, z, 'spark', 8, 2)
+    return b
+  }
+
+  private mountStruct(b: Struct) {
+    const spec = STRUCTS[b.kind]
+    const p = Math.min(1, b.mats / spec.need)
+    const ctx = {
+      lam: (c: string, m?: THREE.Texture) => this.lam(c, m ? { map: m } : {}),
+      basic: (c: string) => new THREE.MeshBasicMaterial({ color: c }),
+      rock: this.rock(),
+      bark: this.bark(),
+      style: styleOf(b.stage),
+    }
+    const model = buildStructModel(b.kind, ctx, b.len || 3)
+    b.q = p >= 1 ? 4 : Math.floor(p * 4)
+    const g = new THREE.Group()
+    g.add(model)
+    if (p < 1) {
+      // 建設中：低く育っていく + 杭と資材の山
+      model.scale.y = 0.3 + 0.7 * p
+      const wood = this.lam('#a0703f', { map: this.bark() })
+      const w = Math.max(0.7, spec.r + 0.3)
+      for (const [x, z] of [[-w, -w * 0.8], [w, -w * 0.8], [-w, w * 0.8], [w, w * 0.8]]) {
+        const stake = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.5, 5), wood)
+        stake.position.set(x, 0.25, z)
+        g.add(stake)
+      }
+    }
+    g.rotation.y = b.rot
+    g.position.set(b.x, b.kind === 'bridge' ? 0.27 : this.stage.heightAt(b.x, b.z) - 0.02, b.z)
+    this.scene.add(g)
+    b.mesh = g
+  }
+
+  private unmountStruct(b: Struct) {
+    if (!b.mesh) return
+    this.scene.remove(b.mesh)
+    b.mesh.traverse((o) => {
+      const m = o as THREE.Mesh
+      m.geometry?.dispose()
+      ;(m.material as THREE.Material | undefined)?.dispose?.()
+    })
+    b.mesh = null
+  }
+
+  private refreshStruct(b: Struct) {
+    this.unmountStruct(b)
+    if (b.stage === this.stageIndex) this.mountStruct(b)
+  }
+
+  private addStructMaterial(b: Struct, by: Creature) {
+    const spec = STRUCTS[b.kind]
+    const bonus = this.nearItem('tools', b.x, b.z, 6) ? 2 : 1
+    const was = this.structDone(b)
+    const m0 = b.mats
+    b.mats = Math.min(spec.need, b.mats + bonus)
+    b.hp = Math.min(this.structMaxHp(b), b.hp + spec.hp * 0.25)
+    this.burst(b.x, this.stage.heightAt(b.x, b.z) + 0.8, b.z, 'spark', 4, 1.5)
+    if (by === this.pet && !this.structDone(b))
+      this.say(`${by.sp.name}は しざいを はこんだ（${spec.name} ${b.mats}/${spec.need}${b.mats - m0 > 1 ? ' どうぐで 2ばい' : ''}） まもり+1`)
+    const q = this.structDone(b) ? 4 : Math.floor((b.mats / spec.need) * 4)
+    if (q !== b.q) this.refreshStruct(b)
+    if (this.structDone(b) && !was) this.onStructDone(b, by)
+  }
+
+  private onStructDone(b: Struct, by: Creature) {
+    const spec = STRUCTS[b.kind]
+    b.hp = spec.hp
+    this.burst(b.x, this.stage.heightAt(b.x, b.z) + 1, b.z, 'spark', 12, 2.5)
+    if (b.kind === 'wall') return void this.earn(1, b.x, b.z)
+    this.onSfx('win')
+    this.earn(b.kind === 'castle' ? 40 : 10, b.x, b.z)
+    if (b.kind === 'castle') {
+      this.say('おしろが かんせい！ まわりに へいを たてはじめた')
+      this.castleWalls(b)
+      this.shake = Math.max(this.shake, 0.4)
+    } else this.say(`${by.sp.name}たちが ${spec.name}を かんせいさせた！`)
+  }
+
+  /** おしろのまわりに へい（手前だけ門のあき）を建てはじめる */
+  private castleWalls(c: Struct) {
+    for (let i = 0; i < 12; i++) {
+      if (i === 3) continue
+      if (this.structs.filter((b) => b.stage === this.stageIndex).length >= MAX_STRUCTS) break
+      const a = (i / 12) * Math.PI * 2
+      const x = c.x + Math.cos(a) * 3.3
+      const z = c.z + Math.sin(a) * 3.3
+      if (Math.abs(x) > HALF - 0.5 || Math.abs(z) > HALF - 0.5) continue
+      if (this.houses.some((h) => h.stage === this.stageIndex && Math.hypot(h.x - x, h.z - z) < 1.7)) continue
+      if (this.stage.obstacles.some((o) => Math.hypot(o.x - x, o.z - z) < o.r + 0.8)) continue
+      const w: Struct = { kind: 'wall', stage: this.stageIndex, x, z, rot: -(a + Math.PI / 2), len: 0, mats: 0, hp: STRUCTS.wall.hp * 0.3, mesh: null, shake: 0, q: -1, t: 0, alerted: 0 }
+      this.structs.push(w)
+      this.mountStruct(w)
+    }
+  }
+
+  /** 建物がこわされる。完成していた物も、こわれたらがれきの資材になる */
+  private damageStruct(b: Struct, dmg: number, by: Creature | null) {
+    if (this.nearItem('fence', b.x, b.z, 3.2)) dmg *= 0.5
+    b.hp -= dmg
+    b.shake = 0.3
+    this.burst(b.x, this.stage.heightAt(b.x, b.z) + 0.7, b.z, 'hit', 2, 2)
+    if (by && b.kind !== 'wall' && this.time - b.alerted > 12) {
+      b.alerted = this.time
+      this.say(`${STRUCTS[b.kind].name}が ${by.sp.name}に おそわれている！`)
+    }
+    if (b.hp > 0) return
+    this.unmountStruct(b)
+    this.structs.splice(this.structs.indexOf(b), 1)
+    for (let i = 0; i < Math.min(4, Math.ceil(b.mats / 3)); i++) this.spawnResource(b.x + (Math.random() - 0.5) * 2, b.z + 1 + Math.random(), undefined, true)
+    this.burst(b.x, this.stage.heightAt(b.x, b.z) + 0.8, b.z, 'cube', 12, 3.5)
+    this.shake = Math.max(this.shake, b.kind === 'castle' ? 0.7 : 0.25)
+    if (b.kind !== 'wall') this.say(b.kind === 'castle' ? 'おしろが おちてしまった…！' : `${STRUCTS[b.kind].name}が こわされた…`)
+  }
+
+  /** 敵軍が目指す建物（いちばん近い、こわせる物） */
+  private marchTarget(c: Creature): { x: number; z: number; r: number; s?: Struct; h?: House } | null {
+    let best: { x: number; z: number; r: number; s?: Struct; h?: House } | null = null
+    let bd = 99
+    for (const b of this.structs) {
+      if (b.stage !== this.stageIndex || !b.mesh || (b.mats === 0 && b.kind !== 'wall')) continue
+      const d = Math.hypot(b.x - c.x, b.z - c.z)
+      if (d < bd) {
+        bd = d
+        best = { x: b.x, z: b.z, r: STRUCTS[b.kind].r || 0.7, s: b }
+      }
+    }
+    for (const h of this.houses) {
+      if (h.stage !== this.stageIndex || h.level < 1) continue
+      const d = Math.hypot(h.x - c.x, h.z - c.z)
+      if (d < bd) {
+        bd = d
+        best = { x: h.x, z: h.z, r: 0.85, h }
+      }
+    }
+    return best
+  }
+
+  private updateStructs(dt: number) {
+    for (const b of [...this.structs]) {
+      if (b.stage !== this.stageIndex || !b.mesh) continue
+      b.shake = Math.max(0, b.shake - dt)
+      b.mesh.position.x = b.x + (b.shake > 0 ? Math.sin(this.time * 60) * 0.05 : 0)
+      const done = this.structDone(b)
+      if (done && b.hp < STRUCTS[b.kind].hp && this.nearItem('tools', b.x, b.z, 6)) b.hp = Math.min(STRUCTS[b.kind].hp, b.hp + dt * 1.5)
+      if (!done) continue
+      b.t += dt
+      switch (b.kind) {
+        case 'farm':
+          if (b.t > 22) {
+            b.t = 0
+            if (this.foods.length < 9) {
+              this.dropFood(b.x + (Math.random() - 0.5) * 1.2, b.z + 0.9, 1.4)
+              this.burst(b.x, this.stage.heightAt(b.x, b.z) + 0.5, b.z, 'spark', 4, 1.2)
+            }
+          }
+          break
+        case 'well':
+        case 'castle':
+          if (b.t > 1) {
+            b.t = 0
+            const range = b.kind === 'well' ? 3 : 5
+            for (const c of this.creatures) {
+              if (c.army || c.sp.temper === 'wild' || !this.alive(c) || Math.hypot(c.x - b.x, c.z - b.z) > range) continue
+              if (c.hp < c.maxHp - 0.5 || c.energy < 99) {
+                c.hp = Math.min(c.maxHp, c.hp + (b.kind === 'well' ? 3 : 2))
+                if (b.kind === 'well') c.energy = Math.min(100, c.energy + 3)
+                if (Math.random() < 0.3) this.burst(c.x, this.ground(c) + this.size(c), c.z, 'heart', 1, 0.8)
+              }
+            }
+          }
+          break
+        case 'tower':
+          if (b.t > 1.8) {
+            const foe = this.nearest({ x: b.x, z: b.z } as Creature, (o) => o.sp.temper === 'wild' && !o.inside, 7.5)
+            if (foe) {
+              b.t = 0
+              this.towerShot(b, foe)
+            } else b.t = 1.5
+          }
+          break
+      }
+    }
+  }
+
+  private towerShot(b: Struct, foe: Creature) {
+    const top = this.stage.heightAt(b.x, b.z) + 2.3
+    const ty = this.ground(foe) + this.size(foe) * 0.6
+    const a = new SpriteAnim(this.orb('#ffe27a'), 0.22)
+    a.sprite.center.set(0.5, 0.5)
+    a.sprite.position.set(b.x, top, b.z)
+    this.scene.add(a.sprite)
+    const T = 0.22
+    this.fx.push({ sprite: a.sprite, vx: (foe.x - b.x) / T, vy: (ty - top) / T, vz: (foe.z - b.z) / T, life: T, max: T, grav: 0 })
+    const dmg = 4 + this.structs.filter((o) => o.kind === 'castle' && o.stage === this.stageIndex && this.structDone(o)).length * 2
+    this.after(T, () => {
+      if (!this.alive(foe)) return
+      foe.hp -= dmg
+      foe.hurt = 0.28
+      this.popups.push({ pos: new THREE.Vector3(foe.x, ty + 0.3, foe.z), text: `${dmg}`, color: '#ffe27a', t: 0 })
+      this.burst(foe.x, ty, foe.z, 'hit', 3, 2.5)
+      if (foe.hp > 0) return
+      for (const o of this.creatures) if (o.foe === foe) {
+        o.foe = null
+        if (o.state === 'fight') this.setState(o, 'idle', 0.4)
+      }
+      foe.foe = null
+      this.setState(foe, 'dead', 1)
+      if (foe.sp.habit !== 'night' && !foe.army) this.respawn.push({ id: foe.sp.id, t: (foe.sp.habit === 'raid' ? 40 : 14) + Math.random() * 10 })
+      this.earn(6, foe.x, foe.z)
+    })
+  }
+
+  // ================= 村 =================
+  private calcVillage() {
+    let score = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 3).length
+    let castle = false
+    for (const b of this.structs) {
+      if (b.stage !== this.stageIndex || !this.structDone(b)) continue
+      score += STRUCTS[b.kind].score
+      if (b.kind === 'castle') castle = true
+    }
+    this.vScore = score
+    this.vLv = castle && score >= 9 ? 3 : score >= 9 ? 2 : score >= 4 ? 1 : 0
+  }
+  private vScore = 0
+  private vLv = 0
+  private villageLevel() {
+    return this.vLv
+  }
+  private villageName() {
+    const base = ['ミドリ', 'スナハマ', 'サンゴ', 'ワタユキ', 'コオリ'][this.stageIndex] ?? 'ホシ'
+    return base + ['', 'むら', 'まち', 'じょうかまち'][this.vLv]
+  }
+
+  private updateVillage(dt: number) {
+    this.villageT += dt
+    if (this.villageT < 1) return
+    this.villageT = 0
+    this.calcVillage()
+    if (this.vLv > this.villageSeen) {
+      this.say(this.vLv === 1 ? `${this.villageName()}が うまれた！` : this.vLv === 2 ? `${this.villageName()}に はったつした！` : `${this.villageName()}が さかえている！`)
+      this.earn(this.vLv * 15)
+      this.onSfx('win')
+    }
+    this.villageSeen = this.vLv
+    // みんなで勝手に はたけ・いどを つくる（人が何もしなくても村は少しずつ育つ）
+    this.autoPlanT += 1
+    if (this.autoPlanT >= 30 && !this.openSite(null)) {
+      this.autoPlanT = 0
+      const homes = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 3).length
+      const has = (k: StructKind) => this.structs.some((b) => b.stage === this.stageIndex && b.kind === k)
+      if (homes >= 2 && !has('farm')) this.planStruct('farm', this.pet.x, this.pet.z, true)
+      else if (homes >= 3 && !has('well')) this.planStruct('well', this.pet.x, this.pet.z, true)
+    }
+  }
+  private autoPlanT = 0
+
+  // ================= 敵軍 =================
+  /** 敵軍をよぶ（村がある程度育つと自分でも来る）。n = 敵の数 */
+  callArmy(n?: number) {
+    if (this.army) return
+    this.armyWave++
+    this.calcVillage()
+    const castle = this.structs.some((b) => b.stage === this.stageIndex && b.kind === 'castle')
+    this.army = { phase: 'warn', t: 18, left: [], n: n ?? Math.min(12, 3 + Math.floor(this.vScore * 0.7)), castle, wave: this.armyWave }
+    this.say('てきぐんが ちかづいている…！ そなえよう')
+    this.onSfx('boom')
+    this.shake = Math.max(this.shake, 0.3)
+  }
+
+  private launchArmy(a: Army) {
+    a.phase = 'on'
+    a.t = 150
+    const mult = 1 + 0.15 * (a.wave - 1)
+    for (let i = 0; i < a.n; i++) {
+      const boss = i === 0 && a.wave % 3 === 0
+      const r = Math.random()
+      const id: SpeciesId = boss ? 'gougan' : r < 0.55 ? 'noiz' : r < 0.9 || a.wave < 2 ? 'togebug' : 'gougan'
+      const x = THREE.MathUtils.clamp((Math.random() * 2 - 1) * (HALF - 1), -HALF, HALF)
+      const z = -HALF + 0.6 + Math.random() * 1.2
+      const c = this.spawn(id, 'wild', x, z)
+      c.army = true
+      c.maxHp = Math.round(c.sp.hp * mult * (boss ? 2.5 : 1))
+      c.hp = c.maxHp
+      c.atk = c.sp.atk * mult * (boss ? 1.4 : 1)
+      this.setState(c, 'march', 8)
+      a.left.push(c)
+    }
+    this.say(`てきぐん ${a.n}たいが せめてきた！${a.wave % 3 === 0 ? ' ボスもいる！' : ''}`)
+    this.onSfx('boom')
+    this.shake = Math.max(this.shake, 0.4)
+  }
+
+  private updateArmy(dt: number) {
+    const a = this.army
+    if (!a) {
+      this.armyCd -= dt
+      if (this.armyCd <= 0) {
+        if (this.vScore >= 5 && this.alive(this.pet)) this.callArmy()
+        else this.armyCd = 40
+      }
+      return
+    }
+    a.t -= dt
+    if (a.phase === 'warn') {
+      if (a.t <= 0) this.launchArmy(a)
+      return
+    }
+    a.left = a.left.filter((c) => this.creatures.includes(c) && c.state !== 'dead')
+    for (const c of a.left) {
+      c.energy = Math.max(c.energy, 60)
+      c.hunger = Math.max(c.hunger, 50)
+    }
+    if (!a.left.length) {
+      const reward = 20 + a.n * 5 + (a.castle && this.structs.some((b) => b.kind === 'castle' && b.stage === this.stageIndex) ? 20 : 0)
+      this.say(`てきぐんを おいはらった！ コイン+${reward}`)
+      this.earn(reward)
+      this.onSfx('win')
+      for (let i = 0; i < 3; i++) this.spawnResource(undefined, undefined, undefined, true)
+      this.army = null
+      this.armyCd = 200 + Math.random() * 60
+    } else if (a.t <= 0) {
+      for (const c of a.left) this.setState(c, 'dead', 0.8)
+      this.say('てきぐんは ひきあげていった')
+      this.army = null
+      this.armyCd = 200 + Math.random() * 60
+    }
+  }
+
   private spawnResource(x?: number, z?: number, want?: ResKind, force = false) {
     if (this.resources.length >= MAX_RES + (force ? 8 : 0)) return
     const kind: ResKind = want ?? (Math.random() < 0.55 ? 'wood' : 'stone')
@@ -1423,7 +1904,7 @@ export class World {
 
   private updateResources(dt: number) {
     this.resT += dt
-    if (this.resT > 6) {
+    if (this.resT > (this.structs.some((b) => b.stage === this.stageIndex && b.mats < STRUCTS[b.kind].need) ? 3.2 : 6)) {
       this.resT = 0
       this.spawnResource()
     }
@@ -1547,7 +2028,8 @@ export class World {
   private tryBreed(dt: number) {
     this.breedT += dt
     this.breedCd -= dt
-    if (this.breedT < 8 || this.breedCd > 0 || this.eggs.length >= 2) return
+    const cradle = this.structs.some((b) => b.kind === 'cradle' && b.stage === this.stageIndex && b.mats >= STRUCTS.cradle.need)
+    if (this.breedT < 8 || this.breedCd > 0 || this.eggs.length >= (cradle ? 3 : 2)) return
     this.breedT = 0
     const p = this.pet
     const ready = (c: Creature) => this.alive(c) && c.grow === 0 && c.sp.tier >= 2 && c.hunger > 50 && c.energy > 35 && c.state !== 'fight'
@@ -1556,7 +2038,7 @@ export class World {
     if (!mate) return
     const fire = this.item('fire')
     const nearFire = fire && Math.hypot(fire.x - p.x, fire.z - p.z) < 3
-    const chance = 0.22 * (nearFire ? 2 : 1) * (this.night > 0.5 ? 1.5 : 1)
+    const chance = 0.22 * (nearFire ? 2 : 1) * (this.night > 0.5 ? 1.5 : 1) * (cradle ? 1.8 : 1)
     if (Math.random() > chance) return
     this.breedCd = 90
     this.layEgg((p.x + mate.x) / 2, (p.z + mate.z) / 2, [p.sp.id, mate.sp.id])
@@ -1644,6 +2126,16 @@ export class World {
     if (s.item && this.items.filter((it) => it.kind === s.item && it.stage === this.stageIndex).length >= (s.max ?? 1)) {
       this.say('この箱庭には もう おけない')
       return this.onSfx('cancel')
+    }
+    if (s.plan) {
+      // せっけいず：見ている所のまわりに建設現場ができる（みんなが資材を運んで建てる）
+      const site = this.planStruct(s.plan)
+      if (!site) return this.onSfx('cancel')
+      this.coins -= s.price
+      this.onSfx('coin')
+      this.say(`${STRUCTS[s.plan].name}の せっけいず！ みんなが たてはじめる`)
+      this.shopOpen = false
+      return
     }
     this.coins -= s.price
     this.onSfx('coin')
@@ -1816,6 +2308,9 @@ export class World {
     this.updateSkills(dt)
     this.updateResources(dt)
     this.updateHouses(dt)
+    this.updateStructs(dt)
+    this.updateVillage(dt)
+    this.updateArmy(dt)
     this.updateItems(dt)
     this.updateEggs(dt)
     this.tryBreed(dt)
@@ -1826,7 +2321,7 @@ export class World {
     this.incomeT += dt
     if (this.incomeT > 20) {
       this.incomeT = 0
-      this.coins += 1 + Math.floor(this.creatures.filter((c) => c.team === 'friend').length / 2)
+      this.coins += 1 + Math.floor(this.creatures.filter((c) => c.team === 'friend').length / 2) + this.villageLevel()
       // 野生と仲間は、暮らしているだけでも少しずつ育つ（それぞれ自分の性格の方向に）
       for (const c of this.creatures)
         if (c !== this.pet && c.sp.tier > 0 && c.grow === 0 && this.alive(c)) {
@@ -1883,7 +2378,7 @@ export class World {
     // 仲良し度：ペットのそばで穏やかに過ごすと上がる
     const p = this.pet
     if (c.team === 'wild' && sp.temper === 'calm' && this.alive(c) && this.alive(p) && p.state !== 'fight') {
-      if (Math.hypot(c.x - p.x, c.z - p.z) < 2.6) c.affinity += dt * 1.6 * (this.stats.mood > 50 ? 1.3 : 1)
+      if (Math.hypot(c.x - p.x, c.z - p.z) < 2.6) c.affinity += dt * 1.6 * (this.stats.mood > 50 ? 1.3 : 1) * (1 + 0.2 * this.villageLevel())
       const friends = this.creatures.filter((o) => o.team === 'friend').length
       if (c.affinity >= 100 && friends < MAX_FRIENDS) {
         c.team = 'friend'
@@ -2115,25 +2610,63 @@ export class World {
         break
       }
       case 'build': {
-        // 自分の家まで運んで、組み立てる
+        // 建設現場か自分の家まで運んで、組み立てる
         anim = 'walk'
-        const h = this.homeOf(c)
-        if (!h || c.t <= 0) {
+        const site = c.site && this.structs.includes(c.site) && c.site.mats < STRUCTS[c.site.kind].need ? c.site : null
+        const h = site ? null : this.homeOf(c)
+        if ((!site && !h) || c.t <= 0) {
           this.dropCarry(c, true)
           this.setState(c, 'idle', 0.5)
           break
         }
+        if (site) {
+          const off = STRUCTS[site.kind].r + 0.75
+          if (this.moveTo(c, site.x + (c.x < site.x ? -1 : 1) * 0.6, site.z + off, sp.speed * 0.9, dt) < 0.5) {
+            this.dropCarry(c, false)
+            this.addStructMaterial(site, c)
+            this.addCare(c, 'guard', 1)
+            this.gainXp(c, 2)
+            c.anim.facing = site.x > c.x ? 1 : -1
+            this.setState(c, 'happy', 0.8)
+          }
+          break
+        }
+        if (!h) break
         if (this.moveTo(c, h.x + (c.x < h.x ? -1 : 1) * 0.6, h.z + 0.9, sp.speed * 0.9, dt) < 0.5) {
           this.dropCarry(c, false)
           const m0 = h.mats
           this.addMaterial(h, c)
           this.addCare(c, 'guard', 1)
           this.gainXp(c, 2)
-          if (c === this.pet && h.level < 3)
-            this.say(`${sp.name}は しざいを はこんだ（いえ ${h.mats}/8${h.mats - m0 > 1 ? ' どうぐで 2ばい' : ''}） まもり+1`)
+          if (c === this.pet && h.level < 4)
+            this.say(`${sp.name}は しざいを はこんだ（いえ ${h.mats}/${HOUSE_STEPS[Math.min(4, h.level + 1)]}${h.mats - m0 > 1 ? ' どうぐで 2ばい' : ''}） まもり+1`)
           c.anim.facing = h.x > c.x ? 1 : -1
           this.setState(c, 'happy', 0.8)
         }
+        break
+      }
+      case 'march': {
+        // 敵軍：いちばん近い建物をこわしに進む
+        anim = 'walk'
+        const tg = this.marchTarget(c)
+        if (!tg) {
+          this.moveTo(c, this.pet.x, this.pet.z, sp.speed, dt)
+          if (c.t <= 0) this.setState(c, 'idle', 0.2)
+          break
+        }
+        this.moveTo(c, tg.x, tg.z + 0.2, sp.speed * 1.05, dt)
+        if (Math.hypot(tg.x - c.x, tg.z - c.z) < tg.r + 0.95) {
+          c.anim.facing = tg.x > c.x ? 1 : -1
+          anim = c.lunge > 0 ? 'attack' : 'idle'
+          if (c.cd <= 0) {
+            c.lunge = 0.22
+            c.cd = 1.4 / sp.speed
+            const dmg = c.atk * (0.6 + Math.random() * 0.5) * (sp.id === 'gougan' ? 1.6 : 1)
+            if (tg.s) this.damageStruct(tg.s, dmg, c)
+            else if (tg.h) this.damageHouse(tg.h, dmg, c)
+          }
+        }
+        if (c.t <= 0) this.setState(c, 'idle', 0.2)
         break
       }
       case 'raid': {
@@ -2391,13 +2924,13 @@ export class World {
       const wx = 24
       const wy = 28
       const ww = RES.w - 48
-      if (x < wx || x > wx + ww || y < wy || y > wy + 26 + SHOP.length * 14 + 30) {
+      if (x < wx || x > wx + ww || y < wy || y > wy + 26 + SHOP_ROWS * 14 + 30) {
         this.shopOpen = false
         this.onSfx('cancel')
         return true
       }
-      const row = Math.floor((y - (wy + 24)) / 14)
-      if (row >= 0 && row < SHOP.length) {
+      const row = Math.floor((y - (wy + 24)) / 14) + this.shopTop()
+      if (row >= this.shopTop() && row < Math.min(SHOP.length, this.shopTop() + SHOP_ROWS)) {
         if (row === this.shopCursor) this.buy(SHOP[row])
         else {
           this.shopCursor = row
@@ -2447,6 +2980,7 @@ export class World {
       pet: c2(this.pet),
       friends: friends.map(c2),
       houses: this.houses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, ownerSp: h.ownerSp, owner: ownerKey(h), mats: h.mats, hp: Math.round(h.hp) })),
+      structs: this.structs.map((b) => ({ kind: b.kind, stage: b.stage, x: b.x, z: b.z, rot: b.rot, len: b.len, mats: b.mats, hp: Math.round(b.hp) })),
       items: this.items.map((it) => ({ kind: it.kind, stage: it.stage, x: it.x, z: it.z, grow: it.grow })),
       eggs: this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents })),
     }
@@ -2476,8 +3010,19 @@ export class World {
       this.items = (d.items ?? []).map((it: Item) => ({ ...it, vx: 0, vz: 0, mesh: null }))
       type SavedHouse = { stage: number; x: number; z: number; ownerSp: SpeciesId; owner: string; mats: number; hp: number }
       const savedHouses = ((Array.isArray(d.houses) ? d.houses : []) as SavedHouse[]).filter((h) => h && typeof h.owner === 'string').slice(0, 40)
-      this.houses = savedHouses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, owner: null, ownerSp: isSpecies(h.ownerSp) ? h.ownerSp : 'mebu', mats: num(h.mats, 0, 8), hp: num(h.hp, 0, 100), mesh: null, shake: 0, level: houseLevel(h.mats), alerted: 0 }))
-      this.loadStage(Math.min(STAGES.length - 1, d.stage ?? 0))
+      this.houses = savedHouses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, owner: null, ownerSp: isSpecies(h.ownerSp) ? h.ownerSp : 'mebu', mats: num(h.mats, 0, 12), hp: num(h.hp, 0, 100), mesh: null, shake: 0, level: houseLevel(h.mats), alerted: 0 }))
+      type SavedStruct = { kind: unknown; stage: number; x: number; z: number; rot: number; len: number; mats: number; hp: number }
+      this.structs = ((Array.isArray(d.structs) ? d.structs : []) as SavedStruct[])
+        .filter((b) => b && isStructKind(b.kind))
+        .slice(0, 60)
+        .map((b) => {
+          const kind = b.kind as StructKind
+          return {
+            kind, stage: Math.round(num(b.stage, 0, STAGES.length - 1)), x: num(b.x, -HALF, HALF), z: num(b.z, -HALF, HALF), rot: num(b.rot, -7, 7, 0),
+            len: num(b.len, 0, 12, 0), mats: Math.round(num(b.mats, 0, STRUCTS[kind].need)), hp: num(b.hp, 0, 999, STRUCTS[kind].hp), mesh: null, shake: 0, q: -1, t: 0, alerted: 0,
+          }
+        })
+      this.loadStage(Math.min(STAGES.length - 1, Math.round(num(d.stage, 0, STAGES.length - 1))))
       type Saved = { sp: SpeciesId; hp: number; maxHp: number; atk: number; hunger: number; energy: number; grow: number; xp?: number; care?: Record<Care, number>; bias?: Care }
       const apply = (c: Creature, s: Saved) => {
         Object.assign(c, { hp: num(s.hp, 0, 9999), maxHp: num(s.maxHp, 1, 9999, 10), atk: num(s.atk, 0, 9999, 1), hunger: num(s.hunger, 0, 100, 50), energy: num(s.energy, 0, 100, 50), grow: num(s.grow, 0, 1, 0) })
@@ -2630,10 +3175,40 @@ export class World {
     g.fillRect(RES.w - cw - ww - 8, 27, ww, 14)
     this.text(wt, RES.w - cw - 8 - ww / 2, 29, { sun: '#ffe9a8', cloud: '#d8dee8', rain: '#9fd8ff', snow: '#ffffff', ember: '#ffa86b' }[this.weather], 10, 'center')
 
+    // 村の名前と にぎわい、敵軍の知らせ
+    if (this.vLv > 0 && this.banner <= 0) {
+      const t = `${this.villageName()} ★${Math.floor(this.vScore)}`
+      g.font = `9px ${FONT}`
+      const vw = Math.ceil(g.measureText(t).width) + 10
+      g.fillStyle = 'rgba(10,14,40,0.7)'
+      g.fillRect(6, 27, vw, 14)
+      this.text(t, 11, 29, '#ffe9a8', 9)
+    }
+    if (this.army) {
+      const a = this.army
+      const t = a.phase === 'warn' ? `てきぐん せっきん！ ${Math.ceil(a.t)}` : `てきぐん のこり ${a.left.length}`
+      g.font = `9px ${FONT}`
+      const aw = Math.ceil(g.measureText(t).width) + 10
+      g.fillStyle = Math.floor(this.time * 3) % 2 ? 'rgba(120,20,30,0.85)' : 'rgba(80,14,24,0.85)'
+      g.fillRect(6, 43, aw, 14)
+      this.text(t, 11, 45, '#ffd0d0', 9)
+    }
+    // 建物：建てている途中はできあがり具合、こわされていれば残り
+    for (const b of this.structs) {
+      if (b.stage !== this.stageIndex || !b.mesh) continue
+      const done = this.structDone(b)
+      if (b.kind === 'wall' && (done ? b.hp >= STRUCTS.wall.hp - 1 : b.mats === 0)) continue
+      if (done && b.hp >= STRUCTS[b.kind].hp - 1) continue
+      const hgt = { castle: 3.5, tower: 2.7, cradle: 1.7, well: 1.6, farm: 1.2, wall: 1.1, bridge: 0.9 }[b.kind]
+      const p = this.project(new THREE.Vector3(b.x, this.stage.heightAt(b.x, b.z) + hgt, b.z))
+      if (!p.on) continue
+      if (!done) this.bar(p.x - 10, p.y, 20, b.mats / STRUCTS[b.kind].need, '#c8955a')
+      else this.bar(p.x - 10, p.y, 20, b.hp / STRUCTS[b.kind].hp, '#ff9f43')
+    }
     // 家：建てている途中はできあがり具合、こわされていれば残り
     for (const h of this.houses) {
       if (h.stage !== this.stageIndex || !h.mesh) continue
-      const s = this.project(new THREE.Vector3(h.x, this.stage.heightAt(h.x, h.z) + (h.level >= 3 ? 1.9 : 1.1), h.z))
+      const s = this.project(new THREE.Vector3(h.x, this.stage.heightAt(h.x, h.z) + (h.level >= 4 ? 2.4 : h.level >= 3 ? 1.9 : 1.1), h.z))
       if (!s.on) continue
       if (h.level < 3) this.bar(s.x - 10, s.y, 20, h.mats / HOUSE_STEPS[3], '#c8955a')
       else if (h.hp < houseMaxHp(h.level) - 1) this.bar(s.x - 10, s.y, 20, h.hp / houseMaxHp(h.level), '#ff9f43')
@@ -2731,16 +3306,24 @@ export class World {
     this.text(`なかま ${friends}  こども ${this.stats.children}  いえ ${homeText}`, x + 12, y + 128, '#ffe9a8', 9)
   }
 
+  private shopTop() {
+    return Math.max(0, Math.min(SHOP.length - SHOP_ROWS, this.shopCursor - 4))
+  }
+
   private drawShop() {
     const x = 24
     const y = 28
     const w = RES.w - 48
-    const h = 26 + SHOP.length * 14 + 30
+    const h = 26 + SHOP_ROWS * 14 + 30
     this.win(x, y, w, h)
     this.text('ショップ', x + 10, y + 7, '#ffffff', 12)
     this.text(`コイン ${this.coins}`, x + w - 10, y + 8, '#ffe9a8', 10, 'right')
-    SHOP.forEach((s, i) => {
-      const ry = y + 26 + i * 14
+    const top = this.shopTop()
+    if (top > 0) this.text('▲', x + w - 10, y + 20, '#9fd8ff', 8, 'right')
+    if (top + SHOP_ROWS < SHOP.length) this.text('▼', x + w - 10, y + 26 + SHOP_ROWS * 14 - 2, '#9fd8ff', 8, 'right')
+    SHOP.slice(top, top + SHOP_ROWS).forEach((s, k) => {
+      const i = top + k
+      const ry = y + 26 + k * 14
       const on = i === this.shopCursor
       if (on) {
         this.hudCtx.fillStyle = 'rgba(255,210,63,0.25)'
@@ -2784,6 +3367,9 @@ export class World {
       items: this.items.map((it) => `${it.kind}@${it.stage}:${it.grow.toFixed(2)}`),
       weather: this.weather,
       houses: this.houses.map((h) => `${h.ownerSp}${h.owner ? '' : '(空き家)'}@${h.stage}:L${h.level}:${h.mats}/8:hp${Math.round(h.hp)}`),
+      structs: this.structs.map((b) => `${b.kind}@${b.stage}:${b.mats}/${STRUCTS[b.kind].need}:hp${Math.round(b.hp)}`),
+      village: `${this.villageName()} ★${this.vScore} L${this.vLv}`,
+      army: this.army ? `${this.army.phase}:${Math.ceil(this.army.t)}s:${this.army.left.length}/${this.army.n}` : null,
       resources: this.resources.length,
       eggs: this.eggs.length,
       foods: this.foods.length,
