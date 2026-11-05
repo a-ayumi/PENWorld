@@ -15,6 +15,7 @@ import { SHAPES, SKINS, type ShapeId, type SkinId } from './device'
 import { Beeper, VOLUME_NAMES } from './beep'
 import { exportCode, importCode, requestPersist } from './backup'
 import { sheetFor, type SpeciesId } from './world/monsters'
+import { initLuckyUI } from './luckyPanel'
 
 // ---------------- レンダラー ----------------
 const canvas = document.getElementById('scene') as HTMLCanvasElement
@@ -452,6 +453,7 @@ const SFX: Record<Sfx, () => void> = {
   boom: () => (beeper.beep(400, 0.06), beeper.beep(260, 0.1, 0.05), beeper.beep(1900, 0.04, 0.1)),
 }
 world.onSfx = (k) => SFX[k]()
+const luckyUI = initLuckyUI({ world, beeper, lite: () => quality === 'low' })
 
 // ---------------- 画面に入る（全画面モード） ----------------
 type Mode = 'device' | 'entering' | 'inside' | 'leaving'
@@ -472,6 +474,7 @@ function setMode(m: Mode) {
   qualityBtn.hidden = m === 'inside'
   dressBtn.hidden = m === 'inside'
   dexBtn.hidden = m === 'inside'
+  luckyUI.setInside(m === 'inside')
   enterBtn.hidden = m !== 'device'
   if (m === 'inside') dressPanel.hidden = dexPanel.hidden = true
   document.getElementById('hint')!.hidden = m === 'inside'

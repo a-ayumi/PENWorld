@@ -62,3 +62,4 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - セーブは localStorage の `pulsar-save-v1`（10 秒ごと + 画面を離れた時）。項目を増やしたら `save()` と `load()` の両方を直す
 - データの書き出し・読み込み・やり直しは `src/backup.ts`（コードは `PULSAR1:` + base64 の JSON）。設定のキーを増やしたら `KEYS` にも足す。読み込み・やり直しの前は `world.saveLocked = true` にして上書きを防ぐ。起動時に `navigator.storage.persist()` を頼む
 - テストは `window.__pulsar.press('A')` / `.state()` / `.setMood('night')`、箱庭は `.world.run(i)` と `.world.update(1/30)` の早送りで確認する
+- **うんだめし**（`src/lucky.ts` が確率・抽選・やさしい決まり、`src/luckyPanel.ts` が画面）：たまごガチャ（天井 50/100・10連の最後はレア以上）/ スロット / ルーレット / おみくじ / バトル予想。ゲーム内コインだけ。確率表は定数から画面を作る。保存は World のセーブの `lucky`（`world.luckySave`、読み込みで `loadLucky()` が検査）。World とのつなぎ口は `spendCoins` / `addCoins` / `giveEgg` / `onSparStart` / `onSparEnd`
