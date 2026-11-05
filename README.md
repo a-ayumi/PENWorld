@@ -41,3 +41,6 @@ npm run preview   # 本番ビルドで PWA / オフライン動作を確認
 - `.claude/skills/retro-diorama-threejs/` — Claude Code 用の作業手順スキル
 
 キャラ・ステージ・ロゴ・UI はすべてオリジナルです。
+
+## セキュリティ
+サーバーなし・ログインなしの静的 PWA で、保存するのは端末内のペットのデータだけです。詳しくは [SECURITY.md](SECURITY.md)。

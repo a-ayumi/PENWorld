@@ -1,10 +1,34 @@
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// GitHub Pages は HTTP ヘッダを足せないので、CSP は <meta> で入れる。
+// 開発サーバー（HMR がインラインスクリプトを使う）には入れない。
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  'font-src https://fonts.gstatic.com',
+  "img-src 'self' data: blob:",
+  "connect-src 'self'",
+  "worker-src 'self'",
+  "manifest-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'none'",
+].join('; ')
+
 export default defineConfig({
   base: './',
   build: { target: 'es2022', chunkSizeWarningLimit: 1200 },
   plugins: [
+    {
+      name: 'pulsar-security-meta',
+      apply: 'build',
+      transformIndexHtml: () => [
+        { tag: 'meta', attrs: { 'http-equiv': 'Content-Security-Policy', content: CSP }, injectTo: 'head-prepend' },
+        { tag: 'meta', attrs: { name: 'referrer', content: 'no-referrer' }, injectTo: 'head-prepend' },
+      ],
+    },
     VitePWA({
       registerType: 'prompt',
       includeAssets: ['icons/icon.svg'],
