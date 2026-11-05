@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { OUT, RES, SCENE, makePostMaterial, psx } from './psx'
 import { SpriteAnim, iconSheet } from './sprites'
 import { MonsterModel, hasModel } from './models'
-import { BABY, EGG_COLORS, FAMILY_NAME, NEW_SKILLS, SPECIES, STAGE_EGGS, SpriteMonster, XP_NEED, familyOf, nextForm, type Care, type EggKind, type MonsterView, type Species, type SpeciesId } from './monsters'
+import { BABY, EGG_COLORS, FAMILY_NAME, LOOK_NAME, NEW_SKILLS, SPECIES, STAGE_EGGS, SpriteMonster, XP_NEED, armyBoss, armyMember, enemyFor, familyOf, lookOf, newSeed, nextForm, variantOf, type Care, type EggKind, type Face, type MonsterView, type Species, type SpeciesId } from './monsters'
 import { Tex } from './textures'
 import { SNAP_GLSL, snapUniform } from './psx'
 import { HALF, LAND_SIZES, STAGES, setLandSize, type Stage } from './stages'
@@ -70,7 +70,16 @@ interface Creature {
   detourN: number
   detour: { x: number; z: number; t: number } | null
   avoid: 1 | -1
+  /** 個体の見た目のシード（もよう・色のゆらぎ）と 色ちがい */
+  seed: number
+  rare: boolean
+  /** 進化の演出中（白いシルエット → ふくらむ → 新しい姿） */
+  evo: Evo | null
+  /** 色ちがいのキラキラを出す間隔 */
+  glint: number
 }
+/** 進化の演出：t = 経過秒 / from = 元の種族 / h0 = 元の大きさ / shown = いま出している絵 */
+interface Evo { t: number; from: SpeciesId; to: SpeciesId; h0: number; shown: 'old' | 'white-old' | 'white-new' | 'new'; said: boolean }
 
 /** 技：種族ごとに 1 つ。演出の種類（shot = 弾 / burst = 衝撃 / dash = 突進 / rain = 降りそそぐ / heal = 回復 / wave = 地面の波）*/
 interface Skill { name: string; kind: 'shot' | 'burst' | 'dash' | 'rain' | 'heal' | 'wave'; color: string; mult: number }
@@ -119,7 +128,8 @@ const ROLE_COLOR: Record<Role, string> = { free: '#ffffff', builder: '#ffb84d', 
 /** ペットの じゅみょう（あそんでいる時間・秒） */
 const LIFESPAN = 3 * 3600
 interface Item { kind: ItemKind; stage: number; x: number; z: number; grow: number; vx: number; vz: number; mesh: THREE.Group | null; light?: THREE.PointLight }
-interface Egg { x: number; z: number; t: number; anim: SpriteAnim; shadow: THREE.Mesh; parents: SpeciesId[]; kind: EggKind; wild: boolean }
+/** lucky = ふしぎなたまご（色ちがいがうまれやすい） */
+interface Egg { x: number; z: number; t: number; anim: SpriteAnim; shadow: THREE.Mesh; parents: SpeciesId[]; kind: EggKind; wild: boolean; lucky: boolean }
 interface Popup { pos: THREE.Vector3; text: string; color: string; t: number; big?: boolean }
 type Pick = { type: 'creature' | 'house' | 'struct' | 'item' | 'egg' | 'res' | 'food'; ref: any; armed: boolean }
 const STATE_NAME: Record<string, string> = {
@@ -249,6 +259,9 @@ const WEATHER_W: Partial<Record<Weather, number>>[] = [
   { snow: 6, cloud: 3, sun: 1, ember: 0.6 },
 ]
 const MAX_FRIENDS = 5
+/** 色ちがいの出やすさ（ふつう 3% / ふしぎなたまご 8%） */
+const RARE_RATE = 0.03
+const RARE_RATE_LUCKY = 0.08
 
 export class World {
   readonly scene = new THREE.Scene()
@@ -333,6 +346,8 @@ export class World {
   land = 0
   /** ずかん：1 = みつけた / 2 = なかまにした */
   dex: Record<string, 1 | 2> = {}
+  /** ずかん（色ちがい）：1 = みつけた / 2 = なかまにした（dex とは別に記録する） */
+  dexRare: Record<string, 1 | 2> = {}
   private dexClaimed = 0
   private dexNew: string[] = []
   private dexMsgT = 6
@@ -428,7 +443,7 @@ export class World {
     s.residents.forEach((id) => {
       if (id === 'noiz' && this.hasItem('charm') && Math.random() < 0.7) return
       const p = this.freePos(3)
-      this.spawn(id, 'wild', p.x, p.z)
+      this.spawn(enemyFor(id, i), 'wild', p.x, p.z)
     })
     for (let k = 0; k < 3; k++) this.dropFood()
     let k = 0
@@ -501,9 +516,12 @@ export class World {
   }
 
   // ================= 生き物 =================
-  private spawn(id: SpeciesId, team: Team, x: number, z: number, grow = 0): Creature {
+  private spawn(id: SpeciesId, team: Team, x: number, z: number, grow = 0, look?: { seed: number; rare: boolean }): Creature {
     const sp = SPECIES[id]
-    const anim = this.makeView(id, sp.height)
+    // 個体差：もようと色のゆらぎのシード。なかまになれる種族は約 3% で色ちがい（ボスは いつもの姿）
+    const seed = sp.boss ? 0 : look?.seed ?? newSeed()
+    const rare = sp.tier > 0 && (look ? look.rare : Math.random() < RARE_RATE)
+    const anim = this.makeView(id, sp.height, variantOf(seed, rare))
     const shadow = new THREE.Mesh(this.shadowGeo, this.shadowMat)
     this.scene.add(anim.sprite, shadow)
     const c: Creature = {
@@ -514,6 +532,7 @@ export class World {
       xp: 0, care: { power: 0, guard: 0, spirit: 0 }, bias: (['power', 'guard', 'spirit'] as Care[])[Math.floor(Math.random() * 3)],
       spar: false, carry: null, carryMesh: null, res: null, raid: null, inside: false,
       skillCd: 3 + Math.random() * 5, cheer: false, sleepFrom: null, site: null, army: false, squash: 0, pj: 0, finish: null, role: 'free', tendTo: null, lx: x, lz: z, mvT: 0, stuck: 0, detourN: 0, detour: null, avoid: Math.random() < 0.5 ? 1 : -1,
+      seed, rare, evo: null, glint: 1 + Math.random() * 2,
     }
     this.creatures.push(c)
     this.burst(x, this.ground(c) + 0.5, z, 'cube', 8, 2)
@@ -522,17 +541,29 @@ export class World {
 
   /** キャラの見た目：'sprite' = 2.5D ドット絵 / 'model' = 3D ポリゴン */
   style: 'sprite' | 'model' = 'sprite'
-  private makeView(id: SpeciesId, h: number): MonsterView {
-    return this.style === 'model' && hasModel(id) ? new MonsterModel(id, h) : new SpriteMonster(id, h)
+  private makeView(id: SpeciesId, h: number, variant = 0): MonsterView {
+    return this.style === 'model' && hasModel(id) ? new MonsterModel(id, h) : new SpriteMonster(id, h, variant)
+  }
+  /** スプライトの種類（もよう 0〜7 + 色ちがい 8） */
+  private variant(c: Creature) {
+    return variantOf(c.seed, c.rare)
+  }
+  /** なまえ（色ちがいは ★ がつく） */
+  private nm(c: Creature) {
+    return (c.rare ? '★' : '') + c.sp.name
   }
   setStyle(style: 'sprite' | 'model') {
     if (style === this.style) return
     this.style = style
     for (const c of this.creatures) {
+      if (c.evo) {
+        if (!c.evo.said) this.evolved(c, SPECIES[c.evo.from].name)
+        c.evo = null
+      }
       const old = c.anim
       this.scene.remove(old.sprite)
       old.dispose()
-      c.anim = this.makeView(c.sp.id, this.size(c))
+      c.anim = this.makeView(c.sp.id, this.size(c), this.variant(c))
       c.anim.facing = old.facing
       c.anim.sprite.visible = old.sprite.visible
       this.scene.add(c.anim.sprite)
@@ -1241,21 +1272,105 @@ export class World {
   }
 
   private evolve(c: Creature, to: SpeciesId) {
-    const from = c.sp.name
+    const fromId = c.sp.id
+    const h0 = this.size(c)
     const sp = SPECIES[to]
     c.sp = sp
     c.maxHp = Math.max(c.maxHp + 10, sp.hp)
     c.hp = c.maxHp
     c.atk = Math.max(c.atk + 2, sp.atk)
-    c.anim.setSpecies(to, this.size(c))
+    // 見えている 2.5D の子は、白いシルエットの演出をはさむ（見えない・3D モデルはすぐ切りかえ）
+    if (c.anim.silhouette && c.anim.sprite.visible && !c.evo) {
+      c.evo = { t: 0, from: fromId, to, h0, shown: 'old', said: false }
+      if (this.ally(c)) this.onSfx('evolve')
+      return
+    }
+    c.anim.setSpecies(to, this.size(c), this.variant(c))
+    this.evolved(c, SPECIES[fromId].name)
+  }
+
+  /** 進化がおわった時のメッセージ・コイン（演出のあとに 1 回だけ） */
+  private evolved(c: Creature, from: string) {
+    const sp = c.sp
     this.burst(c.x, this.ground(c) + 0.6, c.z, 'spark', 18, 3)
     const near = Math.hypot(c.x - this.look.x, c.z - this.look.z) < 9
     if (this.ally(c)) {
       if (c === this.pet) this.flash = 1
-      this.say(`${from}は ${sp.name}に しんかした！`)
-      this.onSfx('evolve')
+      this.say(`${c.rare ? '★' : ''}${from}は ${sp.name}に しんかした！`)
+      if (!c.evo) this.onSfx('evolve')
       this.earn(c === this.pet ? 30 : 15)
     } else if (near) this.say(`やせいの ${from}が ${sp.name}に しんかした！`)
+  }
+
+  /**
+   * 進化の演出（約 1.8 秒）：
+   * 0〜0.65 ちかちか白く光ってふるえる → 0.65〜1.3 白いシルエットがふくらむ → 1.3 新しい姿のシルエットに（光の輪）→ 〜1.8 ちぢんで新しい姿
+   */
+  private updateEvo(c: Creature, dt: number) {
+    const e = c.evo!
+    e.t += dt
+    const t = e.t
+    const v = this.variant(c)
+    const hNew = this.size(c)
+    const show = (what: Evo['shown']) => {
+      if (e.shown === what) return
+      e.shown = what
+      if (what === 'old') c.anim.setSpecies(e.from, e.h0, v)
+      else if (what === 'white-old') c.anim.silhouette!(e.from, e.h0)
+      else if (what === 'white-new') c.anim.silhouette!(e.to, hNew)
+      else c.anim.setSpecies(e.to, hNew, v)
+    }
+    // ジャンプ中ならその場で着地まで
+    c.vy -= 16 * dt
+    c.jy = Math.max(0, c.jy + c.vy * dt)
+    if (c.jy === 0 && c.vy < 0) c.vy = 0
+    let h = e.h0
+    let sx = 1
+    let sy = 1
+    let shake = 0
+    const ease = (k: number) => 1 - (1 - Math.min(1, Math.max(0, k))) ** 3
+    if (t < 0.65) {
+      show(Math.floor(t * (9 + t * 26)) % 2 === 0 ? 'white-old' : 'old')
+      shake = Math.sin(t * 70) * 0.04 * (0.4 + t)
+      sy = 1 + Math.sin(t * 24) * 0.03
+    } else if (t < 1.3) {
+      show('white-old')
+      const k = ease((t - 0.65) / 0.65)
+      sx = 1 + 0.45 * k
+      sy = 1 + 0.6 * k
+      shake = Math.sin(t * 90) * 0.03
+      if (e.t - dt < 0.65) this.ring(c.x, c.z, '#ffffff', 2.6, 0.7)
+    } else {
+      if (!e.said) {
+        // 新しい姿のシルエットへ：光の輪とキラキラ・ペットは画面もフラッシュ
+        e.said = true
+        this.ring(c.x, c.z, '#ffe27a', 3.4, 0.8)
+        this.evolved(c, SPECIES[e.from].name)
+      }
+      if (t < 1.8) {
+        show('white-new')
+        const k = ease((t - 1.3) / 0.5)
+        const s0 = THREE.MathUtils.clamp((e.h0 * 1.5) / hNew, 1.05, 1.6)
+        h = hNew
+        sx = sy = s0 + (1 - s0) * k
+      } else {
+        show('new')
+        c.evo = null
+        c.squash = 0.35
+        this.burst(c.x, this.ground(c) + hNew * 0.6, c.z, 'heart', 4, 1.6)
+        if (this.ally(c)) this.setState(c, 'happy', 1.4)
+        h = hNew
+      }
+    }
+    if (t < 1.3 && Math.random() < dt * 14) this.burst(c.x + (Math.random() - 0.5) * 0.8, this.ground(c) + Math.random() * e.h0, c.z, 'spark', 1, 1.2, -1)
+    c.anim.update(dt)
+    c.anim.setHeight(h)
+    c.anim.sprite.scale.x *= sx
+    c.anim.sprite.scale.y *= sy
+    const gy = this.ground(c)
+    c.anim.sprite.position.set(c.x + shake * h, gy + c.jy, c.z)
+    c.shadow.position.set(c.x, this.stage.heightAt(c.x, c.z) + 0.03, c.z)
+    c.shadow.scale.setScalar(h * 0.9 * (1 + (sx - 1) * 0.6))
   }
 
   private earn(n: number, x?: number, z?: number) {
@@ -2129,12 +2244,14 @@ export class World {
         const team = c.team === 'pet' ? 'ペット' : c.team === 'friend' ? 'なかま' : c.army ? 'てきぐん' : c.sp.temper === 'wild' ? 'てき' : 'やせい'
         const fam = c.sp.tier ? FAMILY_NAME[familyOf(c.sp.id)] : 'てき'
         lines.push(`${team}・${fam}・ランク${c.sp.tier || '-'}${c.grow > 0 ? '・こども' : ''}`)
+        if (c.rare) lines.push('★ いろちがい（めずらしい！）' + (lookOf(c.seed) ? `・${LOOK_NAME[lookOf(c.seed)]}` : ''))
+        else if (c.sp.tier > 0 && lookOf(c.seed)) lines.push(`からだ：${LOOK_NAME[lookOf(c.seed)]}`)
         lines.push(`こうげき ${Math.round(c.atk)}  すばやさ ${c.sp.speed.toFixed(1)}  ${c.role !== 'free' ? 'やくわり ' + ROLE_NAME[c.role] : ''}`)
         lines.push(`いま：${STATE_NAME[c.state] ?? c.state}`)
         bars.push(['たいりょく', c.hp / c.maxHp, '#7cf29b'])
         if (c.team === 'wild' && c.sp.temper === 'calm') bars.push(['なかよし', Math.min(1, c.affinity / 100), '#ff7eb6'])
         else if (this.ally(c) && c.sp.tier >= 1 && c.sp.tier <= 3) bars.push(['しんか', Math.min(1, (c === this.pet ? this.xp : c.xp) / XP_NEED[c.sp.tier as 1 | 2 | 3]), '#c9a8ff'])
-        return { title: c.sp.name + (c === this.pet ? ' ★' : ''), sub: c.sp.kind, lines, bars, del: null }
+        return { title: (c.rare ? '★' : '') + c.sp.name + (c === this.pet ? ' ★' : ''), sub: c.sp.kind, lines, bars, del: null }
       }
       case 'house': {
         const h: House = p.ref
@@ -2341,12 +2458,12 @@ export class World {
   // ================= かいたく =================
   /** 箱庭をひろげる（ステージを作り直す。家・建物・置き物・たまごはそのまま残る） */
   private expandLand(level: number) {
-    const eggs = this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild }))
+    const eggs = this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild, lucky: e.lucky }))
     this.land = level
     setLandSize(LAND_SIZES[level])
     this.flash = 1
     this.loadStage(this.stageIndex)
-    for (const e of eggs) this.layEgg(e.x, e.z, e.parents, e.t, e.kind, e.wild)
+    for (const e of eggs) this.layEgg(e.x, e.z, e.parents, e.t, e.kind, e.wild, e.lucky)
     this.say(`はこにわが ${LAND_SIZES[level]} に ひろがった！`)
     this.onSfx('warp')
     this.save()
@@ -2361,7 +2478,11 @@ export class World {
         if (cur === 0) this.dexNew.push(id)
       }
     }
-    for (const c of this.creatures) if (c.state !== 'dead') add(c.sp.id, this.ally(c) ? 2 : 1)
+    for (const c of this.creatures) {
+      if (c.state === 'dead') continue
+      add(c.sp.id, this.ally(c) ? 2 : 1)
+      if (c.rare) this.addRareDex(c)
+    }
     if (this.dexNew.length && --this.dexMsgT <= 0) {
       const names = this.dexNew.splice(0).map((id) => SPECIES[id as SpeciesId].name)
       this.say(`ずかんに とうろく：${names.slice(0, 3).join('・')}${names.length > 3 ? ' ほか' : ''}`)
@@ -2377,12 +2498,26 @@ export class World {
     }
   }
 
+  /** 色ちがいをずかんに記録する（みつけた = 1 / なかまにした = 2。はじめての時だけ知らせる） */
+  private addRareDex(c: Creature) {
+    const id = c.sp.id
+    const lv: 1 | 2 = this.ally(c) ? 2 : 1
+    const cur: number = this.dexRare[id] ?? 0
+    if (cur >= lv) return
+    this.dexRare[id] = lv
+    if (cur === 0) this.say(`★ いろちがいの ${c.sp.name}を みつけた！ ずかんに のった`)
+    if (lv === 2) {
+      this.say(`★ いろちがいの ${c.sp.name}が なかまに！ コイン+20`)
+      this.earn(20)
+    }
+  }
+
   /** ずかんの一覧（系統ごと・段階の順） */
   dexList() {
     const order = ['めばえ', 'きかい', 'りゅう', 'ねこ', 'いぬ', 'とり', 'みず', 'モンスター', 'てき']
     const fam = (id: SpeciesId) => (SPECIES[id].tier ? FAMILY_NAME[familyOf(id)] : 'てき')
     return (Object.values(SPECIES) as Species[])
-      .map((sp) => ({ id: sp.id, name: sp.name, kind: sp.kind, tier: sp.tier, family: fam(sp.id), state: this.dex[sp.id] ?? 0 }))
+      .map((sp) => ({ id: sp.id, name: sp.name, kind: sp.kind, tier: sp.tier, family: fam(sp.id), state: this.dex[sp.id] ?? 0, rare: this.dexRare[sp.id] ?? 0 }))
       .sort((a, b) => order.indexOf(a.family) - order.indexOf(b.family) || a.tier - b.tier)
   }
   dexInfo() {
@@ -2391,6 +2526,8 @@ export class World {
       owned: Object.values(this.dex).filter((v) => v === 2).length,
       total: all.filter((s) => s.tier > 0).length,
       seen: Object.keys(this.dex).length,
+      rareSeen: Object.keys(this.dexRare).length,
+      rareOwned: Object.values(this.dexRare).filter((v) => v === 2).length,
       all: all.length,
       gen: this.stats.gen,
       lineage: this.stats.lineage,
@@ -2490,19 +2627,23 @@ export class World {
     this.xp = 0
     const legacy = 1 + Math.min(0.4, 0.05 * (this.stats.gen - 1))
     p.sp = sp
+    // 次の代は見た目も新しく（もようのシード・3% で色ちがい）
+    p.evo = null
+    p.seed = newSeed()
+    p.rare = Math.random() < RARE_RATE
     p.grow = 0.01
     p.maxHp = Math.round(sp.hp * 0.6 * legacy)
     p.hp = p.maxHp
     p.atk = Math.round(sp.atk * legacy * 10) / 10
     p.hunger = 100
     p.energy = 100
-    p.anim.setSpecies(id, this.size(p))
+    p.anim.setSpecies(id, this.size(p), this.variant(p))
     this.setState(p, 'happy', 2)
     this.burst(p.x, this.ground(p) + 0.8, p.z, 'spark', 20, 3)
     this.ring(p.x, p.z, '#ffe27a', 3, 0.9)
     this.flash = 1
     this.onSfx('evolve')
-    this.say(`たまごが ひかり ${sp.name}が うまれた！ だい${this.stats.gen}せだい`)
+    this.say(`たまごが ひかり ${p.rare ? '★ いろちがいの ' : ''}${sp.name}が うまれた！ だい${this.stats.gen}せだい`)
     this.earn(50)
     this.retiring = false
   }
@@ -2570,8 +2711,8 @@ export class World {
     const mult = 1 + 0.15 * (a.wave - 1)
     for (let i = 0; i < a.n; i++) {
       const boss = i === 0 && a.wave % 3 === 0
-      const r = Math.random()
-      const id: SpeciesId = boss ? 'gougan' : r < 0.55 ? 'noiz' : r < 0.9 || a.wave < 2 ? 'togebug' : 'gougan'
+      // 編成：ふつうの兵は もとの敵 + そのステージの亜種、3 回に 1 回は専用の姿のボス
+      const id: SpeciesId = boss ? armyBoss(this.stageIndex, a.wave) : armyMember(this.stageIndex, a.wave)
       const x = THREE.MathUtils.clamp((Math.random() * 2 - 1) * (HALF - 1), -HALF, HALF)
       const z = -HALF + 0.6 + Math.random() * 1.2
       const c = this.spawn(id, 'wild', x, z)
@@ -2581,12 +2722,13 @@ export class World {
       c.atk = c.sp.atk * mult * (boss ? 1.4 : 1)
       if (boss) {
         this.ring(x, z, '#ff7a2a', 3.4, 1)
-        this.popups.push({ pos: new THREE.Vector3(x, this.size(c) + 0.6, z), text: 'ボス！', color: '#ff7a2a', t: 0, big: true })
+        this.popups.push({ pos: new THREE.Vector3(x, this.size(c) + 0.6, z), text: `ボス ${c.sp.name}！`, color: '#ff7a2a', t: 0, big: true })
       }
       this.setState(c, 'march', 8)
       a.left.push(c)
     }
-    this.say(`てきぐん ${a.n}たいが せめてきた！${a.wave % 3 === 0 ? ' ボスもいる！' : ''}`)
+    const bossName = a.left.find((c) => c.sp.boss)?.sp.name
+    this.say(`てきぐん ${a.n}たいが せめてきた！${bossName ? ` ボス ${bossName}もいる！` : ''}`)
     this.onSfx('boom')
     this.shake = Math.max(this.shake, 0.4)
   }
@@ -2809,12 +2951,12 @@ export class World {
     return pool[Math.floor(Math.random() * pool.length)]
   }
 
-  private layEgg(x: number, z: number, parents: SpeciesId[], t = 35, kind: EggKind = 'inherit', wild = false) {
+  private layEgg(x: number, z: number, parents: SpeciesId[], t = 35, kind: EggKind = 'inherit', wild = false, lucky = false) {
     const anim = new SpriteAnim(this.eggSheets[kind], kind === 'inherit' ? 0.6 : 0.68)
     const shadow = new THREE.Mesh(this.shadowGeo, this.shadowMat)
     shadow.scale.setScalar(0.5)
     this.scene.add(anim.sprite, shadow)
-    this.eggs.push({ x, z, t, anim, shadow, parents, kind, wild })
+    this.eggs.push({ x, z, t, anim, shadow, parents, kind, wild, lucky })
   }
 
   /** ときどき、その場所らしい系統のたまごが野原に落ちている（かえった子は野生で、仲良くなると仲間に） */
@@ -2844,16 +2986,23 @@ export class World {
         this.eggs.splice(this.eggs.indexOf(e), 1)
         const fam = e.kind !== 'inherit'
         const id = (fam ? BABY[e.kind] : e.parents[Math.floor(Math.random() * e.parents.length)]) as SpeciesId
-        const baby = this.spawn(id, e.wild ? 'wild' : 'friend', e.x, e.z, e.wild ? 0 : 0.01)
+        // 色ちがい：ふつう 3%、ふしぎなたまごは 8%
+        const rare = SPECIES[id].tier > 0 && Math.random() < (e.lucky ? RARE_RATE_LUCKY : RARE_RATE)
+        const baby = this.spawn(id, e.wild ? 'wild' : 'friend', e.x, e.z, e.wild ? 0 : 0.01, { seed: newSeed(), rare })
         baby.anim.setHeight(this.size(baby))
+        const star = rare ? '★ いろちがいの ' : ''
+        if (rare) {
+          this.burst(e.x, y + 0.6, e.z, 'spark', 10, 3, -1)
+          this.ring(e.x, e.z, '#ffe27a', 2.6, 0.9)
+        }
         baby.maxHp = Math.round(SPECIES[id].hp * (e.wild ? 1 : 0.6))
         baby.hp = baby.maxHp
         this.burst(e.x, y + 0.3, e.z, 'spark', 14, 2.5)
         if (e.wild) {
-          if (Math.hypot(e.x - this.look.x, e.z - this.look.z) < 10) this.say(`${FAMILY_NAME[e.kind]}のたまごから ${SPECIES[id].name}が うまれた！ なかよく なれるかな`)
+          if (Math.hypot(e.x - this.look.x, e.z - this.look.z) < 10) this.say(`${FAMILY_NAME[e.kind]}のたまごから ${star}${SPECIES[id].name}が うまれた！ なかよく なれるかな`)
         } else {
           this.stats.children++
-          this.say(fam ? `${FAMILY_NAME[e.kind]}のたまごから ${SPECIES[id].name}が うまれた！` : `たまごから ${SPECIES[id].name}の こどもが うまれた！`)
+          this.say(fam ? `${FAMILY_NAME[e.kind]}のたまごから ${star}${SPECIES[id].name}が うまれた！` : `たまごから ${star}${SPECIES[id].name}の こどもが うまれた！`)
           this.onSfx('evolve')
           this.earn(20)
         }
@@ -2931,7 +3080,7 @@ export class World {
       this.coins -= s.price
       this.onSfx('coin')
       const pt = this.pet
-      this.layEgg(pt.x + pt.anim.facing * 1.1, pt.z + 0.4, [], 40, kind)
+      this.layEgg(pt.x + pt.anim.facing * 1.1, pt.z + 0.4, [], 40, kind, false, s.egg === 'random')
       this.say(s.egg === 'random' ? 'ふしぎなたまごを おいた！' : `${FAMILY_NAME[kind]}のたまごを おいた！`)
       this.shopOpen = false
       return
@@ -3112,8 +3261,9 @@ export class World {
     if (this.night > 0.6 && this.nightSpawnT <= 0 && shadows.length < 2) {
       this.nightSpawnT = 25
       const q = this.freePos(6)
-      this.spawn('yamikage', 'wild', q.x, q.z)
-      if (shadows.length === 0) this.say('くらやみから ヤミカゲが あらわれた…')
+      const dark = enemyFor('yamikage', this.stageIndex)
+      this.spawn(dark, 'wild', q.x, q.z)
+      if (shadows.length === 0) this.say(`くらやみから ${SPECIES[dark].name}が あらわれた…`)
     }
     if (this.night < 0.3) for (const c of shadows) this.setState(c, 'dead', 0.8)
 
@@ -3164,6 +3314,17 @@ export class World {
 
   private updateCreature(c: Creature, dt: number) {
     const sp = c.sp
+    if (c.evo) {
+      // 進化の演出中は動かない（倒れたら演出を打ち切る）
+      if (c.state === 'dead' || c.state === 'faint') {
+        c.anim.setSpecies(c.sp.id, this.size(c), this.variant(c))
+        if (!c.evo.said) this.evolved(c, SPECIES[c.evo.from].name)
+        c.evo = null
+      } else {
+        this.updateEvo(c, dt)
+        return
+      }
+    }
     c.t -= dt
     c.cd -= dt
     c.lunge = Math.max(0, c.lunge - dt)
@@ -3198,7 +3359,7 @@ export class World {
       if (c.affinity >= 100 && friends < MAX_FRIENDS) {
         c.team = 'friend'
         this.burst(c.x, this.ground(c) + this.size(c), c.z, 'heart', 6, 1.5)
-        this.say(`${sp.name}が なかまに なった！`)
+        this.say(`${this.nm(c)}が なかまに なった！`)
         this.onSfx('friend')
         this.earn(15)
       }
@@ -3613,6 +3774,14 @@ export class World {
         break
     }
     if (c.hurt > 0) anim = 'hurt'
+    else if (anim === 'idle') anim = this.faceOf(c)
+
+    // 色ちがいは ときどきキラッと光る
+    if (c.rare && c.anim.sprite.visible && (c.glint -= dt) <= 0) {
+      c.glint = 1.2 + Math.random() * 1.6
+      if (Math.hypot(c.x - this.look.x, c.z - this.look.z) < 12)
+        this.burst(c.x + (Math.random() - 0.5) * this.size(c) * 0.9, this.ground(c) + c.jy + Math.random() * this.size(c), c.z, 'spark', 1, 0.6, -0.8)
+    }
 
     c.vy -= 16 * dt
     c.jy = Math.max(0, c.jy + c.vy * dt)
@@ -3676,6 +3845,20 @@ export class World {
       }
       c.carryMesh.rotation.y += dt * 2
     }
+  }
+
+  /** 止まっている時の表情：おなかがすいた・ねむい・うれしい・おこっている・こまっている */
+  private faceOf(c: Creature): 'idle' | Face {
+    const s = c.state
+    if (s === 'fight' || s === 'assist' || s === 'raid' || s === 'march' || s === 'hunt') return 'angry'
+    if (c.sp.tier === 0) return c.sp.temper === 'wild' ? 'angry' : 'idle'
+    if (c.hp < c.maxHp * 0.3 || c.detour || c.stuck > 0) return 'worry'
+    if (c.hunger < 28) return 'hungry'
+    if (c.energy < 25) return 'sleepy'
+    const wave = Math.sin(this.time * 0.4 + c.phase)
+    if ((this.weather === 'rain' || this.weather === 'ember') && !c.inside && c.team !== 'wild' && wave > 0.2) return 'worry'
+    if (this.ally(c) && c.hunger > 60 && c.energy > 50 && wave > 0.35) return 'glad'
+    return 'idle'
   }
 
   // ================= エフェクト =================
@@ -3888,19 +4071,19 @@ export class World {
     if (!this.pet || this.saveLocked) return
     const c2 = (c: Creature) => ({
       sp: c.sp.id, hp: Math.round(c.hp), maxHp: c.maxHp, atk: c.atk, hunger: Math.round(c.hunger), energy: Math.round(c.energy), grow: c.grow,
-      xp: c.xp, care: c.care, bias: c.bias,
+      xp: c.xp, care: c.care, bias: c.bias, seed: c.seed, rare: c.rare,
     })
     const friends = this.creatures.filter((c) => c.team === 'friend')
     const ownerKey = (h: House) => (h.owner === this.pet ? 'pet' : h.owner && friends.includes(h.owner) ? `f${friends.indexOf(h.owner)}` : '')
     const data = {
-      land: this.land, dex: this.dex, dexClaimed: this.dexClaimed,
+      land: this.land, dex: this.dex, dexRare: this.dexRare, dexClaimed: this.dexClaimed,
       coins: this.coins, stage: this.stageIndex, care: this.care, xp: this.xp, stats: this.stats, night: this.nightTarget,
       pet: c2(this.pet),
       friends: friends.map(c2),
       houses: this.houses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, ownerSp: h.ownerSp, owner: ownerKey(h), mats: h.mats, hp: Math.round(h.hp) })),
       structs: this.structs.map((b) => ({ kind: b.kind, stage: b.stage, x: b.x, z: b.z, rot: b.rot, len: b.len, mats: b.mats, hp: Math.round(b.hp) })),
       items: this.items.map((it) => ({ kind: it.kind, stage: it.stage, x: it.x, z: it.z, grow: it.grow })),
-      eggs: this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild })),
+      eggs: this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild, lucky: e.lucky })),
     }
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(data))
@@ -3933,6 +4116,9 @@ export class World {
       this.dex = {}
       if (d.dex && typeof d.dex === 'object' && !Array.isArray(d.dex))
         for (const [k, v] of Object.entries(d.dex)) if (isSpecies(k) && (v === 1 || v === 2)) this.dex[k] = v
+      this.dexRare = {}
+      if (d.dexRare && typeof d.dexRare === 'object' && !Array.isArray(d.dexRare))
+        for (const [k, v] of Object.entries(d.dexRare)) if (isSpecies(k) && (v === 1 || v === 2)) this.dexRare[k] = v
       this.dexClaimed = Math.round(num(d.dexClaimed, 0, 6, 0))
       this.nightTarget = this.night = d.night ?? 0
       this.items = (d.items ?? []).map((it: Item) => ({ ...it, vx: 0, vz: 0, mesh: null }))
@@ -3951,7 +4137,9 @@ export class World {
           }
         })
       this.loadStage(Math.min(STAGES.length - 1, Math.round(num(d.stage, 0, STAGES.length - 1))))
-      type Saved = { sp: SpeciesId; hp: number; maxHp: number; atk: number; hunger: number; energy: number; grow: number; xp?: number; care?: Record<Care, number>; bias?: Care }
+      type Saved = { sp: SpeciesId; hp: number; maxHp: number; atk: number; hunger: number; energy: number; grow: number; xp?: number; care?: Record<Care, number>; bias?: Care; seed?: number; rare?: boolean }
+      /** 見た目のシード（古いセーブには無いので、その時は新しく決める）。色ちがいは 保存されたものだけ */
+      const lookOfSaved = (s: Saved) => ({ seed: Math.round(num(s.seed, 0, 0x7fffffff, newSeed())), rare: s.rare === true && SPECIES[s.sp].tier > 0 })
       const apply = (c: Creature, s: Saved) => {
         Object.assign(c, { hp: num(s.hp, 0, 9999), maxHp: num(s.maxHp, 1, 9999, 10), atk: num(s.atk, 0, 9999, 1), hunger: num(s.hunger, 0, 100, 50), energy: num(s.energy, 0, 100, 50), grow: num(s.grow, 0, 1, 0) })
         if (s.xp !== undefined) c.xp = s.xp
@@ -3959,11 +4147,11 @@ export class World {
         if (s.bias) c.bias = s.bias
         c.anim.setHeight(this.size(c))
       }
-      this.pet = this.spawn(d.pet.sp, 'pet', 0, 1.5)
+      this.pet = this.spawn(d.pet.sp, 'pet', 0, 1.5, 0, lookOfSaved(d.pet))
       apply(this.pet, d.pet)
       const friends: Creature[] = []
       for (const f of ((Array.isArray(d.friends) ? d.friends : []) as Saved[]).slice(0, 40)) if (f && isSpecies(f.sp)) {
-        const c = this.spawn(f.sp, 'friend', (Math.random() - 0.5) * 2, 2.2)
+        const c = this.spawn(f.sp, 'friend', (Math.random() - 0.5) * 2, 2.2, 0, lookOfSaved(f))
         apply(c, f)
         friends.push(c)
       }
@@ -3977,7 +4165,7 @@ export class World {
         const kind: EggKind = typeof e.kind === 'string' && Object.prototype.hasOwnProperty.call(EGG_COLORS, e.kind) ? e.kind : 'inherit'
         const parents = (Array.isArray(e.parents) ? e.parents : []).filter(isSpecies).slice(0, 2)
         if (kind === 'inherit' && !parents.length) continue
-        this.layEgg(num(e.x, -HALF, HALF), num(e.z, -HALF, HALF), parents, num(e.t, 0, 120, 35), kind, !!e.wild)
+        this.layEgg(num(e.x, -HALF, HALF), num(e.z, -HALF, HALF), parents, num(e.t, 0, 120, 35), kind, !!e.wild, e.lucky === true)
       }
       this.say(`おかえり！ ${this.pet.sp.name}が まっていたよ`)
       return true
@@ -4062,6 +4250,44 @@ export class World {
             g.fillRect(x0 + x * 2, y0 + y * 2, 2, 2)
           }
         }
+  }
+
+  /** 色ちがいの目印（小さな金の ★） */
+  private starMark(x: number, y: number) {
+    const g = this.hudCtx
+    g.fillStyle = '#10122a'
+    g.fillRect(x - 3, y - 2, 7, 7)
+    g.fillStyle = Math.floor(this.time * 3) % 2 ? '#ffd23f' : '#fff6b0'
+    for (const [dx, dy, w] of [[0, -1, 1], [-1, 0, 3], [-2, 1, 5], [-1, 2, 3], [-2, 3, 1], [2, 3, 1]]) g.fillRect(x + dx, y + dy, w, 1)
+  }
+
+  /** ボスの大きな HP バー（画面の上のまんなか）。ボスが出ている間だけ */
+  private drawBossBar() {
+    const boss = this.creatures.find((c) => c.sp.boss && this.alive(c))
+    if (!boss) return
+    const g = this.hudCtx
+    const w = 208
+    const x = Math.round((RES.w - w) / 2)
+    const y = 46
+    g.fillStyle = 'rgba(10,14,40,0.82)'
+    g.fillRect(x, y, w, 25)
+    g.strokeStyle = '#ff9a3a'
+    g.strokeRect(x + 0.5, y + 0.5, w - 1, 24)
+    this.text(`ボス ${boss.sp.name}`, x + 8, y + 3, '#ffd0a0', 10)
+    this.text(`${Math.max(0, Math.ceil(boss.hp))}/${boss.maxHp}`, x + w - 8, y + 4, '#ffffff', 8, 'right')
+    const r = Math.max(0, Math.min(1, boss.hp / boss.maxHp))
+    g.fillStyle = '#10122a'
+    g.fillRect(x + 6, y + 15, w - 12, 7)
+    g.fillStyle = '#3a2030'
+    g.fillRect(x + 7, y + 16, w - 14, 5)
+    g.fillStyle = r > 0.5 ? '#ff5e3a' : r > 0.25 ? '#ff9a3a' : '#ffd23f'
+    g.fillRect(x + 7, y + 16, Math.round((w - 14) * r), 5)
+    g.fillStyle = 'rgba(255,255,255,0.35)'
+    g.fillRect(x + 7, y + 16, Math.round((w - 14) * r), 1)
+    for (const k of [0.25, 0.5, 0.75]) {
+      g.fillStyle = 'rgba(16,18,42,0.8)'
+      g.fillRect(x + 7 + Math.round((w - 14) * k), y + 16, 1, 5)
+    }
   }
 
   private heartMark(x: number, y: number) {
@@ -4172,8 +4398,11 @@ export class World {
         g.fillStyle = 'rgba(255,126,182,0.85)'
         g.fillRect(top.x - 5, top.y - 6, Math.round(10 * Math.min(1, c.affinity / 100)), 2)
       }
+      if (c.rare) this.starMark(top.x - 11, top.y - 8)
+      if (c.sp.boss) continue
       if (c.state === 'fight' || c.state === 'assist' || c.hp < c.maxHp - 0.5 || c.team === 'pet') this.bar(top.x - 10, top.y - 2, 20, c.hp / c.maxHp)
     }
+    this.drawBossBar()
     // たまごの残り時間
     for (const e of this.eggs) {
       const s = this.project(new THREE.Vector3(e.x, this.stage.heightAt(e.x, e.z) + 0.75, e.z))
@@ -4225,7 +4454,7 @@ export class World {
     const x = 40
     const y = 28
     this.win(x, y, 240, 164)
-    this.text(p.sp.name, x + 12, y + 8, '#ffffff', 13)
+    this.text(this.nm(p), x + 12, y + 8, '#ffffff', 13)
     this.text(p.sp.kind, x + 12, y + 25, '#9fd8ff', 9)
     this.text(`だい${this.stats.gen}せだい`, x + 228, y + 9, '#ffd23f', 9, 'right')
     const need = p.sp.tier >= 1 && p.sp.tier <= 3 ? XP_NEED[p.sp.tier as 1 | 2 | 3] : 0

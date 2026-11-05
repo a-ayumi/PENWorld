@@ -72,12 +72,16 @@ body.clean #toolbar, body.clean #dress, body.clean #dress-panel, body.clean #dex
 #dex-summary { margin: 10px 0 4px; font-size: 13px; color: var(--ink); }
 #dex-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; }
 #dex-grid .dex-fam { grid-column: 1 / -1; margin: 10px 0 0; }
-.dex-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 10px;
+.dex-cell { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 10px;
   background: rgba(255,255,255,.06); font-size: 11px; text-align: center; color: var(--muted); }
 .dex-cell canvas { width: 56px; height: 52px; image-rendering: pixelated; }
 .dex-cell.own { background: rgba(242,177,52,.14); color: var(--ink); }
 .dex-cell.seen canvas { opacity: .55; }
 .dex-cell small { font-size: 9px; opacity: .7; }
+/* 色ちがいを みつけた / なかまにした：右上に小さな絵 */
+.dex-cell canvas.rare { position: absolute; top: 1px; right: 1px; width: 26px; height: 24px; border-radius: 8px; background: rgba(255,214,64,.18); box-shadow: 0 0 0 1px rgba(255,214,64,.55); }
+.dex-cell.rare-seen canvas.rare { opacity: .6; }
+.dex-cell.seen canvas.rare { opacity: .6; }
 #dex-lineage { margin: 0; font-size: 12px; line-height: 1.7; color: var(--ink); }
 
 /* 画面に入る（Cボタンは「もどる」専用なので、入るのは外のボタン） */
