@@ -48,6 +48,8 @@ interface Creature {
   skillCd: number
   /** おうえんされた（次の攻撃で技を出す） */
   cheer: boolean
+  /** 眠りはじめた時の げんき・たいりょく（起きた時に増えた分を出す） */
+  sleepFrom: { e: number; h: number } | null
 }
 
 /** 技：種族ごとに 1 つ。演出の種類（shot = 弾 / burst = 衝撃 / dash = 突進 / rain = 降りそそぐ / heal = 回復 / wave = 地面の波）*/
@@ -81,7 +83,7 @@ interface House {
 type Weather = 'sun' | 'cloud' | 'rain' | 'snow' | 'ember'
 type FoodKind = 'stage' | 'meat' | 'sweet' | 'nut'
 interface Food { mesh: THREE.Group; x: number; z: number; y: number; vy: number; landed: boolean; taken: Creature | null; bite: number; kind: FoodKind }
-type ItemKind = 'sapling' | 'ball' | 'fire' | 'charm'
+type ItemKind = 'sapling' | 'ball' | 'fire' | 'charm' | 'tools' | 'fence'
 interface Item { kind: ItemKind; stage: number; x: number; z: number; grow: number; vx: number; vz: number; mesh: THREE.Group | null; light?: THREE.PointLight }
 interface Egg { x: number; z: number; t: number; anim: SpriteAnim; shadow: THREE.Mesh; parents: SpeciesId[] }
 interface Popup { pos: THREE.Vector3; text: string; color: string; t: number; big?: boolean }
@@ -108,7 +110,7 @@ const FOODS: Record<Exclude<FoodKind, 'stage'>, { name: string; color: string; l
 }
 const CARE_NAME: Record<Care, string> = { power: 'ちから', guard: 'まもり', spirit: 'こころ' }
 
-interface ShopItem { id: string; name: string; price: number; desc: string; food?: Exclude<FoodKind, 'stage'>; item?: ItemKind; max?: number }
+interface ShopItem { id: string; name: string; price: number; desc: string; food?: Exclude<FoodKind, 'stage'>; item?: ItemKind; max?: number; kit?: boolean }
 const SHOP: ShopItem[] = [
   { id: 'meat', name: 'スタミナにく', price: 30, desc: 'ちからの けいこうが そだつ', food: 'meat' },
   { id: 'sweet', name: 'あまいみ', price: 20, desc: 'きげん UP・こころが そだつ', food: 'sweet' },
@@ -117,6 +119,9 @@ const SHOP: ShopItem[] = [
   { id: 'ball', name: 'ボール', price: 30, desc: 'みんなが かってに あそぶ', item: 'ball', max: 1 },
   { id: 'fire', name: 'たき火', price: 50, desc: 'よる あつまって ねむる・たまごが できやすい', item: 'fire', max: 1 },
   { id: 'charm', name: 'おまもり', price: 60, desc: 'ノイズが あらわれにくくなる', item: 'charm', max: 1 },
+  { id: 'kit', name: 'ざいもくセット', price: 35, desc: '木3つと 石2つを まとめて おく（家づくり用）', kit: true },
+  { id: 'tools', name: 'だいくどうぐ', price: 60, desc: 'ちかくで たてると しざいが 2ばい・家が なおる', item: 'tools', max: 1 },
+  { id: 'fence', name: 'まもりのさく', price: 45, desc: 'ちかくの 家の ダメージが はんぶんに', item: 'fence', max: 2 },
 ]
 
 const FX_SHEETS = () => ({
@@ -353,7 +358,7 @@ export class World {
       phase: Math.random() * 10, affinity: 0, grow,
       xp: 0, care: { power: 0, guard: 0, spirit: 0 }, bias: (['power', 'guard', 'spirit'] as Care[])[Math.floor(Math.random() * 3)],
       spar: false, carry: null, carryMesh: null, res: null, raid: null, inside: false,
-      skillCd: 3 + Math.random() * 5, cheer: false,
+      skillCd: 3 + Math.random() * 5, cheer: false, sleepFrom: null,
     }
     this.creatures.push(c)
     this.burst(x, this.ground(c) + 0.5, z, 'cube', 8, 2)
@@ -441,8 +446,8 @@ export class World {
   /** ステージの障害物 + 置き物 */
   private obstacles() {
     const extra = this.items
-      .filter((it) => it.stage === this.stageIndex && (it.kind === 'fire' || it.kind === 'charm' || (it.kind === 'sapling' && it.grow >= 1)))
-      .map((it) => ({ x: it.x, z: it.z, r: it.kind === 'sapling' ? 0.35 : 0.3, water: false }))
+      .filter((it) => it.stage === this.stageIndex && (it.kind === 'fire' || it.kind === 'charm' || it.kind === 'tools' || it.kind === 'fence' || (it.kind === 'sapling' && it.grow >= 1)))
+      .map((it) => ({ x: it.x, z: it.z, r: it.kind === 'sapling' ? 0.35 : it.kind === 'fence' ? 0.55 : it.kind === 'tools' ? 0.45 : 0.3, water: false }))
     const homes = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 1).map((h) => ({ x: h.x, z: h.z, r: 0.85, water: false }))
     return [...this.stage.obstacles, ...extra, ...homes]
   }
@@ -475,6 +480,7 @@ export class World {
   }
 
   private setState(c: Creature, s: State, t = 0) {
+    if (s === 'sleep' && c.state !== 'sleep') c.sleepFrom = { e: c.energy, h: c.hp }
     c.state = s
     c.t = t
   }
@@ -1064,6 +1070,44 @@ export class World {
       it.light = new THREE.PointLight('#ff9a4a', 0, 6, 1.5)
       it.light.position.y = 0.6
       g.add(it.light)
+    } else if (it.kind === 'tools') {
+      // だいくどうぐ：作業台 + かなづち + のこぎり
+      const wood = this.lam('#a0703f', { map: Tex.bark() })
+      const top = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.08, 0.5), wood)
+      top.position.y = 0.42
+      g.add(top)
+      for (const [x, z] of [[-0.33, -0.18], [0.33, -0.18], [-0.33, 0.18], [0.33, 0.18]]) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.4, 0.07), wood)
+        leg.position.set(x, 0.2, z)
+        g.add(leg)
+      }
+      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.36, 6), this.lam('#6d4c41'))
+      handle.rotation.z = Math.PI / 2
+      handle.position.set(-0.08, 0.5, 0.05)
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.16), this.lam('#9aa1ab'))
+      head.position.set(0.1, 0.5, 0.05)
+      const saw = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.015, 0.12), this.lam('#c9ced6'))
+      saw.position.set(0.15, 0.47, -0.15)
+      saw.rotation.y = 0.4
+      g.add(handle, head, saw)
+      g.name = 'tools'
+    } else if (it.kind === 'fence') {
+      // まもりのさく：くいを丸く並べて横木でつなぐ
+      const wood = this.lam('#8a5a34', { map: Tex.bark() })
+      for (let i = 0; i < 7; i++) {
+        const a = -0.9 + (i / 6) * 1.8
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.55, 6), wood)
+        post.position.set(Math.sin(a) * 0.55, 0.27, Math.cos(a) * 0.55 - 0.3)
+        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.12, 6), wood)
+        tip.position.set(post.position.x, 0.6, post.position.z)
+        g.add(post, tip)
+      }
+      for (const y of [0.18, 0.4]) {
+        const rail = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.025, 4, 16, 1.8), wood)
+        rail.rotation.set(Math.PI / 2, 0, Math.PI / 2 - 0.9)
+        rail.position.set(0, y, -0.3)
+        g.add(rail)
+      }
     } else {
       const stone = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.6, 0.3), this.lam('#9aa1ab'))
       stone.position.y = 0.3
@@ -1194,9 +1238,16 @@ export class World {
     return null
   }
 
+  /** 家のちかくに だいくどうぐ / まもりのさく があるか */
+  private nearItem(kind: ItemKind, x: number, z: number, r: number) {
+    return this.items.some((it) => it.kind === kind && it.stage === this.stageIndex && it.mesh && Math.hypot(it.x - x, it.z - z) < r)
+  }
+
   private addMaterial(h: House, by: Creature) {
     const before = h.level
-    h.mats = Math.min(HOUSE_STEPS[3], h.mats + 1)
+    // だいくどうぐ の近くなら 1 回で 2 個分
+    const bonus = this.nearItem('tools', h.x, h.z, 6) ? 2 : 1
+    h.mats = Math.min(HOUSE_STEPS[3], h.mats + bonus)
     h.level = houseLevel(h.mats)
     h.hp = Math.min(houseMaxHp(h.level), h.hp + 9)
     this.burst(h.x, this.stage.heightAt(h.x, h.z) + 0.8, h.z, 'spark', 4, 1.5)
@@ -1212,6 +1263,8 @@ export class World {
 
   /** 家がこわされる。hp が 0 になると 1 段階くずれ、資材がちらばる */
   private damageHouse(h: House, dmg: number, by: Creature | null) {
+    // まもりのさく の近くは ダメージ半分
+    if (this.nearItem('fence', h.x, h.z, 3.2)) dmg *= 0.5
     h.hp -= dmg
     h.shake = 0.3
     const y = this.stage.heightAt(h.x, h.z) + 0.6
@@ -1318,6 +1371,11 @@ export class World {
     for (const h of [...this.houses]) {
       if (h.stage !== this.stageIndex || !h.mesh) continue
       h.shake = Math.max(0, h.shake - dt)
+      // だいくどうぐ の近くの家は少しずつ直る
+      if (h.level >= 1 && h.hp < houseMaxHp(h.level) && this.nearItem('tools', h.x, h.z, 6)) {
+        h.hp = Math.min(houseMaxHp(h.level), h.hp + dt * 0.8)
+        if (Math.random() < dt * 0.4) this.burst(h.x, this.stage.heightAt(h.x, h.z) + 0.9, h.z, 'spark', 1, 0.6)
+      }
       h.mesh.position.x = h.x + (h.shake > 0 ? Math.sin(this.time * 60) * 0.05 : 0)
       const win = h.mesh.getObjectByName('window') as THREE.Mesh | undefined
       if (win) {
@@ -1334,9 +1392,9 @@ export class World {
     }
   }
 
-  private spawnResource(x?: number, z?: number) {
-    if (this.resources.length >= MAX_RES) return
-    const kind: ResKind = Math.random() < 0.55 ? 'wood' : 'stone'
+  private spawnResource(x?: number, z?: number, want?: ResKind, force = false) {
+    if (this.resources.length >= MAX_RES + (force ? 8 : 0)) return
+    const kind: ResKind = want ?? (Math.random() < 0.55 ? 'wood' : 'stone')
     if (x === undefined || z === undefined) {
       // 木や岩のそばに落ちている
       const land = this.stage.obstacles.filter((o) => !o.water)
@@ -1348,7 +1406,7 @@ export class World {
     }
     x = THREE.MathUtils.clamp(x, -HALF, HALF)
     z = THREE.MathUtils.clamp(z, -HALF, HALF)
-    if (this.obstacles().some((o) => Math.hypot(o.x - x, o.z - z) < o.r + 0.2)) return
+    if (!force && this.obstacles().some((o) => Math.hypot(o.x - x, o.z - z) < o.r + 0.2)) return
     const mesh =
       kind === 'wood'
         ? new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.5, 6).rotateZ(Math.PI / 2), this.lam('#8a5a34', { map: Tex.bark() }))
@@ -1585,7 +1643,15 @@ export class World {
     }
     this.coins -= s.price
     this.onSfx('coin')
-    if (s.food) {
+    if (s.kit) {
+      // 木 3 つと石 2 つを、見ている所のまわりに置く
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2
+        this.spawnResource(this.look.x + Math.cos(a) * 1.2, this.look.z + Math.sin(a) * 1.2, i < 3 ? 'wood' : 'stone', true)
+      }
+      this.burst(this.look.x, this.stage.heightAt(this.look.x, this.look.z) + 0.5, this.look.z, 'spark', 8, 2)
+      this.say('ざいもくセットを おいた（木3・石2）')
+    } else if (s.food) {
       const p = this.pet
       const f = this.dropFood(p.x + p.anim.facing * 0.9, p.z + 0.2, 3, s.food)
       if (p.state !== 'fight' && p.state !== 'faint') {
@@ -1660,6 +1726,13 @@ export class World {
         this.setState(p, 'come', 4)
         return this.say(`${p.sp.name}を よんだ`)
     }
+  }
+
+  /** 「おなか+25」「げんき-15」のような増減の文字（変化が無ければ空） */
+  private delta(name: string, v: number) {
+    const n = Math.round(v)
+    if (!n) return ''
+    return `${name}${n > 0 ? '+' : ''}${n}`
   }
 
   private say(text: string) {
@@ -1923,6 +1996,7 @@ export class World {
           if (f && this.foods.includes(f)) this.removeFood(f)
           c.food = null
           const info = kind === 'stage' ? null : FOODS[kind]
+          const before = { hunger: c.hunger, hp: c.hp, mood: this.stats.mood }
           c.hunger = Math.min(100, c.hunger + (info?.hunger ?? 50))
           c.hp = Math.min(c.maxHp, c.hp + 8)
           this.burst(c.x, this.ground(c) + this.size(c), c.z, 'heart', 3, 1.2)
@@ -1932,8 +2006,14 @@ export class World {
           this.gainXp(c, info ? 2 : 1)
           if (c.team === 'pet') {
             this.stats.mood = Math.min(100, this.stats.mood + (info?.mood ?? 10))
-            if (info) this.say(`${sp.name}は ${info.name}を たべた！ ${CARE_NAME[info.care]}+`)
-            else this.say(`${sp.name}は おいしそうに たべた！`)
+            // 何がどれだけ増えたかも出す
+            const up = [
+              this.delta('おなか', c.hunger - before.hunger),
+              this.delta('きげん', this.stats.mood - before.mood),
+              this.delta('たいりょく', c.hp - before.hp),
+              info ? `${CARE_NAME[info.care]}+2` : '',
+            ].filter(Boolean).join(' ')
+            this.say(`${sp.name}は ${info ? info.name : this.stage.food.name}を たべた！ ${up}`)
             this.onSfx('eat')
             this.earn(1)
           } else if (c.team === 'wild') c.affinity += 4
@@ -1966,6 +2046,11 @@ export class World {
         }
         const stormy = c.inside && (this.weather === 'rain' || this.weather === 'ember')
         if (((c.t <= 0 && this.night < 0.5) || c.energy >= 100) && !stormy) {
+          if (c === this.pet && c.sleepFrom) {
+            const up = [this.delta('げんき', c.energy - c.sleepFrom.e), this.delta('たいりょく', c.hp - c.sleepFrom.h)].filter(Boolean).join(' ')
+            this.say(`${sp.name}が めをさました！ ${up || 'すっきり'}`)
+          }
+          c.sleepFrom = null
           if (c.inside) {
             c.inside = false
             c.anim.sprite.visible = true
@@ -1980,7 +2065,11 @@ export class World {
           this.setState(c, 'happy', 1)
           this.addCare(c, 'spirit', 1)
           this.gainXp(c, 1)
-          if (c.team === 'pet') this.stats.mood = Math.min(100, this.stats.mood + 6)
+          if (c.team === 'pet') {
+            const m0 = this.stats.mood
+            this.stats.mood = Math.min(100, this.stats.mood + 6)
+            this.say(`${sp.name}は たくさん あそんだ！ ${this.delta('きげん', this.stats.mood - m0)} こころ+1`)
+          }
           break
         }
         anim = 'walk'
@@ -2032,9 +2121,12 @@ export class World {
         }
         if (this.moveTo(c, h.x + (c.x < h.x ? -1 : 1) * 0.6, h.z + 0.9, sp.speed * 0.9, dt) < 0.5) {
           this.dropCarry(c, false)
+          const m0 = h.mats
           this.addMaterial(h, c)
           this.addCare(c, 'guard', 1)
           this.gainXp(c, 2)
+          if (c === this.pet && h.level < 3)
+            this.say(`${sp.name}は しざいを はこんだ（いえ ${h.mats}/8${h.mats - m0 > 1 ? ' どうぐで 2ばい' : ''}） まもり+1`)
           c.anim.facing = h.x > c.x ? 1 : -1
           this.setState(c, 'happy', 0.8)
         }
@@ -2074,11 +2166,13 @@ export class World {
           this.onSfx('train')
         }
         if (c.t <= 0) {
+          const a0 = Math.round(c.atk)
+          const e0 = c.energy
           c.atk += 1
           c.energy = Math.max(0, c.energy - 15)
           this.stats.trains++
           this.addCare(c, 'power', 1)
-          this.say(`ちからが あがった！ (${this.stats.trains})`)
+          this.say(`トレーニング おわり！ こうげき ${a0}→${Math.round(c.atk)} ちから+1 ${this.delta('げんき', c.energy - e0)}`)
           this.setState(c, 'idle', 0.4)
           this.gainXp(c, 3)
         }
@@ -2293,7 +2387,7 @@ export class World {
       const wx = 24
       const wy = 28
       const ww = RES.w - 48
-      if (x < wx || x > wx + ww || y < wy || y > wy + 150) {
+      if (x < wx || x > wx + ww || y < wy || y > wy + 26 + SHOP.length * 14 + 30) {
         this.shopOpen = false
         this.onSfx('cancel')
         return true
@@ -2626,7 +2720,7 @@ export class World {
     })
     const top = (Object.keys(this.care) as Care[]).sort((a, b) => this.care[b] - this.care[a])[0]
     const hint = this.care[top] > 0 ? CARE_NAME[top] : 'まだ ふつう'
-    this.text(`けいこう ${hint}   ちから ${p.atk}   かち ${this.stats.wins}`, x + 12, y + 112, '#ffffff', 9)
+    this.text(`けいこう ${hint}   こうげき ${Math.round(p.atk)}   かち ${this.stats.wins}`, x + 12, y + 112, '#ffffff', 9)
     const friends = this.creatures.filter((c) => c.team === 'friend').length
     const home = this.homeOf(p)
     const homeText = home ? ['たてはじめ', 'どだい', 'かべ', 'かんせい'][home.level] : 'なし'
@@ -2637,7 +2731,8 @@ export class World {
     const x = 24
     const y = 28
     const w = RES.w - 48
-    this.win(x, y, w, 150)
+    const h = 26 + SHOP.length * 14 + 30
+    this.win(x, y, w, h)
     this.text('ショップ', x + 10, y + 7, '#ffffff', 12)
     this.text(`コイン ${this.coins}`, x + w - 10, y + 8, '#ffe9a8', 10, 'right')
     SHOP.forEach((s, i) => {
@@ -2651,8 +2746,8 @@ export class World {
       this.text(`${on ? '▶' : ' '} ${s.name}`, x + 10, ry, can ? '#ffffff' : '#8a93b8', 10)
       this.text(`${s.price}`, x + w - 12, ry, can ? '#ffe9a8' : '#8a93b8', 10, 'right')
     })
-    this.text(SHOP[this.shopCursor].desc, x + 10, y + 126, '#9fd8ff', 9)
-    this.text('A えらぶ  B かう  C とじる', x + w - 10, y + 138, '#c8d0f0', 8, 'right')
+    this.text(SHOP[this.shopCursor].desc, x + 10, y + h - 28, '#9fd8ff', 9)
+    this.text('A えらぶ  B かう  C とじる', x + w - 10, y + h - 15, '#c8d0f0', 8, 'right')
   }
 
   // ================= 描画 =================
