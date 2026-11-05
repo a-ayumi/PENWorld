@@ -2,7 +2,7 @@
  * データの書き出し・読み込み（端末をまたいだ引っこし・バックアップ用）と、消されにくくする設定。
  * 保存先は localStorage のまま。書き出しは「PULSAR1:」で始まる文字のコード（中身は JSON を base64 にしたもの）。
  */
-const KEYS = ['pulsar-save-v1', 'pulsar-place', 'pulsar-skin', 'pulsar-shape', 'pulsar-chara', 'pulsar-view', 'pulsar-vol', 'pulsar-quality']
+const KEYS = ['pulsar-save-v1', 'pulsar-journal-v1', 'pulsar-place', 'pulsar-skin', 'pulsar-shape', 'pulsar-chara', 'pulsar-view', 'pulsar-vol', 'pulsar-quality']
 const PREFIX = 'PULSAR1:'
 /** 読み込むコードの上限（セーブは数十 KB。巨大な入力でブラウザを固めない） */
 const MAX_CODE = 2_000_000

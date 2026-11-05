@@ -15,6 +15,7 @@ import { SHAPES, SKINS, type ShapeId, type SkinId } from './device'
 import { Beeper, VOLUME_NAMES } from './beep'
 import { exportCode, importCode, requestPersist } from './backup'
 import { sheetFor, type SpeciesId } from './world/monsters'
+import { initJournal } from './journalui'
 
 // ---------------- レンダラー ----------------
 const canvas = document.getElementById('scene') as HTMLCanvasElement
@@ -80,6 +81,8 @@ try {
   /* noop */
 }
 const world = new World(charaStyle)
+// にっき・おかえりレポート（journalui.ts）。留守の早送り中は world.update を止める
+const journalUI = initJournal(world)
 // 本体のかたち（かわいい系・きかい系）。保存してあるものがあれば それで始める
 let shapeId: ShapeId = (() => {
   try {
@@ -355,6 +358,7 @@ resetBtn.addEventListener('click', () => {
     world.saveLocked = true
     try {
       localStorage.removeItem('pulsar-save-v1')
+      localStorage.removeItem('pulsar-journal-v1')
     } catch {
       /* noop */
     }
@@ -719,7 +723,7 @@ renderer.setAnimationLoop((t) => {
   const lampMesh = device.group.getObjectByName('lamp') as THREE.Mesh
   ;(lampMesh.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.2 + Math.max(0, Math.sin(elapsed * 3)) * 2
 
-  world.update(dt)
+  if (!journalUI.busy) world.update(dt)
   world.render(renderer)
   ;(dust.material as THREE.ShaderMaterial).uniforms.time.value = elapsed
   finish.uniforms.time.value = elapsed
