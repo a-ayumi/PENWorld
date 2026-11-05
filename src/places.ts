@@ -26,6 +26,10 @@ export interface PlaceInst {
   /** 本体の揺れ（電車・歩き） */
   sway(t: number): { y: number; rx: number; rz: number }
   dispose(): void
+  /** 手に持って（すわって）遊んでいる景色にするか。false = 机の上に立てる */
+  held?: boolean
+  /** 持っている手の袖の色 */
+  sleeve?: string
 }
 
 const SKY: Record<MoodKey, [string, string]> = {
@@ -673,7 +677,88 @@ function disposeGroup(g: THREE.Object3D) {
 }
 
 const BUILDERS: Record<PlaceId, (m: MoodKey) => PlaceInst> = { desk, train, street, school, burger, park }
+
+/** 手に持って遊んでいる時に、本体の下（ひざ・つくえ・テーブル・足もと）に見える物 */
+const HELD: Partial<Record<PlaceId, string>> = {
+  train: '#3b4d7a', street: '#ece6d6', school: '#26335c', burger: '#d9574a', park: '#5f9e63',
+}
+function lapBand(id: PlaceId, mood: MoodKey): THREE.Mesh {
+  const { c, g } = canvas(1600, 160)
+  const r = rng(77)
+  if (id === 'train') {
+    // 向かいの席：青い座面、すきま、足もとの くつ・かばん
+    g.fillStyle = '#2d4a7a'
+    g.fillRect(0, 0, 1600, 160)
+    g.fillStyle = '#233a62'
+    for (let x = 0; x < 1600; x += 320) g.fillRect(x + 300, 0, 10, 160)
+    g.fillStyle = '#1b1d24'
+    for (const x of [420, 520, 1130]) rr(g, x, 70, 78, 70, 20, '#1b1d24')
+    rr(g, 1180, 40, 160, 100, 14, '#8a5a3b')
+  } else if (id === 'street') {
+    g.fillStyle = '#4c515a'
+    g.fillRect(0, 0, 1600, 160)
+    g.fillStyle = '#cfcfc8'
+    g.fillRect(0, 0, 1600, 26)
+    g.fillStyle = '#f2f2ec'
+    for (let x = 60; x < 1600; x += 260) g.fillRect(x, 92, 120, 12)
+  } else if (id === 'school') {
+    // 机のてんばん：ノート・筆箱・えんぴつ
+    const gr = g.createLinearGradient(0, 0, 0, 160)
+    gr.addColorStop(0, '#c9965f')
+    gr.addColorStop(1, '#a87646')
+    g.fillStyle = gr
+    g.fillRect(0, 0, 1600, 160)
+    rr(g, 380, 20, 360, 120, 6, '#f4f1e6')
+    g.fillStyle = '#9db7d6'
+    for (let y = 40; y < 130; y += 18) g.fillRect(396, y, 328, 3)
+    rr(g, 1000, 36, 300, 90, 18, '#d9574a')
+    g.fillStyle = '#ffd23f'
+    g.fillRect(780, 70, 150, 12)
+    g.fillStyle = '#3a3a3a'
+    g.fillRect(930, 70, 14, 12)
+  } else if (id === 'burger') {
+    // テーブルとトレー（絵だけ。ロゴなし）
+    g.fillStyle = '#f1e4cc'
+    g.fillRect(0, 0, 1600, 160)
+    rr(g, 300, 14, 700, 130, 10, '#d9574a')
+    rr(g, 330, 30, 640, 98, 6, '#fff5e0')
+    rr(g, 420, 46, 130, 66, 14, '#ffd23f')
+    rr(g, 620, 40, 70, 90, 10, '#ffffff')
+    g.fillStyle = '#e04a4a'
+    g.fillRect(620, 70, 70, 26)
+    for (let i = 0; i < 6; i++) rr(g, 760 + i * 20, 36 - (i % 2) * 6, 14, 60, 4, '#ffcf55')
+  } else {
+    // 公園：しばふと土の道、足もと
+    g.fillStyle = '#6fb15a'
+    g.fillRect(0, 0, 1600, 160)
+    g.fillStyle = '#5da048'
+    for (let i = 0; i < 90; i++) g.fillRect(r() * 1600, r() * 160, 4, 14)
+    g.fillStyle = '#c9a46a'
+    g.beginPath()
+    g.moveTo(560, 0)
+    g.lineTo(1040, 0)
+    g.lineTo(1180, 160)
+    g.lineTo(420, 160)
+    g.fill()
+    rr(g, 440, 80, 90, 56, 18, '#f4f4f0')
+    rr(g, 540, 80, 90, 56, 18, '#f4f4f0')
+  }
+  if (night(mood)) {
+    g.fillStyle = 'rgba(8,12,34,0.55)'
+    g.fillRect(0, 0, 1600, 160)
+  }
+  const m = plane(soften(c, 1.2), 32, 3, 0, -3.5, -8.9)
+  return m
+}
+
 export function buildPlace(id: PlaceId, mood: MoodKey): PlaceInst {
-  return (BUILDERS[id] ?? desk)(mood)
+  const inst = (BUILDERS[id] ?? desk)(mood)
+  const sleeve = HELD[id]
+  if (sleeve) {
+    inst.held = true
+    inst.sleeve = sleeve
+    inst.group.add(lapBand(id, mood))
+  }
+  return inst
 }
 export { HORIZON }

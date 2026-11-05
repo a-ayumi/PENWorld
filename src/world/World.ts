@@ -62,6 +62,14 @@ interface Creature {
   finish: (() => void) | null
   role: Role
   tendTo: Struct | null
+  /** ひっかかり対策：前に見た場所・たまった時間・回りこみ先 */
+  lx: number
+  lz: number
+  mvT: number
+  stuck: number
+  detourN: number
+  detour: { x: number; z: number; t: number } | null
+  avoid: 1 | -1
 }
 
 /** 技：種族ごとに 1 つ。演出の種類（shot = 弾 / burst = 衝撃 / dash = 突進 / rain = 降りそそぐ / heal = 回復 / wave = 地面の波）*/
@@ -480,7 +488,7 @@ export class World {
       phase: Math.random() * 10, affinity: 0, grow,
       xp: 0, care: { power: 0, guard: 0, spirit: 0 }, bias: (['power', 'guard', 'spirit'] as Care[])[Math.floor(Math.random() * 3)],
       spar: false, carry: null, carryMesh: null, res: null, raid: null, inside: false,
-      skillCd: 3 + Math.random() * 5, cheer: false, sleepFrom: null, site: null, army: false, squash: 0, pj: 0, finish: null, role: 'free', tendTo: null,
+      skillCd: 3 + Math.random() * 5, cheer: false, sleepFrom: null, site: null, army: false, squash: 0, pj: 0, finish: null, role: 'free', tendTo: null, lx: x, lz: z, mvT: 0, stuck: 0, detourN: 0, detour: null, avoid: Math.random() < 0.5 ? 1 : -1,
     }
     this.creatures.push(c)
     this.burst(x, this.ground(c) + 0.5, z, 'cube', 8, 2)
@@ -529,40 +537,104 @@ export class World {
     return this.stage.heightAt(c.x, c.z) + (c.sp.float ? 0.35 + Math.sin(this.time * 2 + c.phase) * 0.12 : 0)
   }
 
-  private moveTo(c: Creature, tx: number, tz: number, speed: number, dt: number) {
-    const dx = tx - c.x
-    const dz = tz - c.z
-    const d = Math.hypot(dx, dz)
-    if (d < 0.05) return d
+  /**
+   * 目的地へ歩く。木・岩・さく・かべ・建物をよけながら進み、ひっかかったら回りこむ。
+   * 戻り値 = 目的地までの距離。hold = 目的地のすぐそばで立ち止まっている（ひっかかり判定をしない）
+   */
+  private moveTo(c: Creature, tx: number, tz: number, speed: number, dt: number, hold = false) {
+    const dReal = Math.hypot(tx - c.x, tz - c.z)
+    if (dReal < 0.05) {
+      c.stuck = 0
+      c.detour = null
+      return dReal
+    }
+    // ひっかかり検知：0.5 秒ごとに進んだ距離を見て、ほとんど動けていなければ回りこむ・あきらめる
+    c.mvT += dt
+    if (hold) {
+      c.stuck = 0
+      c.mvT = 0
+    } else if (c.mvT > 0.5) {
+      const moved = Math.hypot(c.x - c.lx, c.z - c.lz)
+      c.lx = c.x
+      c.lz = c.z
+      c.mvT = 0
+      if (moved < speed * 0.5 * 0.3) c.stuck++
+      else {
+        c.stuck = 0
+        if (c.detour && c.detour.t <= 0) c.detour = null
+      }
+      if (c.stuck >= 2 && !c.detour) {
+        // 進行方向に対して横へ回りこむ。うまくいかないたびに、遠くまで回る（長いかべ・さくの輪の外へ出る）
+        c.detourN++
+        const dist = Math.min(11, 2.2 + c.detourN * 2.6)
+        const ux = (tx - c.x) / dReal
+        const uz = (tz - c.z) / dReal
+        const obs = this.obstacles()
+        for (const sd of [c.avoid, -c.avoid]) {
+          const wx = THREE.MathUtils.clamp(c.x - uz * sd * dist + ux * 0.8, -HALF, HALF)
+          const wz = THREE.MathUtils.clamp(c.z + ux * sd * dist + uz * 0.8, -HALF, HALF)
+          if (!obs.some((o) => Math.hypot(o.x - wx, o.z - wz) < o.r + 0.5)) {
+            c.detour = { x: wx, z: wz, t: dist / Math.max(0.5, speed) * 1.4 + 0.8 }
+            c.avoid = sd as 1 | -1
+            break
+          }
+        }
+        if (!c.detour) c.avoid = (c.avoid * -1) as 1 | -1
+        if (c.detourN === 3) c.avoid = (c.avoid * -1) as 1 | -1
+        c.stuck = 0
+      } else if (c.detourN >= 5 && c.stuck >= 2) {
+        // 何度回りこんでも進めない：その作業はあきらめる
+        c.stuck = 0
+        c.detour = null
+        this.dropCarry(c, true)
+        if (c.res) c.res.taken = null
+        c.res = null
+        c.site = null
+        c.tendTo = null
+        c.raid = null
+        this.setState(c, 'idle', 0.4)
+        return 99
+      }
+    }
+    if (c.detour) {
+      c.detour.t -= dt
+      if (c.detour.t <= 0 || Math.hypot(c.detour.x - c.x, c.detour.z - c.z) < 0.4) c.detour = null
+    }
+    const gx = c.detour ? c.detour.x : tx
+    const gz = c.detour ? c.detour.z : tz
+    const dx = gx - c.x
+    const dz = gz - c.z
+    const d = Math.hypot(dx, dz) || 1
     // 坂道を登るときは少し遅くなる
     const slope = this.stage.heightAt(c.x + (dx / d) * 0.3, c.z + (dz / d) * 0.3) - this.stage.heightAt(c.x, c.z)
     const step = Math.min(d, speed * dt * (slope > 0 ? Math.max(0.55, 1 - slope * 1.5) : 1))
-    // 進む先にある木や岩をよける（簡易ステアリング）
-    let ux = dx / d
-    let uz = dz / d
+    // 進む先にある物を、横へそれてよける（まっすぐ当たる時は、その子がいつも使う側へ）
+    const bx = dx / d
+    const bz = dz / d
+    let ux = bx
+    let uz = bz
     for (const o of this.obstacles()) {
       if (o.water && c.sp.float) continue
       const vx = o.x - c.x
       const vz = o.z - c.z
-      const ahead = vx * ux + vz * uz
-      if (ahead <= 0 || ahead > 1.6 || ahead > d) continue
-      const px = vx - ahead * ux
-      const pz = vz - ahead * uz
-      const side = Math.hypot(px, pz)
-      const clear = o.r + 0.5
+      const ahead = vx * bx + vz * bz
+      if (ahead <= -0.2 || ahead > 2.4 || ahead > d + o.r) continue
+      const cross = bx * vz - bz * vx // 物が進行方向の左(+)か右(-)か
+      const side = Math.abs(cross)
+      const clear = o.r + 0.75
       if (side < clear) {
-        const push = (1 - side / clear) * 1.8
-        const nx = side > 1e-3 ? px / side : uz
-        const nz = side > 1e-3 ? pz / side : -ux
-        ux -= nx * push
-        uz -= nz * push
+        // 物がある側と反対へ、進行方向に直角に曲がる
+        const dir = side > 0.08 ? (cross > 0 ? -1 : 1) : c.avoid
+        const k = (1 - side / clear) * 2.6 * (ahead > 0 ? 1 : 0.4)
+        ux += -bz * dir * k
+        uz += bx * dir * k
       }
     }
     const ul = Math.hypot(ux, uz) || 1
     c.x += (ux / ul) * step
     c.z += (uz / ul) * step
     if (Math.abs(ux) > 0.05) c.anim.facing = ux > 0 ? 1 : -1
-    return d
+    return dReal
   }
 
   /** ステージの障害物 + 置き物 */
@@ -609,6 +681,8 @@ export class World {
     if (s === 'sleep' && c.state !== 'sleep') c.sleepFrom = { e: c.energy, h: c.hp }
     c.state = s
     c.t = t
+    c.detourN = 0
+    c.stuck = 0
   }
 
   private item(kind: ItemKind) {
@@ -728,7 +802,7 @@ export class World {
       }
     }
     // 家づくり：資材を集めて自分の家を建てる・直す
-    if (!wild && c.grow === 0 && c.energy > 30 && Math.random() < (c.role === 'builder' ? 0.8 : c.role === 'free' ? 0.45 : 0.25)) {
+    if (!wild && c.grow === 0 && c.energy > 30 && Math.random() < (c.role === 'builder' ? 0.95 : c.role === 'free' ? 0.85 : 0.5)) {
       let h = home
       if (!h) h = this.claimHouse(c)
       const site = this.openSite(c)
@@ -2162,12 +2236,14 @@ export class World {
     this.villageSeen = this.vLv
     // みんなで勝手に はたけ・いどを つくる（人が何もしなくても村は少しずつ育つ）
     this.autoPlanT += 1
-    if (this.autoPlanT >= 30 && !this.openSite(null)) {
+    if (this.autoPlanT >= 20 && !this.openSite(null)) {
       this.autoPlanT = 0
       const homes = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 3).length
       const has = (k: StructKind) => this.structs.some((b) => b.stage === this.stageIndex && b.kind === k)
-      if (homes >= 2 && !has('farm')) this.planStruct('farm', this.pet.x, this.pet.z, true)
-      else if (homes >= 3 && !has('well')) this.planStruct('well', this.pet.x, this.pet.z, true)
+      // やることが何もない時は、村に足りない建物を自分たちで計画する（おしろ・はしは人がせっけいずを買った時だけ）
+      const next: [StructKind, number][] = [['farm', 2], ['well', 3], ['tower', 3], ['cradle', 4]]
+      const want = next.find(([k, n]) => homes >= n && !has(k))
+      if (want) this.planStruct(want[0], this.pet.x, this.pet.z, true)
     }
   }
   private autoPlanT = 0
@@ -3142,7 +3218,8 @@ export class World {
           if (c.t <= 0) this.setState(c, 'idle', 0.2)
           break
         }
-        this.moveTo(c, tg.x, tg.z + 0.2, sp.speed * 1.05, dt)
+        const near = Math.hypot(tg.x - c.x, tg.z - c.z) < tg.r + 1.2
+        this.moveTo(c, tg.x, tg.z + 0.2, sp.speed * 1.05, dt, near)
         if (Math.hypot(tg.x - c.x, tg.z - c.z) < tg.r + 0.95) {
           c.anim.facing = tg.x > c.x ? 1 : -1
           anim = c.lunge > 0 ? 'attack' : 'idle'
@@ -3166,7 +3243,7 @@ export class World {
           break
         }
         const side = c.x < h.x ? -1 : 1
-        const d = this.moveTo(c, h.x + side * 1.15, h.z + 0.2, sp.speed * 1.1, dt)
+        const d = this.moveTo(c, h.x + side * 1.15, h.z + 0.2, sp.speed * 1.1, dt, Math.hypot(h.x - c.x, h.z - c.z) < 1.6)
         anim = d > 0.3 ? 'walk' : c.lunge > 0 ? 'attack' : 'idle'
         if (d < 0.5) {
           c.anim.facing = h.x > c.x ? 1 : -1
