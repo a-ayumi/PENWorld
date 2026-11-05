@@ -25,6 +25,14 @@
       <button id="quality" aria-label="画質切替">画質: 高</button>
     </div>
     <button id="dress" aria-expanded="false" aria-controls="dress-panel">きせかえ</button>
+    <button id="dex-btn" aria-expanded="false" aria-controls="dex-panel">ずかん</button>
+    <section id="dex-panel" hidden aria-label="ずかん">
+      <div class="dress-head"><h2>ずかん</h2><button id="dex-close" aria-label="閉じる">とじる</button></div>
+      <p id="dex-summary"></p>
+      <div id="dex-grid"></div>
+      <h3>れきだい</h3>
+      <p id="dex-lineage"></p>
+    </section>
     <section id="dress-panel" hidden aria-label="きせかえ">
       <div class="dress-head"><h2>きせかえ</h2><button id="dress-close" aria-label="閉じる">とじる</button></div>
       <h3>本体のがら</h3>
