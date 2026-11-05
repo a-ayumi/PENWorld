@@ -7,6 +7,7 @@ import { Tex } from './textures'
 import { SNAP_GLSL, snapUniform } from './psx'
 import { HALF, LAND_SIZES, STAGES, setLandSize, type Stage } from './stages'
 import { STRUCTS, buildStructModel, isStructKind, styleOf, type StructKind } from './structures'
+import { ACHIEVEMENTS, ALL_CLEAR_BONUS, DIFF_NAME, MissionBook, SEASONS, SEASON_INFO, STAT_KEY, isSeason, missionText, sanitizeStats, seasonNow, type BookEvent, type Gauges, type Season, type Stats } from '../missions'
 
 /**
  * 箱庭の世界。モンスターが自分で考えて暮らす（歩く・食べる・眠る・遊ぶ・戦う・仲間になる・たまごを産む）。
@@ -111,7 +112,7 @@ interface Army { phase: 'warn' | 'on'; t: number; left: Creature[]; n: number; c
 type Weather = 'sun' | 'cloud' | 'rain' | 'snow' | 'ember'
 type FoodKind = 'stage' | 'meat' | 'sweet' | 'nut'
 interface Food { mesh: THREE.Group; x: number; z: number; y: number; vy: number; landed: boolean; taken: Creature | null; bite: number; kind: FoodKind }
-type ItemKind = 'sapling' | 'ball' | 'fire' | 'charm' | 'tools' | 'fence' | 'memorial'
+type ItemKind = 'sapling' | 'ball' | 'fire' | 'charm' | 'tools' | 'fence' | 'memorial' | 'snowman'
 /** 村での役割（だいく・はたけがかり・みはり） */
 type Role = 'free' | 'builder' | 'farmer' | 'guard'
 const ROLE_NAME: Record<Role, string> = { free: 'じゆう', builder: 'だいく', farmer: 'はたけがかり', guard: 'みはり' }
@@ -119,7 +120,7 @@ const ROLE_COLOR: Record<Role, string> = { free: '#ffffff', builder: '#ffb84d', 
 /** ペットの じゅみょう（あそんでいる時間・秒） */
 const LIFESPAN = 3 * 3600
 interface Item { kind: ItemKind; stage: number; x: number; z: number; grow: number; vx: number; vz: number; mesh: THREE.Group | null; light?: THREE.PointLight }
-interface Egg { x: number; z: number; t: number; anim: SpriteAnim; shadow: THREE.Mesh; parents: SpeciesId[]; kind: EggKind; wild: boolean }
+interface Egg { x: number; z: number; t: number; anim: SpriteAnim; shadow: THREE.Mesh; parents: SpeciesId[]; kind: EggKind; wild: boolean; deco?: Season }
 interface Popup { pos: THREE.Vector3; text: string; color: string; t: number; big?: boolean }
 type Pick = { type: 'creature' | 'house' | 'struct' | 'item' | 'egg' | 'res' | 'food'; ref: any; armed: boolean }
 const STATE_NAME: Record<string, string> = {
@@ -144,6 +145,7 @@ const ITEM_INFO: Record<string, { name: string; desc: string }> = {
   tools: { name: 'だいくどうぐ', desc: 'ちかくの 家づくりが 2ばい。家が なおる' },
   fence: { name: 'まもりのさく', desc: 'ちかくの 家の ダメージが はんぶん' },
   memorial: { name: 'おはか', desc: 'まえの だいの ペットを しのぶ ほしの かざり' },
+  snowman: { name: 'ゆきだるま', desc: 'ゆきまつりの かざり。ふゆの あいだ だけ かえる' },
 }
 interface Fx { sprite: THREE.Sprite; vx: number; vy: number; vz: number; life: number; max: number; grav: number }
 
@@ -202,6 +204,42 @@ const SHOP: ShopItem[] = [
   { id: 'bp-castle', name: 'せっけいず：おしろ', price: 160, desc: 'へいに かこまれた おしろ', plan: 'castle' },
 ]
 
+/** 季節の品：その季節のあいだだけ SHOP の末尾に足す（deco = かざりつきのたまご） */
+type SeasonShop = ShopItem & { season: Season; deco?: boolean }
+const SEASON_SHOP: SeasonShop[] = [
+  { id: 'deco-spring', name: SEASON_INFO.spring.egg, price: 90, desc: 'はなびらの かざりつき。なにが うまれるかな', egg: 'random', season: 'spring', deco: true },
+  { id: 'deco-summer', name: SEASON_INFO.summer.egg, price: 90, desc: 'なつまつりの かざりつき。なにが うまれるかな', egg: 'random', season: 'summer', deco: true },
+  { id: 'deco-autumn', name: SEASON_INFO.autumn.egg, price: 90, desc: 'みのりの かざりつき。なにが うまれるかな', egg: 'random', season: 'autumn', deco: true },
+  { id: 'deco-winter', name: SEASON_INFO.winter.egg, price: 90, desc: 'ゆきの かざりつき。なにが うまれるかな', egg: 'random', season: 'winter', deco: true },
+  { id: 'snowman', name: 'ゆきだるま', price: 30, desc: 'ゆきまつりの かざり（ふゆだけ）', item: 'snowman', max: 2, season: 'winter' },
+]
+/** いまの季節の品だけが SHOP に並ぶようにする */
+function syncSeasonShop(season: Season) {
+  for (let i = SHOP.length - 1; i >= 0; i--) if ('season' in SHOP[i]) SHOP.splice(i, 1)
+  SHOP.push(...SEASON_SHOP.filter((it) => it.season === season))
+}
+/** 季節ごとの天気の出やすさ（かけ算） */
+const SEASON_WEATHER: Record<Season, Partial<Record<Weather, number>>> = {
+  spring: { rain: 1.3, snow: 0.2, ember: 0.5 },
+  summer: { sun: 1.3, rain: 1.2, snow: 0.05, ember: 1.4 },
+  autumn: { cloud: 1.3, snow: 0.5 },
+  winter: { snow: 5, sun: 0.8, rain: 0.6, ember: 0.3 },
+}
+/** かざりつきのたまご（季節ごとのもよう）。from は [から, かげ, ひかり, もよう, リボン] */
+const DECO_COLORS: Record<Season, [string, string, string, string, string]> = {
+  spring: ['#ffd0e4', '#e79ab8', '#fff0f6', '#7cd68a', '#ff8fb1'],
+  summer: ['#bfeaff', '#7fc0e0', '#eefaff', '#ffd23f', '#ff6b4a'],
+  autumn: ['#ffc78a', '#d98f45', '#ffe8c4', '#8a4b1f', '#c2410c'],
+  winter: ['#eef6ff', '#a9c4e6', '#ffffff', '#8fc8ff', '#5b8fd9'],
+}
+const DECO_SHEET = (season: Season) => {
+  const [shell, shade, light, mark, ribbon] = DECO_COLORS[season]
+  return iconSheet(
+    ['...hh....', '..#####..', '.##r#r##.', '.#######.', 'rrrrrrrrr', '###o#o###', '###o###od', '.######dd', '..####ddd'],
+    { '#': shell, o: mark, h: light, d: shade, r: ribbon },
+  )
+}
+
 const FX_SHEETS = () => ({
   heart: iconSheet(['.##.##.', '#######', '#######', '.#####.', '..###..', '...#...'], { '#': '#ff4d7a' }),
   spark: iconSheet(['...#...', '...#...', '..###..', '#######', '..###..', '...#...', '...#...'], { '#': '#fff27a' }),
@@ -249,6 +287,8 @@ const WEATHER_W: Partial<Record<Weather, number>>[] = [
   { snow: 6, cloud: 3, sun: 1, ember: 0.6 },
 ]
 const MAX_FRIENDS = 5
+/** 敵軍のボス（たおすと実績） */
+const BOSSES = new WeakSet<object>()
 
 export class World {
   readonly scene = new THREE.Scene()
@@ -306,7 +346,7 @@ export class World {
   private structs: Struct[] = []
   /** 当たった瞬間のわずかな止まり（ヒットストップ） */
   private hitStop = 0
-  private ambient: { s: SpriteAnim; kind: 'bf' | 'ff' | 'ice'; cx: number; cz: number; r: number; ph: number; sp: number; y: number; bx: number; by: number }[] = []
+  private ambient: { s: SpriteAnim; kind: 'bf' | 'ff' | 'ice' | 'petal' | 'leaf'; cx: number; cz: number; r: number; ph: number; sp: number; y: number; bx: number; by: number }[] = []
   private army: Army | null = null
   private armyCd = 180
   private armyWave = 0
@@ -326,6 +366,16 @@ export class World {
   private flash = 0
   private look = new THREE.Vector3()
   coins = 50
+  /** いまの季節（URL の ?season= で固定できる） */
+  season: Season = seasonNow()
+  /** 通算の数（日替わりミッション・実績が使う。`stat()` で足す） */
+  counters: Stats = {}
+  private book = new MissionBook()
+  private coinMark = 50
+  private notices: { title: string; sub: string; color: string }[] = []
+  private noticeT = 0
+  private seasonDeco: THREE.Group | null = null
+  private decoSheets: Partial<Record<Season, ReturnType<typeof DECO_SHEET>>> = {}
   care: Record<Care, number> = { power: 0, guard: 0, spirit: 0 }
   xp = 0
   stats = { trains: 0, wins: 0, mood: 80, born: Date.now(), children: 0, gen: 1, petAge: 0, lineage: [] as string[] }
@@ -363,11 +413,13 @@ export class World {
     this.postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.post))
     this.scene.add(this.hemi, this.sun)
     this.buildWeatherFx()
+    syncSeasonShop(this.season)
     if (!this.load()) {
       this.loadStage(0)
       this.pet = this.spawn('mebu', 'pet', 0, 1.5)
       this.say('メブが うまれた！')
     }
+    this.coinMark = this.coins
     document.addEventListener('visibilitychange', () => document.hidden && this.save())
   }
 
@@ -441,6 +493,7 @@ export class World {
       k++
     }
     this.makeAmbient()
+    this.buildSeasonDeco()
     this.banner = 3.5
   }
 
@@ -463,14 +516,109 @@ export class World {
       this.scene.add(s.sprite)
       this.ambient.push({ s, kind, cx: (Math.random() * 2 - 1) * HALF * 0.8, cz: (Math.random() * 2 - 1) * HALF * 0.8, r: 0.8 + Math.random() * 1.6, ph: Math.random() * 10, sp: 0.5 + Math.random() * 0.6, y: 0.7 + Math.random() * 0.8, bx: s.sprite.scale.x, by: s.sprite.scale.y })
     }
+    // 春は花びら、秋は落ち葉がひらひら舞い落ちる
+    if (this.season === 'spring' || this.season === 'autumn') {
+      const petal = this.season === 'spring'
+      const cols = petal ? ['#ffb3d1', '#ffd6e6', '#ffffff'] : ['#ff9a3c', '#d9531e', '#e8c030']
+      const sheets = cols.map((col) => iconSheet(petal ? ['.....', '.oo..', 'ooooo', '..oo.', '.....'] : ['..o..', '.ooo.', 'ooooo', '.ooo.', '..o..'], { o: col }))
+      for (let i = 0; i < 18; i++) {
+        const kind = petal ? 'petal' : 'leaf'
+        const s = new SpriteAnim(sheets[i % sheets.length], petal ? 0.2 : 0.26)
+        s.sprite.center.set(0.5, 0.5)
+        s.sprite.visible = false
+        this.scene.add(s.sprite)
+        this.ambient.push({ s, kind, cx: (Math.random() * 2 - 1) * HALF, cz: (Math.random() * 2 - 1) * HALF, r: 0.4 + Math.random() * 0.9, ph: Math.random() * 10, sp: 0.5 + Math.random() * 0.5, y: 0, bx: s.sprite.scale.x, by: s.sprite.scale.y })
+      }
+    }
+  }
+
+  // ================= 季節 =================
+  /** 季節を変える（見た目・ショップ・天気の重みが切り替わる）。ふだんは日付から自動で呼ばれる */
+  setSeason(season: Season) {
+    if (season === this.season && this.seasonDeco !== null) return
+    this.season = season
+    syncSeasonShop(season)
+    this.shopCursor = Math.min(this.shopCursor, SHOP.length - 1)
+    this.makeAmbient()
+    this.buildSeasonDeco()
+  }
+
+  /** 夏まつりのちょうちん（夜に明るくなる）。ほかの季節は何も置かない */
+  private buildSeasonDeco() {
+    if (this.seasonDeco) {
+      this.scene.remove(this.seasonDeco)
+      this.seasonDeco.traverse((o) => {
+        const m = o as THREE.Mesh
+        m.geometry?.dispose()
+        ;(m.material as THREE.Material | undefined)?.dispose?.()
+      })
+    }
+    const g = new THREE.Group()
+    this.seasonDeco = g
+    this.scene.add(g)
+    if (this.season !== 'summer') return
+    const wood = this.lam('#6d4c41')
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2 + 0.3
+      let x = THREE.MathUtils.clamp(Math.cos(a) * HALF * 1.2, -HALF * 0.9, HALF * 0.9)
+      let z = THREE.MathUtils.clamp(Math.sin(a) * HALF * 1.2, -HALF * 0.9, HALF * 0.9)
+      // 木や岩・水とかさなる所は、すこし内側にずらす
+      for (let tries = 0; tries < 6; tries++) {
+        const hit = this.stage.obstacles.find((o) => Math.hypot(o.x - x, o.z - z) < o.r + 0.5)
+        if (!hit) break
+        x *= 0.92
+        z *= 0.92
+      }
+      const lamp = new THREE.Group()
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 1.5, 5), wood)
+      pole.position.y = 0.75
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), new THREE.MeshBasicMaterial({ color: '#c0502f' }))
+      body.scale.set(1, 1.25, 1)
+      body.position.y = 1.5
+      body.name = 'lamp'
+      const halo = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), new THREE.MeshBasicMaterial({ color: '#ffb347', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }))
+      halo.position.y = 1.5
+      halo.name = 'halo'
+      lamp.add(pole, body, halo)
+      lamp.position.set(x, this.stage.heightAt(x, z), z)
+      g.add(lamp)
+    }
+  }
+
+  private updateSeasonDeco() {
+    if (this.season !== 'summer' || !this.seasonDeco) return
+    const dim = new THREE.Color('#9a4a30')
+    const lit = new THREE.Color('#ffb347')
+    for (const lamp of this.seasonDeco.children) {
+      lamp.traverse((o) => {
+        const m = o as THREE.Mesh
+        if (o.name === 'lamp') (m.material as THREE.MeshBasicMaterial).color.copy(dim).lerp(lit, this.night)
+        else if (o.name === 'halo') (m.material as THREE.MeshBasicMaterial).opacity = this.night * (0.2 + 0.05 * Math.sin(this.time * 3 + lamp.position.x))
+      })
+    }
   }
 
   private updateAmbient(dt: number) {
     const calm = this.weather === 'sun' || this.weather === 'cloud'
     for (const a of this.ambient) {
-      const show = a.kind === 'bf' ? this.night < 0.4 && calm : a.kind === 'ff' ? this.night > 0.5 && this.weather !== 'rain' : this.weather !== 'ember'
+      const show =
+        a.kind === 'bf' ? this.night < 0.4 && calm && this.season !== 'winter'
+        : a.kind === 'ff' ? this.night > 0.5 && this.weather !== 'rain'
+        : a.kind === 'petal' || a.kind === 'leaf' ? this.weather !== 'ember' && this.weather !== 'rain'
+        : this.weather !== 'ember'
       a.s.sprite.visible = show
       if (!show) continue
+      if (a.kind === 'petal' || a.kind === 'leaf') {
+        // ゆっくり落ちながら左右にゆれる（地面につくと上にもどる）
+        const t = this.time * a.sp + a.ph
+        const fall = (this.time * 0.18 * a.sp + a.ph * 0.37) % 1
+        const x = THREE.MathUtils.clamp(a.cx + Math.sin(t * 1.4) * a.r, -HALF, HALF)
+        const z = THREE.MathUtils.clamp(a.cz + Math.cos(t * 1.1) * a.r, -HALF, HALF)
+        a.s.sprite.position.set(x, this.stage.heightAt(x, z) + 0.1 + (1 - fall) * 3.4, z)
+        a.s.material.rotation = Math.sin(t * 2.2) * 0.9
+        a.s.sprite.scale.x = a.bx * (0.5 + 0.5 * Math.abs(Math.cos(t * 3.1)))
+        continue
+      }
       a.cx += Math.sin(this.time * 0.13 + a.ph) * dt * 0.4
       a.cz += Math.cos(this.time * 0.11 + a.ph) * dt * 0.4
       a.cx = THREE.MathUtils.clamp(a.cx, -HALF, HALF)
@@ -993,6 +1141,8 @@ export class World {
     if (this.ally(winner)) {
       const p = this.pet
       this.stats.wins++
+      this.stat('wins')
+      if (BOSSES.has(loser)) this.stat('bosses')
       this.earn(10, loser.x, loser.z)
       this.say(`${winner.sp.name}の かち！ ちから+1`)
       this.onSfx('win')
@@ -1253,6 +1403,7 @@ export class World {
     if (this.ally(c)) {
       if (c === this.pet) this.flash = 1
       this.say(`${from}は ${sp.name}に しんかした！`)
+      this.stat('evolves')
       this.onSfx('evolve')
       this.earn(c === this.pet ? 30 : 15)
     } else if (near) this.say(`やせいの ${from}が ${sp.name}に しんかした！`)
@@ -1414,6 +1565,25 @@ export class World {
         f.position.set(dx, 0.08, dz)
         g.add(f)
       }
+    } else if (it.kind === 'snowman') {
+      // ゆきだるま：大小 2 つの雪玉 + にんじんの鼻 + マフラー
+      const snow = this.lam('#f4f8ff')
+      const bodyM = new THREE.Mesh(new THREE.SphereGeometry(0.34, 9, 7), snow)
+      bodyM.position.y = 0.3
+      const headM = new THREE.Mesh(new THREE.SphereGeometry(0.23, 9, 7), snow)
+      headM.position.y = 0.78
+      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.16, 5), this.lam('#ff8a2a'))
+      nose.rotation.x = Math.PI / 2
+      nose.position.set(0, 0.78, 0.26)
+      const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.05, 5, 10), this.lam('#e84a5f'))
+      scarf.rotation.x = Math.PI / 2
+      scarf.position.y = 0.58
+      g.add(bodyM, headM, nose, scarf)
+      for (const dx of [-0.08, 0.08]) {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.03, 4, 3), new THREE.MeshBasicMaterial({ color: '#10122a' }))
+        eye.position.set(dx, 0.84, 0.21)
+        g.add(eye)
+      }
     } else {
       const stone = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.6, 0.3), this.lam('#9aa1ab'))
       stone.position.y = 0.3
@@ -1554,6 +1724,7 @@ export class World {
     const before = h.level
     // だいくどうぐ の近くなら 1 回で 2 個分
     const bonus = this.nearItem('tools', h.x, h.z, 6) ? 2 : 1
+    if (this.ally(by)) this.stat('mats', bonus)
     h.mats = Math.min(HOUSE_STEPS[4], h.mats + bonus)
     h.level = houseLevel(h.mats)
     h.hp = Math.min(houseMaxHp(h.level), h.hp + 9)
@@ -1563,6 +1734,8 @@ export class World {
       const who = by.sp.name
       if (this.ally(by)) {
         this.say(h.level === 4 ? `${who}の いえが ぞうちくされた！` : h.level === 3 ? `${who}の いえが かんせい！` : h.level === 2 ? `${who}の いえに かべが できた` : `${who}の いえの どだいが できた`)
+        if (h.level === 3) this.stat('houseDone')
+        if (h.level === 4) this.stat('houseExp')
         if (h.level >= 3) this.earn(h.level === 4 ? 15 : 10, h.x, h.z)
       } else if (h.level >= 3 && Math.hypot(h.x - this.look.x, h.z - this.look.z) < 9) this.say(`やせいの ${who}が いえを たてた`)
     }
@@ -1855,6 +2028,7 @@ export class World {
   private addStructMaterial(b: Struct, by: Creature) {
     const spec = STRUCTS[b.kind]
     const bonus = this.nearItem('tools', b.x, b.z, 6) ? 2 : 1
+    if (this.ally(by)) this.stat('mats', bonus)
     const was = this.structDone(b)
     const m0 = b.mats
     b.mats = Math.min(spec.need, b.mats + bonus)
@@ -1872,6 +2046,8 @@ export class World {
     b.hp = spec.hp
     this.burst(b.x, this.stage.heightAt(b.x, b.z) + 1, b.z, 'spark', 12, 2.5)
     if (b.kind === 'wall') return void this.earn(1, b.x, b.z)
+    this.stat('structs')
+    if (b.kind === 'castle') this.stat('castle')
     this.onSfx('win')
     this.earn(b.kind === 'castle' ? 40 : 10, b.x, b.z)
     if (b.kind === 'castle') {
@@ -1956,9 +2132,9 @@ export class World {
       b.t += dt
       switch (b.kind) {
         case 'farm':
-          if (b.t > 22) {
+          if (b.t > 22 / (this.season === 'autumn' ? 1.5 : 1)) {
             b.t = 0
-            if (this.foods.length < 9) {
+            if (this.foods.length < (this.season === 'autumn' ? 13 : 9)) {
               this.dropFood(b.x + (Math.random() - 0.5) * 1.2, b.z + 0.9, 1.4)
               this.burst(b.x, this.stage.heightAt(b.x, b.z) + 0.5, b.z, 'spark', 4, 1.2)
             }
@@ -2034,6 +2210,7 @@ export class World {
       foe.foe = null
       this.setState(foe, 'dead', 1)
       if (foe.sp.habit !== 'night' && !foe.army) this.respawn.push({ id: foe.sp.id, t: (foe.sp.habit === 'raid' ? 40 : 14) + Math.random() * 10 })
+      if (BOSSES.has(foe)) this.stat('bosses')
       this.earn(6, foe.x, foe.z)
     })
   }
@@ -2341,12 +2518,13 @@ export class World {
   // ================= かいたく =================
   /** 箱庭をひろげる（ステージを作り直す。家・建物・置き物・たまごはそのまま残る） */
   private expandLand(level: number) {
-    const eggs = this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild }))
+    const eggs = this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild, deco: e.deco }))
     this.land = level
+    this.stat('lands')
     setLandSize(LAND_SIZES[level])
     this.flash = 1
     this.loadStage(this.stageIndex)
-    for (const e of eggs) this.layEgg(e.x, e.z, e.parents, e.t, e.kind, e.wild)
+    for (const e of eggs) this.layEgg(e.x, e.z, e.parents, e.t, e.kind, e.wild, e.deco)
     this.say(`はこにわが ${LAND_SIZES[level]} に ひろがった！`)
     this.onSfx('warp')
     this.save()
@@ -2358,7 +2536,10 @@ export class World {
       const cur: number = this.dex[id] ?? 0
       if (cur < lv) {
         this.dex[id] = lv
-        if (cur === 0) this.dexNew.push(id)
+        if (cur === 0) {
+          this.dexNew.push(id)
+          this.stat('dex')
+        }
       }
     }
     for (const c of this.creatures) if (c.state !== 'dead') add(c.sp.id, this.ally(c) ? 2 : 1)
@@ -2483,6 +2664,7 @@ export class World {
     const sp = SPECIES[id]
     this.stats.lineage = [...this.stats.lineage, old.name].slice(-12)
     this.stats.gen++
+    this.stat('rebirths')
     this.stats.petAge = 0
     this.oldWarned = false
     // 育ちの傾向は 3 割だけ引きつぐ。代をかさねるほど少し強く生まれる
@@ -2551,6 +2733,122 @@ export class World {
   }
   private autoPlanT = 0
 
+  // ================= 日替わりミッション・実績 =================
+  /** 出来事を数える（ミッションと実績が使う）。例：`world.stat('wins')` */
+  stat(key: string, n = 1) {
+    if (!STAT_KEY.test(key) || !Number.isFinite(n)) return
+    this.counters[key] = Math.min(1e9, (this.counters[key] ?? 0) + n)
+  }
+
+  /** いまの状態の値（ミッションの「〜にする」と実績が見る） */
+  private gauges(): Gauges {
+    const friends = this.creatures.filter((c) => c.team === 'friend' && c.state !== 'dead')
+    const allies = [this.pet, ...friends]
+    const fam: Record<string, number> = {}
+    let sameFam = 0
+    for (const c of allies) {
+      const f = familyOf(c.sp.id)
+      if (f === 'plain') continue
+      fam[f] = (fam[f] ?? 0) + 1
+      sameFam = Math.max(sameFam, fam[f])
+    }
+    const info = this.dexInfo()
+    return {
+      friends: friends.length, sameFam, dexOwned: info.owned, dexSeen: info.seen, dexTotal: info.all,
+      houses3: this.houses.filter((h) => h.level >= 3).length, houses4: this.houses.filter((h) => h.level >= 4).length,
+      village: this.vLv, vscore: this.vScore, land: this.land, tier4: allies.filter((c) => c.sp.tier >= 4).length,
+      coins: this.coins, streak: this.book.streak, gen: this.stats.gen,
+    }
+  }
+
+  private notify(title: string, sub: string, color: string) {
+    this.notices.push({ title, sub, color })
+    if (this.notices.length === 1) this.noticeT = 3.4
+  }
+
+  private handleBookEvent(e: BookEvent) {
+    if (e.type === 'mission') {
+      this.earn(e.coins)
+      this.notify('おねがい たっせい！', `${e.text}  コイン+${e.coins}`, '#7cf29b')
+      this.say(`おねがい たっせい！ ${e.text} コイン+${e.coins}`)
+    } else if (e.type === 'streak') {
+      if (e.coins > 0) {
+        this.earn(e.coins)
+        this.say(`${e.streak}にち れんぞく！ ボーナス コイン+${e.coins}`)
+      }
+    } else if (e.type === 'allclear') {
+      this.stat('allClear')
+      this.earn(e.coins)
+      this.notify('きょうの おねがい ぜんぶ！', `ボーナス コイン+${e.coins}`, '#ffd23f')
+      this.say(`きょうの おねがいを ぜんぶ たっせい！ コイン+${e.coins}`)
+    } else {
+      this.earn(e.coins)
+      this.onSfx('win')
+      this.notify('バッジを てにいれた！', `${e.name}  コイン+${e.coins}`, '#ffb3d1')
+      this.say(`バッジ「${e.name}」を てにいれた！ コイン+${e.coins}`)
+    }
+  }
+
+  private updateMissions(dt: number) {
+    // コインの出入りを数える（ミッションの「ためる」「つかう」）
+    const dc = this.coins - this.coinMark
+    if (dc > 0) this.stat('earned', dc)
+    else if (dc < 0) this.stat('spent', -dc)
+    this.coinMark = this.coins
+    if (this.noticeT > 0) {
+      this.noticeT -= dt
+      if (this.noticeT <= 0) {
+        this.notices.shift()
+        if (this.notices.length) this.noticeT = 3.4
+      }
+    }
+    this.missionT -= dt
+    if (this.missionT > 0) return
+    this.missionT = 1
+    const now = new Date()
+    // 季節：変わったらお知らせして見た目を切り替える
+    const season = seasonNow(now)
+    if (season !== this.season) this.setSeason(season)
+    if (this.book.season !== season) {
+      if (this.book.season) {
+        this.say(SEASON_INFO[season].msg)
+        this.notify(`${SEASON_INFO[season].name}に なった`, SEASON_INFO[season].event, SEASON_INFO[season].color)
+      }
+      this.book.season = season
+    }
+    if (!this.counters[`seen_${season}`]) this.counters[`seen_${season}`] = 1
+    const g = this.gauges()
+    const evs = [...this.book.tick(now, this.counters, g), ...this.book.checkBadges(this.counters, g)]
+    if (!evs.length) return
+    for (const e of evs) this.handleBookEvent(e)
+    // ごほうびはミッションの「ためる」に数えない
+    this.coinMark = this.coins
+    this.save()
+  }
+  private missionT = 0
+
+  /** パネル用：きょうのミッション・連続日数・季節・バッジ */
+  missionInfo() {
+    const g = this.gauges()
+    const b = this.book
+    return {
+      day: b.day,
+      streak: b.streak,
+      allDone: b.allDone,
+      allClearBonus: ALL_CLEAR_BONUS,
+      season: this.season,
+      seasonName: SEASON_INFO[this.season].name,
+      seasonEvent: SEASON_INFO[this.season].event,
+      missions: b.missions.map((m, i) => ({
+        text: missionText(m), diff: DIFF_NAME[m.diff], diffIndex: m.diff, target: m.target,
+        value: b.progress(i, this.counters, g), done: b.done[i],
+        reward: [20, 40, 80][m.diff],
+      })),
+      badges: ACHIEVEMENTS.map((a) => ({ id: a.id, name: a.name, desc: a.desc, coins: a.coins, got: !!b.badges[a.id] })),
+      seasons: SEASONS.map((k) => ({ id: k, name: SEASON_INFO[k].name, event: SEASON_INFO[k].event, seen: (this.counters[`seen_${k}`] ?? 0) > 0 })),
+    }
+  }
+
   // ================= 敵軍 =================
   /** 敵軍をよぶ（村がある程度育つと自分でも来る）。n = 敵の数 */
   callArmy(n?: number) {
@@ -2582,6 +2880,7 @@ export class World {
       if (boss) {
         this.ring(x, z, '#ff7a2a', 3.4, 1)
         this.popups.push({ pos: new THREE.Vector3(x, this.size(c) + 0.6, z), text: 'ボス！', color: '#ff7a2a', t: 0, big: true })
+        BOSSES.add(c)
       }
       this.setState(c, 'march', 8)
       a.left.push(c)
@@ -2613,6 +2912,7 @@ export class World {
     }
     if (!a.left.length) {
       const reward = 20 + a.n * 5 + (a.castle && this.structs.some((b) => b.kind === 'castle' && b.stage === this.stageIndex) ? 20 : 0)
+      this.stat('armies')
       this.say(`てきぐんを おいはらった！ コイン+${reward}`)
       this.earn(reward)
       this.onSfx('win')
@@ -2744,10 +3044,12 @@ export class World {
   private pickWeather(): Weather {
     const w = WEATHER_W[this.stageIndex] ?? WEATHER_W[0]
     const list = (Object.keys(w) as Weather[]).filter((k) => k !== this.weather || Math.random() < 0.3)
-    const total = list.reduce((a, k) => a + (w[k] ?? 0), 0)
+    const sw = SEASON_WEATHER[this.season]
+    const wt = (k: Weather) => (w[k] ?? 0) * (sw[k] ?? 1)
+    const total = list.reduce((a, k) => a + wt(k), 0)
     let r = Math.random() * total
     for (const k of list) {
-      r -= w[k] ?? 0
+      r -= wt(k)
       if (r <= 0) return k
     }
     return 'sun'
@@ -2799,6 +3101,7 @@ export class World {
     else if (r > 0.75) kind = this.stageEggKind()
     this.layEgg((p.x + mate.x) / 2, (p.z + mate.z) / 2, [p.sp.id, mate.sp.id], 35, kind)
     this.burst(p.x, this.ground(p) + 1, p.z, 'heart', 6, 1.5)
+    this.stat('eggs')
     this.say(`${p.sp.name}と ${mate.sp.name}に たまごが できた！`)
     this.onSfx('egg')
   }
@@ -2809,12 +3112,13 @@ export class World {
     return pool[Math.floor(Math.random() * pool.length)]
   }
 
-  private layEgg(x: number, z: number, parents: SpeciesId[], t = 35, kind: EggKind = 'inherit', wild = false) {
-    const anim = new SpriteAnim(this.eggSheets[kind], kind === 'inherit' ? 0.6 : 0.68)
+  private layEgg(x: number, z: number, parents: SpeciesId[], t = 35, kind: EggKind = 'inherit', wild = false, deco?: Season) {
+    const sheet = deco ? (this.decoSheets[deco] ??= DECO_SHEET(deco)) : this.eggSheets[kind]
+    const anim = new SpriteAnim(sheet, deco || kind !== 'inherit' ? 0.7 : 0.6)
     const shadow = new THREE.Mesh(this.shadowGeo, this.shadowMat)
     shadow.scale.setScalar(0.5)
     this.scene.add(anim.sprite, shadow)
-    this.eggs.push({ x, z, t, anim, shadow, parents, kind, wild })
+    this.eggs.push({ x, z, t, anim, shadow, parents, kind, wild, deco })
   }
 
   /** ときどき、その場所らしい系統のたまごが野原に落ちている（かえった子は野生で、仲良くなると仲間に） */
@@ -2853,7 +3157,9 @@ export class World {
           if (Math.hypot(e.x - this.look.x, e.z - this.look.z) < 10) this.say(`${FAMILY_NAME[e.kind]}のたまごから ${SPECIES[id].name}が うまれた！ なかよく なれるかな`)
         } else {
           this.stats.children++
-          this.say(fam ? `${FAMILY_NAME[e.kind]}のたまごから ${SPECIES[id].name}が うまれた！` : `たまごから ${SPECIES[id].name}の こどもが うまれた！`)
+          this.stat('hatched')
+          if (e.deco) this.earn(10)
+          this.say(e.deco ? `${SEASON_INFO[e.deco].egg}から ${SPECIES[id].name}が うまれた！` : fam ? `${FAMILY_NAME[e.kind]}のたまごから ${SPECIES[id].name}が うまれた！` : `たまごから ${SPECIES[id].name}の こどもが うまれた！`)
           this.onSfx('evolve')
           this.earn(20)
         }
@@ -2898,7 +3204,14 @@ export class World {
     return true
   }
 
+  /** 買い物（コインの出入りは update() が数える。ここでは買った回数だけ） */
   private buy(s: ShopItem) {
+    const c0 = this.coins
+    this.buyItem(s)
+    if (this.coins < c0) this.stat('buys')
+  }
+
+  private buyItem(s: ShopItem) {
     if (this.coins < s.price) {
       this.say('コインが たりない…')
       return this.onSfx('cancel')
@@ -2928,11 +3241,13 @@ export class World {
         return this.onSfx('cancel')
       }
       const kind: EggKind = s.egg === 'random' ? (['machine', 'dragon', 'cat', 'dog', 'bird', 'water', 'monster'] as EggKind[])[Math.floor(Math.random() * 7)] : s.egg
+      const deco = (s as SeasonShop).deco ? (s as SeasonShop).season : undefined
       this.coins -= s.price
       this.onSfx('coin')
       const pt = this.pet
-      this.layEgg(pt.x + pt.anim.facing * 1.1, pt.z + 0.4, [], 40, kind)
-      this.say(s.egg === 'random' ? 'ふしぎなたまごを おいた！' : `${FAMILY_NAME[kind]}のたまごを おいた！`)
+      this.layEgg(pt.x + pt.anim.facing * 1.1, pt.z + 0.4, [], 40, kind, false, deco)
+      this.stat('eggs')
+      this.say(deco ? `${s.name}を おいた！` : s.egg === 'random' ? 'ふしぎなたまごを おいた！' : `${FAMILY_NAME[kind]}のたまごを おいた！`)
       this.shopOpen = false
       return
     }
@@ -3073,9 +3388,10 @@ export class World {
     this.post.uniforms.time.value = this.time
 
     // たべものが落ちる / 実る（植えた木が多いほどよく落ちる）
-    this.foodT += dt * (this.weather === 'rain' ? 1.8 : 1)
+    const harvest = this.season === 'autumn' ? 1.5 : 1 // しゅうかくまつり：実りが 1.5 倍
+    this.foodT += dt * (this.weather === 'rain' ? 1.8 : 1) * harvest
     const trees = this.items.filter((it) => it.stage === this.stageIndex && it.kind === 'sapling' && it.grow >= 1).length
-    if (this.foodT > 7 / (1 + trees * 0.3) && this.foods.length < 5 + trees) {
+    if (this.foodT > 7 / (1 + trees * 0.3) && this.foods.length < Math.floor((5 + trees) * harvest)) {
       this.foodT = 0
       this.dropFood()
     }
@@ -3127,6 +3443,7 @@ export class World {
     this.updateArmy(dt)
     this.updateItems(dt)
     this.updateAmbient(dt)
+    this.updateSeasonDeco()
     this.updateEggs(dt)
     this.tryBreed(dt)
     this.updateFx(dt)
@@ -3158,6 +3475,7 @@ export class World {
       }
     }
     this.banner = Math.max(0, this.banner - dt)
+    this.updateMissions(dt)
     this.stats.mood = Math.max(0, Math.min(100, this.stats.mood - dt * 0.15 + (this.weather === 'sun' ? dt * 0.08 : 0)))
     this.drawHud()
   }
@@ -3199,6 +3517,7 @@ export class World {
         c.team = 'friend'
         this.burst(c.x, this.ground(c) + this.size(c), c.z, 'heart', 6, 1.5)
         this.say(`${sp.name}が なかまに なった！`)
+        this.stat('friends')
         this.onSfx('friend')
         this.earn(15)
       }
@@ -3329,6 +3648,7 @@ export class World {
             ].filter(Boolean).join(' ')
             this.say(`${sp.name}は ${info ? info.name : this.stage.food.name}を たべた！ ${up}`)
             this.onSfx('eat')
+            this.stat('meals')
             this.earn(1)
           } else if (c.team === 'wild') c.affinity += 4
           this.setState(c, 'happy', 1.2)
@@ -3363,6 +3683,7 @@ export class World {
           if (c === this.pet && c.sleepFrom) {
             const up = [this.delta('げんき', c.energy - c.sleepFrom.e), this.delta('たいりょく', c.hp - c.sleepFrom.h)].filter(Boolean).join(' ')
             this.say(`${sp.name}が めをさました！ ${up || 'すっきり'}`)
+            this.stat('sleeps')
           }
           c.sleepFrom = null
           if (c.inside) {
@@ -3383,6 +3704,7 @@ export class World {
             const m0 = this.stats.mood
             this.stats.mood = Math.min(100, this.stats.mood + 6)
             this.say(`${sp.name}は たくさん あそんだ！ ${this.delta('きげん', this.stats.mood - m0)} こころ+1`)
+            this.stat('plays')
           }
           break
         }
@@ -3576,6 +3898,7 @@ export class World {
           c.atk += 1
           c.energy = Math.max(0, c.energy - 15)
           this.stats.trains++
+          this.stat('trains')
           this.addCare(c, 'power', 1)
           this.say(`トレーニング おわり！ こうげき ${a0}→${Math.round(c.atk)} ちから+1 ${this.delta('げんき', c.energy - e0)}`)
           this.setState(c, 'idle', 0.4)
@@ -3894,13 +4217,14 @@ export class World {
     const ownerKey = (h: House) => (h.owner === this.pet ? 'pet' : h.owner && friends.includes(h.owner) ? `f${friends.indexOf(h.owner)}` : '')
     const data = {
       land: this.land, dex: this.dex, dexClaimed: this.dexClaimed,
+      counters: this.counters, missions: this.book.toJSON(),
       coins: this.coins, stage: this.stageIndex, care: this.care, xp: this.xp, stats: this.stats, night: this.nightTarget,
       pet: c2(this.pet),
       friends: friends.map(c2),
       houses: this.houses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, ownerSp: h.ownerSp, owner: ownerKey(h), mats: h.mats, hp: Math.round(h.hp) })),
       structs: this.structs.map((b) => ({ kind: b.kind, stage: b.stage, x: b.x, z: b.z, rot: b.rot, len: b.len, mats: b.mats, hp: Math.round(b.hp) })),
       items: this.items.map((it) => ({ kind: it.kind, stage: it.stage, x: it.x, z: it.z, grow: it.grow })),
-      eggs: this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild })),
+      eggs: this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild, deco: e.deco })),
     }
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(data))
@@ -3934,6 +4258,8 @@ export class World {
       if (d.dex && typeof d.dex === 'object' && !Array.isArray(d.dex))
         for (const [k, v] of Object.entries(d.dex)) if (isSpecies(k) && (v === 1 || v === 2)) this.dex[k] = v
       this.dexClaimed = Math.round(num(d.dexClaimed, 0, 6, 0))
+      this.counters = sanitizeStats(d.counters)
+      this.book = MissionBook.from(d.missions)
       this.nightTarget = this.night = d.night ?? 0
       this.items = (d.items ?? []).map((it: Item) => ({ ...it, vx: 0, vz: 0, mesh: null }))
       type SavedHouse = { stage: number; x: number; z: number; ownerSp: SpeciesId; owner: string; mats: number; hp: number }
@@ -3977,7 +4303,7 @@ export class World {
         const kind: EggKind = typeof e.kind === 'string' && Object.prototype.hasOwnProperty.call(EGG_COLORS, e.kind) ? e.kind : 'inherit'
         const parents = (Array.isArray(e.parents) ? e.parents : []).filter(isSpecies).slice(0, 2)
         if (kind === 'inherit' && !parents.length) continue
-        this.layEgg(num(e.x, -HALF, HALF), num(e.z, -HALF, HALF), parents, num(e.t, 0, 120, 35), kind, !!e.wild)
+        this.layEgg(num(e.x, -HALF, HALF), num(e.z, -HALF, HALF), parents, num(e.t, 0, 120, 35), kind, !!e.wild, isSeason(e.deco) ? e.deco : undefined)
       }
       this.say(`おかえり！ ${this.pet.sp.name}が まっていたよ`)
       return true
@@ -4201,6 +4527,17 @@ export class World {
       this.win(x, 30, 124, 30)
       this.text(this.stage.name, x + 8, 34, '#ffffff', 11)
       this.text(this.stage.sub, x + 8, 47, '#9fd8ff', 8)
+    }
+
+    if (this.notices.length) {
+      const n = this.notices[0]
+      const slide = Math.min(1, (3.4 - this.noticeT) * 5, this.noticeT * 5)
+      const y = 62 - Math.round(20 * (1 - slide))
+      g.font = `9px ${FONT}`
+      const w = Math.min(RES.w - 16, Math.max(150, Math.ceil(g.measureText(n.sub).width) + 24))
+      this.win(Math.round((RES.w - w) / 2), y, w, 30)
+      this.text(n.title, RES.w / 2, y + 5, n.color, 11, 'center')
+      this.text(n.sub, RES.w / 2, y + 18, '#e8eeff', 8, 'center')
     }
 
     const label = this.cursor >= 0 && !this.messages.length && !this.shopOpen ? `▶ ${ICONS[this.cursor]}` : this.messages[0]
