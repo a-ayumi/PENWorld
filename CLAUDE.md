@@ -62,3 +62,4 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - セーブは localStorage の `pulsar-save-v1`（10 秒ごと + 画面を離れた時）。項目を増やしたら `save()` と `load()` の両方を直す
 - データの書き出し・読み込み・やり直しは `src/backup.ts`（コードは `PULSAR1:` + base64 の JSON）。設定のキーを増やしたら `KEYS` にも足す。読み込み・やり直しの前は `world.saveLocked = true` にして上書きを防ぐ。起動時に `navigator.storage.persist()` を頼む
 - テストは `window.__pulsar.press('A')` / `.state()` / `.setMood('night')`、箱庭は `.world.run(i)` と `.world.update(1/30)` の早送りで確認する
+- **にっき・おかえり**：`src/journal.ts`（`say()` の文を `note()` が分類して 200 件・日記・手紙・`buildReport`）と `src/journalui.ts`（`#journal-btn` / `#journal-panel` / `#welcome-back` を JS で作る）。保存は `pulsar-journal-v1`（`lastSeen` も入る。`backup.ts` の `KEYS` にも足してある）。World には `onNote` / `onSave` / `journalFacts()` / `beginAway()` だけ。留守は 5 分以上、`dt=0.5` で最大 1500 歩の早送り + 数式で圧縮（上限 8 時間、敵軍と世代交代は起こさない）。早送り中は `journalUI.busy` で `world.update` を止める
