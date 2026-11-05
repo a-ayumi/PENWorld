@@ -682,7 +682,7 @@ const BUILDERS: Record<PlaceId, (m: MoodKey) => PlaceInst> = { desk, train, stre
 const HELD: Partial<Record<PlaceId, string>> = {
   train: '#3b4d7a', street: '#ece6d6', school: '#26335c', burger: '#d9574a', park: '#5f9e63',
 }
-function lapBand(id: PlaceId, mood: MoodKey): THREE.Mesh {
+function lapBand(id: PlaceId, mood: MoodKey): THREE.Group {
   const { c, g } = canvas(1600, 160)
   const r = rng(77)
   if (id === 'train') {
@@ -747,8 +747,14 @@ function lapBand(id: PlaceId, mood: MoodKey): THREE.Mesh {
     g.fillStyle = 'rgba(8,12,34,0.55)'
     g.fillRect(0, 0, 1600, 160)
   }
-  const m = plane(soften(c, 1.2), 32, 3, 0, -3.5, -8.9)
-  return m
+  const grp = new THREE.Group()
+  grp.add(plane(soften(c, 1.2), 32, 3, 0, -3.5, -8.9))
+  // 絵の下は同じ色で画面の下まで続ける（机や床の面は置かない）
+  const base = { train: '#2d4a7a', street: '#4c515a', school: '#a87646', burger: '#f1e4cc', park: '#6fb15a' }[id as 'train'] ?? '#555'
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 12), new THREE.MeshBasicMaterial({ color: night(mood) ? new THREE.Color(base).multiplyScalar(0.4) : base }))
+  floor.position.set(0, -11, -8.9)
+  grp.add(floor)
+  return grp
 }
 
 export function buildPlace(id: PlaceId, mood: MoodKey): PlaceInst {
