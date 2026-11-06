@@ -1,4 +1,4 @@
-import { SpriteAnim, buildSheet, pixelSprite, type Sheet } from './sprites'
+import { PAD, SpriteAnim, buildSheet, pixelSprite, type AnimDef, type Sheet } from './sprites'
 import { SECRET_FORMS, secretSpecies, type SecretId } from './secrets'
 import { CHAINS, FAMILIES, FAMILY_OF, FAMILY_SPEED, TIER_BASE, WATER_NEW, EVOLVE, type Look, type Family } from './families'
 
@@ -9,10 +9,12 @@ import { CHAINS, FAMILIES, FAMILY_OF, FAMILY_SPEED, TIER_BASE, WATER_NEW, EVOLVE
 type OldId =
   | 'mebu' | 'pikori' | 'gorota' | 'fuwari' | 'giaru' | 'noiz' | 'hireru' | 'mofuru'
   | 'garudora' | 'shioryu' | 'hoshikujira' | 'togebug' | 'yamikage' | 'gougan'
+/** 敵の亜種 6 種とボス 3 種（ステージや敵軍の波で、もとの敵に混ざって出る） */
+type FoeId = 'shimonoiz' | 'homurabug' | 'tetsubug' | 'fuguran' | 'shirokage' | 'ganmaru' | 'hatenashi' | 'kazanou' | 'sangogani'
 /** 系統の仲間（families.ts） */
 export type NewId =
   | 'nejiru' | 'boruta' | 'kacha' | 'tankuru' | 'kurokko' | 'metarion' | 'ryuuko' | 'honora' | 'kazeru' | 'bakuryu' | 'raigaru' | 'tenryuu' | 'mimiko' | 'tsumeru' | 'yoruna' | 'torahime' | 'tsukineko' | 'nekomata' | 'wanko' | 'kibaru' | 'fuwan' | 'garufu' | 'mamoru' | 'rouga' | 'piyo' | 'habataki' | 'utaru' | 'hayate' | 'hoshiro' | 'hikaritori' | 'gabuko' | 'oniko' | 'nurari' | 'ogaran' | 'bakeran' | 'yamatan' | 'shizuku' | 'awako' | 'kaimaru'
-export type SpeciesId = OldId | NewId | SecretId
+export type SpeciesId = OldId | NewId | FoeId | SecretId
 
 export interface Species {
   id: SpeciesId
@@ -29,6 +31,8 @@ export interface Species {
   tier: 0 | 1 | 2 | 3 | 4
   /** 敵のこのみ（raid = 家を壊したがる / night = 夜だけ出る） */
   habit?: 'raid' | 'night'
+  /** 敵軍のボス（HP バーが大きい） */
+  boss?: boolean
 }
 
 /** 進化に必要な経験値（段階ごと） */
@@ -59,10 +63,14 @@ const OLD_SPECIES: Record<OldId, Species> = {
   gougan: { id: 'gougan', name: 'ゴウガン', kind: 'マグマいわ型', height: 1.95, hp: 115, atk: 14, speed: 0.8, temper: 'wild', tier: 0, habit: 'raid' },
 }
 
+type EyeMode = 'open' | 'closed' | 'happy' | 'angry' | 'hurt' | 'sleepy' | 'worry' | 'hungry'
+/** 表情のしるし：おなか（よだれ）/ ねむい（z）/ おこり（#）/ こまった（あせ）/ うれしい（ハート） */
+type Mark = '' | 'drool' | 'z' | 'vein' | 'sweat' | 'heart'
 interface Pose {
-  bob: number; sq: number; step: number; eye: 'open' | 'closed' | 'happy' | 'angry' | 'hurt'; mouth: number; lean: number; flap: number
+  bob: number; sq: number; step: number; eye: EyeMode; mouth: number; lean: number; flap: number; mark: Mark
 }
-const P = (o: Partial<Pose>): Pose => ({ bob: 0, sq: 0, step: 0, eye: 'open', mouth: 0, lean: 0, flap: 0, ...o })
+/** mouth: 0 = とじる / 1 = あける / 2 = にっこり / 3 = こまり / 4 = よだれ / 5 = くいしばり */
+const P = (o: Partial<Pose>): Pose => ({ bob: 0, sq: 0, step: 0, eye: 'open', mouth: 0, lean: 0, flap: 0, mark: '', ...o })
 
 const POSES: Pose[] = [
   P({}), P({ bob: 1, sq: 1 }), // idle
@@ -72,6 +80,12 @@ const POSES: Pose[] = [
   P({ sq: 2, bob: 1, eye: 'closed' }), // sleep
   P({ lean: 3, eye: 'angry', mouth: 1, flap: 2 }), // attack
   P({ lean: -2, eye: 'hurt', sq: -1 }), // hurt
+  // ---- 表情（12〜21）：おなかすいた / ねむい / うれしい / おこっている / こまっている（それぞれ 2 コマ）----
+  P({ eye: 'hungry', mouth: 4, sq: 1, mark: 'drool' }), P({ eye: 'hungry', mouth: 4, bob: 1, sq: 2, mark: 'drool' }),
+  P({ eye: 'sleepy', lean: -1, mark: 'z' }), P({ eye: 'sleepy', mouth: 1, bob: 1, sq: 1, lean: -2, mark: 'z' }),
+  P({ eye: 'happy', mouth: 2, flap: 1, mark: 'heart' }), P({ eye: 'happy', mouth: 2, bob: -1, flap: 2, mark: 'heart' }),
+  P({ eye: 'angry', mouth: 5, lean: 1, mark: 'vein' }), P({ eye: 'angry', mouth: 5, lean: 1, bob: 1, sq: 1, mark: 'vein' }),
+  P({ eye: 'worry', mouth: 3, sq: 1, mark: 'sweat' }), P({ eye: 'worry', mouth: 3, bob: 1, sq: 2, mark: 'sweat' }),
 ]
 
 const ANIMS = {
@@ -82,10 +96,19 @@ const ANIMS = {
   sleep: { frames: [9], fps: 1, loop: true },
   attack: { frames: [10], fps: 1, loop: true },
   hurt: { frames: [11], fps: 1, loop: true },
+  hungry: { frames: [12, 13], fps: 1.8, loop: true },
+  sleepy: { frames: [14, 15], fps: 1.1, loop: true },
+  glad: { frames: [16, 17], fps: 3, loop: true },
+  angry: { frames: [18, 19], fps: 5, loop: true },
+  worry: { frames: [20, 21], fps: 3, loop: true },
 }
+/** 表情のアニメ名（World が状態から選ぶ） */
+export type Face = 'hungry' | 'sleepy' | 'glad' | 'angry' | 'worry'
 
 // ---------- 描画ヘルパー ----------
 type G = CanvasRenderingContext2D
+/** 描いた子の「からだ」「あたま」「くち」の位置（34×32 の座標）と からだの色。もよう・表情のしるしを置くのに使う */
+interface Geom { bx: number; by: number; rx: number; ry: number; hx: number; hy: number; hr: number; mx: number; my: number; cols: string[] }
 const fill = (g: G, c: string) => (g.fillStyle = c)
 const rect = (g: G, c: string, x: number, y: number, w: number, h: number) => {
   fill(g, c)
@@ -111,10 +134,24 @@ const blob = (g: G, x: number, y: number, rx: number, ry: number, base: string, 
   ell(g, base, x - 0.8, y - 1, rx - 1.2, ry - 1.4)
   ell(g, light, x - rx * 0.4, y - ry * 0.45, rx * 0.3, ry * 0.22)
 }
+/** まゆ：inner = 目の内がわが +x か -x か。angry は内がわが下がり、worry は内がわが上がる */
+const brow = (g: G, c: string, x: number, y: number, inner: 1 | -1, mood: 'angry' | 'worry') => {
+  const ox = x - inner * 1.7
+  const ix = x + inner * 0.6
+  const oy = mood === 'angry' ? y - 3.5 : y - 2.5
+  const iy = mood === 'angry' ? y - 2.5 : y - 3.5
+  rect(g, c, ox - 0.75, oy, 1.5, 0.5)
+  rect(g, c, ix - 0.75, iy, 1.5, 0.5)
+}
 const eyes = (g: G, xs: number[], y: number, mode: Pose['eye'], color = '#1a1530') => {
-  for (const x of xs) {
+  xs.forEach((x, i) => {
+    const inner: 1 | -1 = xs.length === 1 ? -1 : i === 0 ? 1 : -1
     if (mode === 'closed') rect(g, color, x - 1, y + 1, 3, 1)
-    else if (mode === 'happy') {
+    else if (mode === 'sleepy') {
+      // まぶたが半分おりた目
+      rect(g, color, x - 1, y + 0.5, 2, 1.5)
+      rect(g, color, x - 1.5, y, 3, 0.5)
+    } else if (mode === 'happy') {
       rect(g, color, x - 1, y + 1, 1, 1)
       rect(g, color, x, y, 1, 1)
       rect(g, color, x + 1, y + 1, 1, 1)
@@ -124,13 +161,19 @@ const eyes = (g: G, xs: number[], y: number, mode: Pose['eye'], color = '#1a1530
       rect(g, color, x, y, 1, 1)
       rect(g, color, x - 1, y + 1, 1, 1)
       rect(g, color, x + 1, y + 1, 1, 1)
+    } else if (mode === 'hungry') {
+      // うるうるの大きな目
+      rect(g, color, x - 1, y - 1.5, 2.5, 3.5)
+      rect(g, '#ffffff', x - 1, y - 1.5, 1, 1)
+      rect(g, '#ffffff', x + 0.5, y + 0.5, 1, 1)
     } else {
       rect(g, color, x - 1, y - 1, 2, 3)
       rect(g, '#ffffff', x - 1, y - 1, 1, 1)
       rect(g, '#ffffff', x + 0.5, y + 1, 0.5, 0.5)
-      if (mode === 'angry') rect(g, color, x - 2, y - 3, 4, 1)
+      if (mode === 'angry' || mode === 'worry') brow(g, color, x, y, inner, mode)
+      if (mode === 'worry') rect(g, '#ffffff', x + 0.5, y - 0.5, 0.5, 0.5)
     }
-  }
+  })
 }
 
 // ---------- 各モンスター ----------
@@ -526,9 +569,351 @@ const DRAW_OLD: Record<OldId, (g: G, p: Pose, f: number) => void> = {
 }
 
 
+// ---------- 敵の亜種とボス ----------
+const DRAW_FOE: Record<FoeId, (g: G, p: Pose, f: number) => void> = {
+  shimonoiz(g, p, f) {
+    // しものノイズ：六つの氷のかけらを広げた、雪の結晶のようなデータのかたまり
+    const cx = 16 + p.lean
+    const cy = 19 + p.bob * 0.5
+    for (let k = 0; k < 6; k++) {
+      const a = (k * Math.PI) / 3 + Math.PI / 6
+      const len = (k % 2 ? 10 : 11.5) - p.sq * 0.4
+      const tx = cx + Math.cos(a) * len
+      const ty = cy + Math.sin(a) * len * 0.92
+      const l1 = [cx + Math.cos(a - 0.5) * 5, cy + Math.sin(a - 0.5) * 5]
+      const l2 = [cx + Math.cos(a + 0.5) * 5, cy + Math.sin(a + 0.5) * 5]
+      poly(g, '#4aa6d6', [l1[0], l1[1], tx, ty, l2[0], l2[1]])
+      poly(g, '#c8f1ff', [l1[0], l1[1], tx, ty, (l1[0] + l2[0]) / 2, (l1[1] + l2[1]) / 2])
+      if (k % 2 === 0) rect(g, '#ffffff', tx - Math.cos(a) * 3 - 0.5, ty - Math.sin(a) * 3 - 0.5, 1, 1)
+    }
+    blob(g, cx, cy, 6.8, 6.2 - p.sq * 0.5, '#9fe0f5', '#4aa6d6', '#f2fdff')
+    // こごえたデータの粒
+    for (let i = 0; i < 4; i++) {
+      const h = Math.sin((i + 2) * 53.7 + f * 9.3) * 43758.5
+      const n = h - Math.floor(h)
+      rect(g, '#ffffff', cx - 11 + Math.floor(n * 22), cy - 11 + ((i * 7 + f * 3) % 22), 1, 1)
+    }
+    eyes(g, [cx - 0.5, cx + 3.5], cy - 1, p.eye, '#14305a')
+    if (p.mouth) rect(g, '#14305a', cx + 0.5, cy + 2.5, 2, 1.5)
+    else rect(g, '#14305a', cx + 0.5, cy + 3, 2, 0.5)
+  },
+  homurabug(g, p, f) {
+    // ホムラバグ：背中にほのおをもやす赤いむし
+    const cx = 16 + p.lean
+    const cy = 24 + p.bob * 0.5
+    for (let i = 0; i < 3; i++) {
+      const lx = cx - 5 + i * 5
+      const s = (i % 2 ? 1 : -1) * p.step
+      rect(g, '#3a1a14', lx + s, cy + 3, 1, 4)
+      rect(g, '#3a1a14', lx + s - 1, cy + 6, 2, 1)
+    }
+    blob(g, cx, cy, 9, 5.5 - p.sq * 0.5, '#d8532a', '#8f2a14', '#ff9a6a')
+    for (let i = 0; i < 5; i++) {
+      const fx = cx - 7 + i * 3.4
+      const fl = Math.sin(f * 1.7 + i * 1.3) * 1.2
+      const top = cy - 9 - (i === 2 ? 3 : i % 2) - (f % 2)
+      poly(g, '#ff7a2a', [fx - 2, cy - 3, fx + fl, top, fx + 2, cy - 3])
+      poly(g, '#ffd23f', [fx - 1, cy - 3, fx + fl * 0.6, top + 3, fx + 1, cy - 3])
+    }
+    ell(g, '#3a1a14', cx + 9, cy + 1, 3, 2.5)
+    rect(g, '#ffe14a', cx + 9.5, cy, 1.5, 1)
+    if (p.eye === 'angry' || p.mouth) {
+      rect(g, '#ffd23f', cx + 12, cy + 1, 2, 0.5)
+      rect(g, '#ffd23f', cx + 12, cy + 2.5, 2, 0.5)
+    }
+    if (f % 2 === 0) rect(g, '#ffd23f', cx - 3, cy - 1, 1, 1)
+  },
+  tetsubug(g, p) {
+    // テツバグ：はがねのよろいをまとった、のっそりしたむし。前に一本のドリルのつの
+    const cx = 15 + p.lean
+    const cy = 24 + p.bob * 0.5
+    for (let i = 0; i < 4; i++) {
+      const lx = cx - 7 + i * 4.5
+      const s = (i % 2 ? 1 : -1) * p.step
+      rect(g, '#3d4658', lx + s, cy + 3, 1.5, 4)
+      rect(g, '#3d4658', lx + s - 1, cy + 6, 3, 1)
+    }
+    blob(g, cx, cy, 10.5, 7 - p.sq * 0.5, '#8e9bb0', '#566179', '#d6dfec')
+    // よろいの板と、きいろの注意しま
+    for (const dx of [-6, -1, 4]) rect(g, '#566179', cx + dx, cy - 6, 0.5, 11)
+    for (let i = 0; i < 6; i++) rect(g, i % 2 ? '#2a2f3a' : '#ffd23f', cx - 8 + i * 3, cy + 1, 1.5, 2.5)
+    for (const [dx, dy] of [[-8, -3], [-3, -5], [3, -5], [7, -2]] as const) rect(g, '#e8eef8', cx + dx, cy + dy, 1, 1)
+    ell(g, '#566179', cx + 10.5, cy + 1.5, 3.4, 3)
+    ell(g, '#8e9bb0', cx + 10, cy + 0.5, 2.2, 1.6)
+    // ドリルのつの
+    poly(g, '#d6dfec', [cx + 12, cy - 1.5, cx + 18, cy + 0.8, cx + 12, cy + 2.5])
+    poly(g, '#8e9bb0', [cx + 12, cy + 0.5, cx + 18, cy + 0.8, cx + 12, cy + 2.5])
+    rect(g, '#2a2f3a', cx + 14, cy + 0.2, 0.5, 1.5)
+    // あかい目のスリット
+    if (p.eye === 'closed' || p.eye === 'sleepy') rect(g, '#2a2f3a', cx + 8.5, cy, 3, 0.5)
+    else {
+      rect(g, '#ff3b2a', cx + 8.5, cy - 0.5, 3, p.eye === 'angry' ? 1 : 1.5)
+      rect(g, '#ffd0c0', cx + 8.5, cy - 0.5, 1, 0.5)
+    }
+  },
+  fuguran(g, p, f) {
+    // フグラン：おこるとふくらんでトゲだらけになる、ふわふわ浮かぶまるい魚
+    const cx = 16 + p.lean
+    const cy = 17 + p.bob
+    const r = 8.5 - p.sq * 0.5
+    const w = Math.sin(f * 1.3) * 1.5
+    poly(g, '#ffa53a', [cx - r + 1, cy, cx - r - 5, cy - 4 + w, cx - r - 5, cy + 4 + w])
+    poly(g, '#ffd08a', [cx - r + 1, cy, cx - r - 4, cy - 2 + w, cx - r - 4, cy + 2 + w])
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2 + 0.2
+      if (Math.cos(a) > 0.75 && Math.sin(a) > -0.2 && Math.sin(a) < 0.7) continue
+      const bx = cx + Math.cos(a) * (r - 0.5)
+      const by = cy + Math.sin(a) * (r - 0.5)
+      const tx = cx + Math.cos(a) * (r + 3.2 + (p.lean > 1 ? 1 : 0))
+      const ty = cy + Math.sin(a) * (r + 3.2 + (p.lean > 1 ? 1 : 0))
+      poly(g, '#ffa53a', [bx - Math.sin(a) * 1.4, by + Math.cos(a) * 1.4, tx, ty, bx + Math.sin(a) * 1.4, by - Math.cos(a) * 1.4])
+    }
+    poly(g, '#ffa53a', [cx - 3, cy - r + 1, cx, cy - r - 5 - p.flap, cx + 3, cy - r + 1])
+    blob(g, cx, cy, r, r - 0.5, '#5cc8a8', '#2a8a74', '#c0f5e4')
+    ell(g, '#e4fbf0', cx + 1, cy + 4, 6, 3)
+    ell(g, '#ffa53a', cx - 1, cy + 2 - p.flap * 0.5, 3, 1.8)
+    eyes(g, [cx + 2.5, cx + 6.5], cy - 3, p.eye, '#1a3a30')
+    ell(g, '#ff7a8a', cx + 8.5, cy + 3, 2.2, 1.7)
+    if (p.mouth) ell(g, '#7a1f3d', cx + 9, cy + 3, 1.2, 1.2)
+  },
+  shirokage(g, p, f) {
+    // シロカゲ：よるだけ現れる、フードの中がまっくらな白いかげ。あたまの上に三日月
+    const cx = 16 + p.lean
+    const cy = 15 + p.bob
+    for (let i = 0; i < 5; i++) {
+      const w = Math.sin(f * 1.1 + i * 1.2) * 1.5
+      poly(g, '#8aa0cc', [cx - 9 + i * 4.2, cy + 8, cx - 8 + i * 4.2 + w, cy + 15 + (i % 2) * 2, cx - 5 + i * 4.2, cy + 8])
+    }
+    poly(g, '#8aa0cc', [cx - 10, cy + 10, cx - 8, cy - 4, cx - 3, cy - 9.5, cx + 4, cy - 9.5, cx + 9, cy - 4, cx + 10, cy + 10])
+    poly(g, '#c9d8f2', [cx - 9, cy + 9, cx - 7, cy - 3.5, cx - 2.5, cy - 8.5, cx + 3.5, cy - 8.5, cx + 8, cy - 3.5, cx + 9, cy + 9])
+    poly(g, '#eef4ff', [cx - 8, cy + 3, cx - 6.5, cy - 3, cx - 2.5, cy - 8, cx - 2, cy - 2])
+    ell(g, '#141b38', cx + 3, cy - 1.5, 5.2, 5.6)
+    ell(g, '#0a0f26', cx + 3.5, cy - 1.2, 4.2, 4.6)
+    // 三日月のかんむり
+    g.save()
+    g.translate(cx + 0.5, cy - 13.5)
+    g.rotate(-Math.PI / 2)
+    const cr = (k: number, c: string) => {
+      const pts: number[] = []
+      for (let i = 0; i <= 10; i++) pts.push(4.6 * k * Math.cos(-Math.PI / 2 - (i * Math.PI) / 10), 4.6 * k * Math.sin(-Math.PI / 2 - (i * Math.PI) / 10))
+      for (let i = 10; i >= 0; i--) pts.push(3.3 * k * Math.cos(-Math.PI / 2 - (i * Math.PI) / 10), 4.4 * k * Math.sin(-Math.PI / 2 - (i * Math.PI) / 10))
+      poly(g, c, pts)
+    }
+    cr(1, '#d8c47a')
+    cr(0.85, '#fff1a8')
+    g.restore()
+    if (p.eye === 'closed' || p.eye === 'sleepy') {
+      rect(g, '#ff4d6d', cx + 0.5, cy - 1, 2, 0.5)
+      rect(g, '#ff4d6d', cx + 4.5, cy - 1, 2, 0.5)
+    } else {
+      const k = p.eye === 'angry' ? 0.8 : 1.5
+      ell(g, '#ff4d6d', cx + 1.5, cy - 1.5, 1.4, k)
+      ell(g, '#ff4d6d', cx + 5.5, cy - 1.5, 1.4, k)
+      rect(g, '#ffffff', cx + 1, cy - 2.2, 0.5, 0.5)
+      rect(g, '#ffffff', cx + 5, cy - 2.2, 0.5, 0.5)
+    }
+    if (p.mouth) for (let i = 0; i < 4; i++) rect(g, '#ffffff', cx + 1.5 + i * 1.2, cy + 2 + (i % 2) * 0.5, 0.5, 1)
+  },
+  ganmaru(g, p, f) {
+    // ガンマル：コケとクリスタルをのせた、丸い岩のかたまり。ころがって体当たりする
+    const cx = 15 + p.lean
+    const cy = 21 + p.bob * 0.5
+    rect(g, '#5a5048', cx - 5 + p.step, cy + 7, 4, 3)
+    rect(g, '#5a5048', cx + 2 - p.step, cy + 7, 4, 3)
+    ell(g, '#8a8076', cx - 10, cy + 2 + p.flap * 0.4, 2.6, 3.4)
+    ell(g, '#8a8076', cx + 10 + (p.lean > 1 ? 2 : 0), cy + 2 - p.flap * 0.4, 2.6, 3.4)
+    blob(g, cx, cy, 10.5, 9.5 - p.sq * 0.6, '#9a8f84', '#625850', '#cfc4b8')
+    // ひび・コケ・クリスタル
+    rect(g, '#4a4038', cx - 6, cy - 2, 0.5, 5)
+    rect(g, '#4a4038', cx - 6, cy + 2.5, 4, 0.5)
+    rect(g, '#4a4038', cx + 5, cy + 4, 0.5, 4)
+    ell(g, '#5f9a4e', cx - 6, cy - 6.5, 3.6, 1.8)
+    ell(g, '#8fcf70', cx - 6.5, cy - 7, 2, 0.9)
+    ell(g, '#5f9a4e', cx + 7, cy + 5, 2.2, 1.2)
+    poly(g, '#d63fa8', [cx + 1, cy - 8, cx + 2.5, cy - 15, cx + 4, cy - 8])
+    poly(g, '#ff8ad8', [cx + 1.5, cy - 8, cx + 2.5, cy - 14, cx + 3, cy - 8])
+    poly(g, '#d63fa8', [cx + 5, cy - 7, cx + 7, cy - 12, cx + 8, cy - 6])
+    rect(g, '#625850', cx + 1, cy - 5, 8, 1.5)
+    eyes(g, [cx + 3, cx + 7], cy - 2, p.eye, '#2a1a14')
+    if (p.mouth) rect(g, '#3b2030', cx + 4, cy + 2.5, 3, 2)
+    else rect(g, '#3b2030', cx + 4, cy + 3, 3, 0.8)
+    if (f % 2 && p.step) rect(g, '#cfc4b8', cx - 9, cy + 9, 1, 1)
+  },
+
+  // ---- ボス：大きな専用の姿 ----
+  hatenashi(g, p, f) {
+    // ハテナシ：ノイズのかたまりが育った王。三つの目と、はてしなく流れるデータの尾
+    const cx = 15 + p.lean
+    const cy = 17 + p.bob * 0.5
+    const pts: number[] = []
+    for (let i = 0; i < 22; i++) {
+      const a = (i / 22) * Math.PI * 2
+      const r = (i % 2 ? 9 : 13.5) - p.sq * 0.6 + (((i * 7 + f * 2) % 3) - 1) * 0.7
+      pts.push(cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.78)
+    }
+    // 流れるデータの尾
+    for (let k = 0; k < 4; k++) {
+      const bx = cx - 9 + k * 5
+      for (let j = 0; j < 5; j++) {
+        const wob = Math.round(Math.sin(f * 1.5 + k + j * 0.9) * 1.5)
+        rect(g, (j + k) % 2 ? '#3bf2ff' : '#ff3bd4', bx + wob, cy + 8 + j * 2.2, 2, 1.5 - j * 0.1)
+      }
+    }
+    poly(g, '#150e36', pts.map((v) => v + 1))
+    poly(g, '#2b1f66', pts)
+    ell(g, '#4a3d9a', cx - 5, cy - 6, 5, 3)
+    // グリッチの横線
+    for (let k = 0; k < 4; k++) {
+      const off = ((k * 5 + f * 3) % 7) - 3
+      rect(g, k % 2 ? '#3bf2ff' : '#ff3bd4', cx - 10 + off, cy - 7 + k * 4.5, 6 + (k % 3) * 2, 1)
+    }
+    // かんむりの立方体
+    for (let k = 0; k < 5; k++) {
+      const hy = cy - 14 - (k === 2 ? 3 : k % 2) + Math.sin(f * 1.2 + k) * 0.8
+      rect(g, k % 2 ? '#ff3bd4' : '#3bf2ff', cx - 9 + k * 4.4, hy, 2.5, 2.5)
+      rect(g, '#ffffff', cx - 9 + k * 4.4, hy, 1, 1)
+    }
+    // 三つの目
+    const k = p.eye === 'angry' ? 0.7 : 1
+    if (p.eye === 'closed' || p.eye === 'sleepy') {
+      rect(g, '#ff3b5c', cx + 1, cy - 2, 7, 1)
+    } else {
+      ell(g, '#ffffff', cx + 4, cy - 2, 5, 4.2 * k)
+      ell(g, '#ff3b5c', cx + 5.5, cy - 2, 2.8, 2.8 * k)
+      rect(g, '#150e36', cx + 5.5, cy - 3.5, 1, 3)
+    }
+    for (const [ex, ey] of [[cx - 6, cy - 4], [cx + 11, cy - 5]] as const) {
+      if (p.eye === 'closed' || p.eye === 'sleepy') rect(g, '#ff3b5c', ex - 1, ey, 2, 0.5)
+      else {
+        ell(g, '#ffffff', ex, ey, 2, 1.8 * k)
+        ell(g, '#ff3b5c', ex + 0.5, ey, 1.1, 1.1 * k)
+      }
+    }
+    if (p.eye === 'angry') rect(g, '#150e36', cx - 1, cy - 7.5, 11, 1.2)
+    // ぎざぎざの口
+    const my = cy + 4
+    if (p.mouth) {
+      rect(g, '#150e36', cx - 4, my, 14, 3)
+      for (let i = 0; i < 7; i++) rect(g, '#ff3bd4', cx - 4 + i * 2, my + (i % 2), 1, 1.5)
+    } else for (let i = 0; i < 7; i++) rect(g, '#ff3bd4', cx - 4 + i * 2, my + (i % 2), 1, 0.8)
+  },
+  kazanou(g, p, f) {
+    // カザンオウ：火山そのものの王。てっぺんのかこうから溶岩をふきあげ、両のこぶしを打ちつける
+    const cx = 15 + p.lean
+    const cy = 19 + p.bob * 0.5
+    const ax = p.lean > 1 ? 4 : 0
+    // あし
+    rect(g, '#3a2c26', cx - 9 + p.step, cy + 9, 6, 4)
+    rect(g, '#3a2c26', cx + 3 - p.step, cy + 9, 6, 4)
+    // 山の体
+    poly(g, '#33251f', [cx - 14, cy + 11, cx - 7, cy - 8, cx + 7, cy - 8, cx + 15, cy + 11])
+    poly(g, '#5e493d', [cx - 13, cy + 10, cx - 6.5, cy - 7.5, cx + 6.5, cy - 7.5, cx + 14, cy + 10])
+    poly(g, '#8a6f5e', [cx - 12, cy + 4, cx - 6, cy - 7, cx - 1, cy - 7, cx - 6, cy + 2])
+    // 溶岩のすじ
+    const glow = f % 2 ? '#ff9a3a' : '#ff6a1a'
+    poly(g, glow, [cx - 7, cy - 7, cx - 8.5, cy + 1, cx - 7, cy + 8, cx - 6, cy + 1])
+    poly(g, glow, [cx + 6, cy - 7, cx + 8, cy + 0, cx + 6.5, cy + 8, cx + 5, cy + 0])
+    rect(g, '#ffd23f', cx - 7.5, cy - 1, 0.5, 4)
+    // かこう
+    ell(g, '#2a1a14', cx, cy - 9, 8, 2.8)
+    ell(g, glow, cx, cy - 9.3, 6.5, 2)
+    const fl = Math.sin(f * 1.4)
+    poly(g, '#ff9a3a', [cx - 3.5, cy - 9.5, cx - 1 + fl, cy - 17 - (f % 2), cx + 1.5, cy - 9.5])
+    poly(g, '#ffd23f', [cx - 1, cy - 9.5, cx + 2.5 - fl, cy - 15 - (f % 2), cx + 4, cy - 9.5])
+    rect(g, '#ffe27a', cx - 6, cy - 14 + (f % 3), 1, 1)
+    rect(g, '#ffe27a', cx + 6, cy - 13 - (f % 2), 1, 1)
+    // かお
+    if (p.eye === 'closed' || p.eye === 'sleepy') {
+      rect(g, '#ffe14a', cx - 5, cy - 3, 3, 0.5)
+      rect(g, '#ffe14a', cx + 2, cy - 3, 3, 0.5)
+    } else {
+      const k = p.eye === 'angry' ? 0.8 : 1.4
+      poly(g, '#ffe14a', [cx - 6, cy - 3 - k, cx - 1.5, cy - 3, cx - 6, cy - 3 + k * 1.5])
+      poly(g, '#ffe14a', [cx + 6, cy - 3 - k, cx + 1.5, cy - 3, cx + 6, cy - 3 + k * 1.5])
+    }
+    if (p.mouth) {
+      poly(g, '#2a1a14', [cx - 5, cy + 1, cx + 5, cy + 1, cx + 4, cy + 6, cx - 4, cy + 6])
+      rect(g, glow, cx - 3, cy + 3, 6, 2.5)
+      for (let i = 0; i < 4; i++) rect(g, '#d8c8b0', cx - 4 + i * 2.4, cy + 1, 1.2, 1.6)
+    } else {
+      rect(g, '#2a1a14', cx - 5, cy + 2, 10, 1.5)
+      for (let i = 0; i < 4; i++) rect(g, '#d8c8b0', cx - 4 + i * 2.4, cy + 2, 1, 1)
+    }
+    // こぶし
+    rect(g, '#33251f', cx + 12 + ax, cy - 1 - p.flap, 7, 8)
+    rect(g, '#6e5648', cx + 12 + ax, cy - 1 - p.flap, 6, 7)
+    rect(g, glow, cx + 13 + ax, cy + 3 - p.flap, 4, 0.5)
+    rect(g, '#33251f', cx - 20, cy + 0 + p.flap, 7, 8)
+    rect(g, '#6e5648', cx - 20, cy + 0 + p.flap, 6, 7)
+    rect(g, glow, cx - 19, cy + 4 + p.flap, 4, 0.5)
+  },
+  sangogani(g, p, f) {
+    // サンゴガニ：背中にサンゴの森をのせた、大きなカニの王。目は長いくきの先
+    const cx = 14 + p.lean
+    const cy = 22 + p.bob * 0.5
+    // あし
+    for (let i = 0; i < 3; i++) {
+      const lx = cx - 8 + i * 5
+      const s = (i % 2 ? 1 : -1) * p.step
+      poly(g, '#8a2a1c', [lx, cy + 3, lx - 3 + s, cy + 5, lx - 3 + s, cy + 9, lx - 2 + s, cy + 9, lx - 1.5, cy + 5.5])
+      poly(g, '#8a2a1c', [lx + 8, cy + 3, lx + 11 - s, cy + 5, lx + 11 - s, cy + 9, lx + 10 - s, cy + 9, lx + 9.5, cy + 5.5])
+    }
+    // こうら
+    blob(g, cx + 1, cy, 13.5, 8 - p.sq * 0.6, '#e0604a', '#9a2e20', '#ff9e86')
+    ell(g, '#ffb8a0', cx + 3, cy + 3, 8, 2.5)
+    for (const [dx, dy] of [[-8, -2], [-3, -4], [4, -4], [9, -1]] as const) rect(g, '#9a2e20', cx + dx, cy + dy, 1.2, 1.2)
+    // 背中のサンゴ
+    const sway = Math.sin(f * 0.9) * 0.8
+    for (const [bx, h, c1, c2] of [[-6, 11, '#ff9ecb', '#ffd0e6'], [-1, 14, '#ff7ab8', '#ffc0dc'], [4, 10, '#ffb0d8', '#ffe0ee']] as const) {
+      const tx = cx + bx + sway
+      poly(g, c1, [cx + bx - 1.5, cy - 6, tx, cy - 6 - h, cx + bx + 1.5, cy - 6])
+      poly(g, c2, [cx + bx - 0.5, cy - 6, tx - 0.3, cy - 5 - h, cx + bx + 0.2, cy - 6])
+      poly(g, c1, [cx + bx, cy - 6 - h * 0.5, tx + 3.5, cy - 6 - h * 0.85, tx + 1, cy - 6 - h * 0.35])
+      ell(g, '#fff27a', tx, cy - 6 - h, 1.1, 1.1)
+    }
+    // ハサミ
+    const open = p.lean > 1 || p.mouth ? 1 : 0
+    for (const [bx, sd] of [[cx + 14, 1], [cx - 13, -1]] as const) {
+      const by = cy - 2 - (sd > 0 ? p.flap : -p.flap)
+      ell(g, '#9a2e20', bx + sd * 1.5, by + 3, 3, 3.6)
+      ell(g, '#e0604a', bx + sd * 1.2, by + 2.5, 2.5, 3.2)
+      poly(g, '#e0604a', [bx - 2.5 * sd, by - 0.5, bx + sd * (2.5 + open * 1.5), by - 6 - open, bx + sd * 3.5, by])
+      poly(g, '#ffb8a0', [bx - 1.5 * sd, by - 0.5, bx + sd * (2.4 + open * 1.5), by - 5.5 - open, bx + sd * 2.6, by - 0.5])
+      poly(g, '#9a2e20', [bx + sd * 1, by + 0.5, bx + sd * (5.5 + open), by - 2, bx + sd * 4.5, by + 2])
+    }
+    // 目のくき
+    for (const ex of [cx + 6, cx + 11]) {
+      rect(g, '#9a2e20', ex, cy - 11, 1.2, 5)
+      if (p.eye === 'closed' || p.eye === 'sleepy') {
+        ell(g, '#e0604a', ex + 0.6, cy - 11.5, 2, 1.4)
+        rect(g, '#1a1530', ex - 0.8, cy - 11.2, 3, 0.5)
+      } else {
+        ell(g, '#ffffff', ex + 0.6, cy - 12, 2.2, 2.2)
+        ell(g, '#1a1530', ex + 1.2, cy - 12, 1.1, 1.3)
+        if (p.eye === 'angry') rect(g, '#9a2e20', ex - 1.6, cy - 14.8, 4, 1)
+      }
+    }
+    if (p.mouth) rect(g, '#5a1410', cx + 6, cy + 1, 4, 2)
+    else rect(g, '#5a1410', cx + 6, cy + 1.5, 4, 0.8)
+  },
+}
+
+/** 敵の亜種・ボスの「からだ」「あたま」の位置（もよう・表情のしるしの置き場） */
+const FOE_GEOM: Record<FoeId, (p: Pose) => Geom> = {
+  shimonoiz: (p) => ({ bx: 16 + p.lean, by: 19 + p.bob * 0.5, rx: 6.8, ry: 6.2, hx: 16 + p.lean + 1.5, hy: 19 + p.bob * 0.5, hr: 5, mx: 17 + p.lean, my: 22 + p.bob * 0.5, cols: ['#9fe0f5', '#4aa6d6', '#f2fdff'] }),
+  homurabug: (p) => ({ bx: 16 + p.lean, by: 24 + p.bob * 0.5, rx: 9, ry: 5.5, hx: 25 + p.lean, hy: 25 + p.bob * 0.5, hr: 3, mx: 26 + p.lean, my: 27 + p.bob * 0.5, cols: ['#d8532a', '#8f2a14', '#ff9a6a'] }),
+  tetsubug: (p) => ({ bx: 15 + p.lean, by: 24 + p.bob * 0.5, rx: 10.5, ry: 7, hx: 25 + p.lean, hy: 25 + p.bob * 0.5, hr: 3.4, mx: 25 + p.lean, my: 27.5 + p.bob * 0.5, cols: ['#8e9bb0', '#566179', '#d6dfec'] }),
+  fuguran: (p) => ({ bx: 16 + p.lean, by: 17 + p.bob, rx: 8.5, ry: 8, hx: 20 + p.lean, hy: 16 + p.bob, hr: 6, mx: 23 + p.lean, my: 20 + p.bob, cols: ['#5cc8a8', '#2a8a74', '#c0f5e4'] }),
+  shirokage: (p) => ({ bx: 16 + p.lean, by: 17 + p.bob, rx: 9, ry: 9, hx: 19 + p.lean, hy: 13.5 + p.bob, hr: 5.5, mx: 19 + p.lean, my: 17.5 + p.bob, cols: ['#c9d8f2', '#8aa0cc', '#eef4ff'] }),
+  ganmaru: (p) => ({ bx: 15 + p.lean, by: 21 + p.bob * 0.5, rx: 10.5, ry: 9.5, hx: 20 + p.lean, hy: 19 + p.bob * 0.5, hr: 6, mx: 19 + p.lean, my: 23.5 + p.bob * 0.5, cols: ['#9a8f84', '#625850', '#cfc4b8'] }),
+  hatenashi: (p) => ({ bx: 15 + p.lean, by: 17 + p.bob * 0.5, rx: 12, ry: 9.5, hx: 19 + p.lean, hy: 15 + p.bob * 0.5, hr: 8, mx: 15 + p.lean, my: 21 + p.bob * 0.5, cols: ['#2b1f66', '#150e36', '#4a3d9a'] }),
+  kazanou: (p) => ({ bx: 15 + p.lean, by: 20 + p.bob * 0.5, rx: 12, ry: 8, hx: 15 + p.lean, hy: 16 + p.bob * 0.5, hr: 7, mx: 15 + p.lean, my: 20 + p.bob * 0.5, cols: ['#5e493d', '#33251f', '#8a6f5e'] }),
+  sangogani: (p) => ({ bx: 15 + p.lean, by: 22 + p.bob * 0.5, rx: 13, ry: 8, hx: 22 + p.lean, hy: 13 + p.bob * 0.5, hr: 6, mx: 21 + p.lean, my: 23 + p.bob * 0.5, cols: ['#e0604a', '#9a2e20', '#ff9e86'] }),
+}
+
 // ---------- 系統の仲間（パーツ指定で描く）----------
 /** families.ts の Look（パーツの指定）から 1 コマ描く。右むき、足もとは y=30 */
-function critter(g: G, p: Pose, f: number, L: Look) {
+function critter(g: G, p: Pose, f: number, L: Look): Geom {
   const s = L.s
   const [B, S, H] = L.c
   const dark = L.eye ?? '#1a1530'
@@ -713,15 +1098,24 @@ function critter(g: G, p: Pose, f: number, L: Look) {
     rect(g, L.visor, fx - hr * 0.3, fy - 2.5, hr * 1.2, 3)
     rect(g, '#ffffff', fx - hr * 0.3 + 1, fy - 2.5, 1, 1)
     rect(g, dark, fx + hr * 0.3, fy - 1.5, 1, 1.5)
+    // バイザーでも表情がわかるように：まぶた・つり目・にっこり
+    if (p.eye === 'closed') rect(g, dark, fx - hr * 0.3, fy - 2.5, hr * 1.2, 3)
+    else if (p.eye === 'sleepy') rect(g, dark, fx - hr * 0.3, fy - 2.5, hr * 1.2, 1.5)
+    else if (p.eye === 'angry') poly(g, dark, [fx - hr * 0.3, fy - 2.5, fx + hr * 0.9, fy - 2.5, fx + hr * 0.9, fy - 1])
+    else if (p.eye === 'worry') poly(g, dark, [fx - hr * 0.3, fy - 2.5, fx + hr * 0.9, fy - 2.5, fx - hr * 0.3, fy - 1])
+    else if (p.eye === 'happy') rect(g, dark, fx - hr * 0.3, fy - 0.5, hr * 1.2, 1)
   } else if (L.cyclops) {
     ell(g, '#ffffff', fx + 2, fy, hr * 0.5, hr * 0.45)
     ell(g, '#ff3b5e', fx + 3, fy, hr * 0.28, hr * 0.28)
     rect(g, dark, fx + 3, fy - 0.5, 1, 1.5)
     if (p.eye === 'closed') ell(g, B, fx + 2, fy, hr * 0.52, hr * 0.46)
+    else if (p.eye === 'sleepy') rect(g, B, fx + 2 - hr * 0.55, fy - hr * 0.5, hr * 1.1, hr * 0.5)
+    else if (p.eye === 'angry') poly(g, dark, [fx + 2 - hr * 0.55, fy - hr * 0.6, fx + 2 + hr * 0.55, fy - hr * 0.6, fx + 2 + hr * 0.55, fy - hr * 0.2])
+    else if (p.eye === 'worry') poly(g, dark, [fx + 2 - hr * 0.55, fy - hr * 0.6, fx + 2 + hr * 0.55, fy - hr * 0.6, fx + 2 - hr * 0.55, fy - hr * 0.2])
   } else eyes(g, [fx + 0.5, fx + hr * 0.6 + 1.5], fy - 1, p.eye, dark)
   if (L.beak) {
     const bxp = hx + hr * 0.85
-    if (p.mouth) {
+    if (p.mouth === 1 || p.mouth === 4) {
       poly(g, '#ff9f43', [bxp - 1, hy - 1, bxp + 4, hy - 1.5, bxp - 1, hy + 0.5])
       poly(g, '#e8662a', [bxp - 1, hy + 1.5, bxp + 3.5, hy + 2.5, bxp - 1, hy + 3.5])
     } else poly(g, '#ff9f43', [bxp - 1, hy - 0.5, bxp + 4, hy + 0.8, bxp - 1, hy + 2.5])
@@ -729,16 +1123,35 @@ function critter(g: G, p: Pose, f: number, L: Look) {
     ell(g, H, hx + hr * 0.75, hy + hr * 0.35, hr * 0.5, hr * 0.38)
     rect(g, dark, hx + hr * 0.95, hy + hr * 0.1, 1.5, 1)
   }
-  if (!L.beak && !L.cyclops) {
-    const mx = fx + hr * 0.4
-    const my = fy + hr * 0.5 + 1
-    if (p.mouth) rect(g, '#7a1f3d', mx, my, 2.5, 2)
-    else if (!quad) rect(g, dark, mx, my + 0.5, 2, 0.8)
-  }
+  const mx = fx + hr * 0.4
+  const my = fy + hr * 0.5 + 1
+  if (!L.beak && !L.cyclops) mouthShape(g, p.mouth, mx, my, dark, !quad)
   if (L.fang) {
-    poly(g, '#ffffff', [fx + hr * 0.4, fy + hr * 0.5 + 1, fx + hr * 0.4 + 1.2, fy + hr * 0.5 + 1, fx + hr * 0.4 + 0.6, fy + hr * 0.5 + 3])
-    poly(g, '#ffffff', [fx + hr * 0.4 + 2.2, fy + hr * 0.5 + 1, fx + hr * 0.4 + 3.4, fy + hr * 0.5 + 1, fx + hr * 0.4 + 2.8, fy + hr * 0.5 + 3])
+    poly(g, '#ffffff', [mx, my, mx + 1.2, my, mx + 0.6, my + 2])
+    poly(g, '#ffffff', [mx + 2.2, my, mx + 3.4, my, mx + 2.8, my + 2])
   }
+  return { bx: quad ? cx - 1 : cx, by: ty, rx, ry, hx, hy, hr, mx, my, cols: [B, S, H] }
+}
+
+/** 口のかたち（mouth: 0 とじる / 1 あける / 2 にっこり / 3 こまり / 4 よだれ / 5 くいしばり） */
+function mouthShape(g: G, kind: number, x: number, y: number, dark: string, line: boolean) {
+  if (kind === 1) rect(g, '#7a1f3d', x, y, 2.5, 2)
+  else if (kind === 4) rect(g, '#7a1f3d', x, y, 2.5, 2.5)
+  else if (kind === 2) {
+    rect(g, dark, x, y + 0.5, 2.5, 0.5)
+    rect(g, dark, x - 0.5, y, 0.5, 0.5)
+    rect(g, dark, x + 2.5, y, 0.5, 0.5)
+  } else if (kind === 3) {
+    rect(g, dark, x, y, 2.5, 0.5)
+    rect(g, dark, x - 0.5, y + 0.5, 0.5, 0.5)
+    rect(g, dark, x + 2.5, y + 0.5, 0.5, 0.5)
+  } else if (kind === 5) {
+    rect(g, '#ffffff', x, y, 3, 1.5)
+    rect(g, dark, x, y, 3, 0.5)
+    rect(g, dark, x, y + 1.5, 3, 0.5)
+    rect(g, dark, x + 1, y, 0.5, 1.5)
+    rect(g, dark, x + 2, y, 0.5, 1.5)
+  } else if (line) rect(g, dark, x, y + 0.5, 2, 0.8)
 }
 
 /** きょうの系統の仲間の見た目（id → Look） */
@@ -766,7 +1179,31 @@ for (const s of SECRET_FORMS) {
   LOOKS[s.id] = s.look
   NEW_SKILLS[s.id] = { name: s.skill[0], kind: s.skill[1], color: s.skill[2], mult: s.skill[3] }
 }
-export const SPECIES: Record<SpeciesId, Species> = { ...OLD_SPECIES, ...NEW_SPECIES, ...secretSpecies() }
+/** 敵の亜種 6 種とボス 3 種（オリジナル）。もとの敵に混ざって、ステージや敵軍の波で出てくる */
+const FOE_SPECIES: Record<FoeId, Species> = {
+  shimonoiz: { id: 'shimonoiz', name: 'シモノイズ', kind: 'こおりのかけら型', height: 1.4, hp: 42, atk: 7, speed: 1.4, temper: 'wild', tier: 0 },
+  homurabug: { id: 'homurabug', name: 'ホムラバグ', kind: 'ほのおのむし型', height: 1.2, hp: 30, atk: 7, speed: 2.3, temper: 'wild', tier: 0 },
+  tetsubug: { id: 'tetsubug', name: 'テツバグ', kind: 'はがねのむし型', height: 1.3, hp: 58, atk: 8, speed: 1.2, temper: 'wild', tier: 0 },
+  fuguran: { id: 'fuguran', name: 'フグラン', kind: 'ふくらみ魚型', height: 1.45, hp: 40, atk: 9, speed: 1.5, temper: 'wild', float: true, tier: 0 },
+  shirokage: { id: 'shirokage', name: 'シロカゲ', kind: 'つきのかげ', height: 1.55, hp: 44, atk: 11, speed: 1.7, temper: 'wild', float: true, tier: 0, habit: 'night' },
+  ganmaru: { id: 'ganmaru', name: 'ガンマル', kind: 'ころがりいわ型', height: 1.5, hp: 75, atk: 10, speed: 1.0, temper: 'wild', tier: 0 },
+  hatenashi: { id: 'hatenashi', name: 'ハテナシ', kind: 'ノイズのおう', height: 3.0, hp: 130, atk: 15, speed: 1.0, temper: 'wild', tier: 0, boss: true },
+  kazanou: { id: 'kazanou', name: 'カザンオウ', kind: 'かざんのおう', height: 3.1, hp: 150, atk: 17, speed: 0.75, temper: 'wild', tier: 0, boss: true },
+  sangogani: { id: 'sangogani', name: 'サンゴガニ', kind: 'さんごのカニおう', height: 2.9, hp: 140, atk: 16, speed: 0.85, temper: 'wild', tier: 0, boss: true },
+}
+const FOE_SKILLS: Record<FoeId, { name: string; kind: 'shot' | 'burst' | 'dash' | 'rain' | 'heal' | 'wave'; color: string; mult: number }> = {
+  shimonoiz: { name: 'こごえるノイズ', kind: 'burst', color: '#bfefff', mult: 1.7 },
+  homurabug: { name: 'ひのこミサイル', kind: 'shot', color: '#ff8a3a', mult: 1.6 },
+  tetsubug: { name: 'てっぺきタックル', kind: 'dash', color: '#c9d4e8', mult: 1.9 },
+  fuguran: { name: 'とげだま', kind: 'burst', color: '#ffb84d', mult: 1.8 },
+  shirokage: { name: 'つきかげのまい', kind: 'dash', color: '#d8e8ff', mult: 1.9 },
+  ganmaru: { name: 'ごろごろタックル', kind: 'dash', color: '#c8b89a', mult: 2.0 },
+  hatenashi: { name: 'ノイズストーム', kind: 'wave', color: '#ff3bd4', mult: 2.3 },
+  kazanou: { name: 'ふんかだん', kind: 'rain', color: '#ff7a2a', mult: 2.4 },
+  sangogani: { name: 'サンゴのたたき', kind: 'wave', color: '#ff8ab8', mult: 2.3 },
+}
+Object.assign(NEW_SKILLS, FOE_SKILLS)
+export const SPECIES: Record<SpeciesId, Species> = { ...OLD_SPECIES, ...NEW_SPECIES, ...FOE_SPECIES, ...secretSpecies() }
 export const familyOf = (id: SpeciesId): Family => (FAMILY_OF[id] as Family | undefined) ?? 'plain'
 /** つぎの姿：系統ごとの枝分かれ → なければ 昔からの BRANCH */
 export function nextForm(id: SpeciesId, tier: 1 | 2 | 3, care: Care): SpeciesId {
@@ -774,19 +1211,338 @@ export function nextForm(id: SpeciesId, tier: 1 | 2 | 3, care: Care): SpeciesId 
 }
 export { BABY, EGG_COLORS, FAMILY_NAME, STAGE_EGGS, type EggKind } from './families'
 
-const cache = new Map<SpeciesId, Sheet>()
-export function sheetFor(id: SpeciesId): Sheet {
-  let s = cache.get(id)
+// ---------- 敵の亜種・ボスの出かた ----------
+/** ステージごとに出やすい亜種（森・砂丘・入り江・雪原・回路峰） */
+const STAGE_FOES: SpeciesId[][] = [['ganmaru'], ['homurabug', 'ganmaru'], ['fuguran'], ['shimonoiz'], ['tetsubug', 'shimonoiz']]
+/** ボスは 3 種が順ぐりに。最初に出る子はステージで決まる */
+const BOSSES: SpeciesId[] = ['hatenashi', 'kazanou', 'sangogani']
+const BOSS_START = [0, 1, 2, 0, 1]
+const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)]
+/** ステージの敵のもとの種族を、ときどき そのステージらしい亜種に入れかえる */
+export function enemyFor(id: SpeciesId, stage: number): SpeciesId {
+  if (id === 'yamikage') return Math.random() < (stage >= 3 ? 0.55 : 0.12) ? 'shirokage' : id
+  if (id !== 'noiz' && id !== 'togebug') return id
+  return Math.random() < 0.38 ? pick(STAGE_FOES[stage] ?? STAGE_FOES[0]) : id
+}
+/** 敵軍のふつうの兵：もとの敵 + ステージの亜種が混ざる */
+export function armyMember(stage: number, wave: number): SpeciesId {
+  const r = Math.random()
+  if (Math.random() < 0.4) return pick(STAGE_FOES[stage] ?? STAGE_FOES[0])
+  return enemyFor(r < 0.45 ? 'noiz' : r < 0.85 || wave < 2 ? 'togebug' : 'gougan', stage)
+}
+/** 敵軍のボス（3 回に 1 回、専用の大きな姿） */
+export function armyBoss(stage: number, wave: number): SpeciesId {
+  return BOSSES[((BOSS_START[stage] ?? 0) + Math.max(0, Math.floor(wave / 3) - 1)) % BOSSES.length]
+}
+
+
+// ---------- 個体差（もよう・色のゆらぎ）と 色ちがい ----------
+/** 昔からいる子の「からだ」「あたま」の位置（描画関数と同じ式） */
+const geom = (bx: number, by: number, rx: number, ry: number, hx: number, hy: number, hr: number, cols: string[]): Geom =>
+  ({ bx, by, rx, ry, hx, hy, hr, mx: hx + hr * 0.45, my: hy + hr * 0.5, cols })
+const OLD_GEOM: Record<OldId, (p: Pose) => Geom> = {
+  mebu: (p) => {
+    const ry = 8 - p.sq * 0.7
+    const cx = 16 + p.lean
+    const cy = 30 - ry - 1 + p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
+    return geom(cx, cy, 9 + p.sq * 0.7, ry, cx + 4, cy - 1, 6, ['#6fd26a', '#3f9e4a', '#c8f7b0'])
+  },
+  pikori: (p) => {
+    const ry = 9 - p.sq * 0.6
+    const cx = 16 + p.lean
+    const cy = 29 - ry + p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
+    return geom(cx, cy, 9 + p.sq * 0.6, ry, cx + 3, cy - 3, 5, ['#ffd23f', '#d99a00', '#fff3b0'])
+  },
+  gorota: (p) => geom(14 + p.lean, 22 + p.bob * 0.5, 11, 6 - p.sq * 0.5, 26 + p.lean, 22 + p.bob * 0.5, 3.5, ['#8a94a6', '#5f6878', '#c4ccd8', '#9aa4b6']),
+  fuwari: (p) => geom(16 + p.lean, 14 + p.bob, 8, 6, 17 + p.lean, 14 + p.bob, 5, ['#fdfbff', '#cdb8ec']),
+  giaru: (p) => {
+    const cx = 16 + p.lean
+    const cy = 21 + p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
+    return geom(cx, cy + 2, 6, 5, cx + 0.5, cy - 8 + p.sq * 0.5, 6, ['#5b3fc9', '#8e6cff', '#a58cff', '#6f55d8', '#d6caff'])
+  },
+  hireru: (p) => geom(16 + p.lean, 17 + p.bob, 10 + p.sq * 0.5, 7 - p.sq * 0.5, 22 + p.lean, 16 + p.bob, 5, ['#3fc1c9', '#1f8a9a', '#b8f3f5']),
+  mofuru: (p) => {
+    const ry = 9 - p.sq * 0.7
+    const cx = 16 + p.lean
+    const cy = 29 - ry + p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
+    return geom(cx, cy, 10 + p.sq * 0.7, ry, cx + 4, cy, 6, ['#fbfdff', '#c9d8ee', '#ffffff'])
+  },
+  garudora: (p) => {
+    const cx = 15 + p.lean
+    const cy = 20 + p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
+    return geom(cx, cy + 1, 8, 7 - p.sq * 0.5, cx + 9, cy - 10, 4.5, ['#4a6fa5', '#2a3f6e', '#8fb0e0'])
+  },
+  shioryu: (p) => geom(14 + p.lean, 19 + p.bob, 9, 4, 23 + p.lean, 11 + p.bob, 4.5, ['#2fb5c9', '#1f8a9a', '#9ae6ea']),
+  hoshikujira: (p) => geom(16 + p.lean, 16 + p.bob, 12, 7.5 - p.sq * 0.4, 23 + p.lean, 16 + p.bob, 5, ['#2a3a7a', '#1a2350', '#5a6ab0']),
+  togebug: (p) => geom(16 + p.lean, 24 + p.bob * 0.5, 9, 5.5 - p.sq * 0.5, 25 + p.lean, 25 + p.bob * 0.5, 3, ['#2a6f6a', '#1a4a48', '#5fb8a8']),
+  yamikage: (p) => geom(16 + p.lean, 16 + p.bob, 8, 7, 19 + p.lean, 15 + p.bob, 4, ['#2a1a50', '#3a2a6a']),
+  gougan: (p) => geom(16 + p.lean, 19 + p.bob * 0.5, 9, 8, 18 + p.lean, 9 + p.bob * 0.5, 3.5, ['#4f4740', '#7a6f66', '#a89c90']),
+  noiz: (p) => geom(16 + p.lean, 21 + p.bob * 0.5, 9, 8, 18 + p.lean, 20 + p.bob * 0.5, 4, ['#2b2350', '#1a1530', '#4a3d80']),
+}
+
+/** えの かわりに ふつうの目を持つ子（表情の目の形を eyes() にまかせられる） */
+const PLAIN_EYES = new Set<string>(['mebu', 'pikori', 'gorota', 'fuwari', 'hireru', 'mofuru', 'shioryu', 'hoshikujira'])
+/** 昔の描き方の子には、新しい表情を昔の目・口に置きかえて渡す */
+function legacyPose(id: string, p: Pose): Pose {
+  const mouth = p.mouth === 1 || p.mouth === 4 || p.mouth === 5 ? 1 : 0
+  let eye = p.eye
+  if (!PLAIN_EYES.has(id)) eye = p.eye === 'sleepy' ? 'closed' : p.eye === 'hungry' || p.eye === 'worry' ? 'open' : p.eye
+  return { ...p, mouth, eye }
+}
+
+function drawBody(g: G, id: SpeciesId, p: Pose, f: number): Geom {
+  const old = DRAW_OLD[id as OldId]
+  if (old) {
+    const q = legacyPose(id, p)
+    old(g, q, f)
+    return OLD_GEOM[id as OldId](q)
+  }
+  const foe = DRAW_FOE[id as FoeId]
+  if (foe) {
+    const q = legacyPose(id, p)
+    foe(g, q, f)
+    return FOE_GEOM[id as FoeId](q)
+  }
+  return critter(g, p, f, LOOKS[id])
+}
+
+/** 個体の見た目 8 種（キャッシュが増えすぎないように量子化）：0 ふつう / 1 いろこいめ / 2 いろうすめ / 3 ぶち / 4 しま / 5 そばかす / 6 ほっぺ / 7 しま+いろちがい */
+export const LOOK_NAME = ['', 'いろこいめ', 'いろうすめ', 'ぶち', 'しま', 'そばかす', 'ほっぺ', 'しまもよう']
+const LOOK_BY_SEED = [0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 1, 2, 3, 4, 5, 6]
+/** シード → 見た目 0〜7 */
+export const lookOf = (seed: number) => LOOK_BY_SEED[(seed >>> 0) % 16]
+/** 見た目 0〜7 + 色ちがい(+8) = スプライトの種類 0〜15 */
+export const variantOf = (seed: number, rare: boolean) => lookOf(seed) + (rare ? 8 : 0)
+export const newSeed = () => Math.floor(Math.random() * 0x7fffffff)
+
+const hexRgb = new Map<string, [number, number, number]>()
+const rgbOf = (c: string): [number, number, number] => {
+  let v = hexRgb.get(c)
+  if (!v) {
+    const n = parseInt(c.slice(1), 16)
+    v = [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+    hexRgb.set(c, v)
+  }
+  return v
+}
+function toHsl(r: number, g: number, b: number): [number, number, number] {
+  r /= 255
+  g /= 255
+  b /= 255
+  const mx = Math.max(r, g, b)
+  const mn = Math.min(r, g, b)
+  const l = (mx + mn) / 2
+  if (mx === mn) return [0, 0, l]
+  const d = mx - mn
+  const s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn)
+  const h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4
+  return [h * 60, s, l]
+}
+function fromHsl(h: number, s: number, l: number): [number, number, number] {
+  h = ((h % 360) + 360) % 360
+  const c = (1 - Math.abs(2 * l - 1)) * s
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
+  const m = l - c / 2
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x]
+  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)]
+}
+
+/** 色ちがい：系統ごとに色相をずらす量（すこし白っぽい子は 彩度も足す） */
+const RARE_SHIFT: Record<string, number> = { plain: 165, machine: 125, dragon: 150, cat: 205, dog: 175, bird: 140, water: 135, monster: 105 }
+const rareShift = (id: string) => RARE_SHIFT[FAMILY_OF[id] ?? 'plain'] ?? 150
+
+type Mode = 'spot' | 'stripe' | 'freckle' | 'cheek'
+/** もよう・色のゆらぎ・色ちがいを、描き終えた絵のからだの色の所にだけ重ねる（目・口・飾りはそのまま） */
+function decorate(g: G, o: Geom, vk: number, id: string) {
+  const look = vk & 7
+  const rare = vk >= 8
+  if (!look && !rare) return
+  const W = g.canvas.width
+  const H = g.canvas.height
+  const img = g.getImageData(0, 0, W, H)
+  const d = img.data
+  const cols = o.cols.map(rgbOf)
+  const mode: Mode | '' = look === 3 ? 'spot' : look === 4 || look === 7 ? 'stripe' : look === 5 ? 'freckle' : look === 6 ? 'cheek' : ''
+  if (mode) {
+    const ell2 = (u: number, v: number, cx: number, cy: number, a: number, b: number) => ((u - cx) / a) ** 2 + ((v - cy) / b) ** 2 < 1
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const i = (y * W + x) * 4
+        if (d[i + 3] < 200 || !cols.some((c) => Math.abs(d[i] - c[0]) + Math.abs(d[i + 1] - c[1]) + Math.abs(d[i + 2] - c[2]) <= 44)) continue
+        const u = (x - PAD + 0.5) / 2
+        const v = (y - PAD + 0.5) / 2
+        let on = false
+        if (mode === 'spot') {
+          on = ell2(u, v, o.bx - o.rx * 0.42, o.by - o.ry * 0.12, o.rx * 0.34, o.ry * 0.34) || ell2(u, v, o.bx + o.rx * 0.2, o.by + o.ry * 0.42, o.rx * 0.28, o.ry * 0.26) || ell2(u, v, o.bx + o.rx * 0.55, o.by - o.ry * 0.3, o.rx * 0.2, o.ry * 0.22)
+        } else if (mode === 'stripe') {
+          on = ell2(u, v, o.bx, o.by, o.rx * 1.08, o.ry * 1.08) && ((u - o.bx) * 0.9 + (v - o.by) * 0.35 + 200) % 4.4 < 1.6
+        } else if (mode === 'freckle') {
+          for (const [dx, dy] of FRECKLES) if ((u - (o.hx + dx * o.hr)) ** 2 + (v - (o.hy + dy * o.hr)) ** 2 < 0.36) on = true
+        } else {
+          on = ell2(u, v, o.hx + o.hr * 0.2, o.hy + o.hr * 0.38, Math.max(1.3, o.hr * 0.26), Math.max(0.9, o.hr * 0.17)) || ell2(u, v, o.hx + o.hr * 0.78, o.hy + o.hr * 0.34, Math.max(1.3, o.hr * 0.26), Math.max(0.9, o.hr * 0.17))
+        }
+        if (!on) continue
+        const light = d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11 > 85
+        if (mode === 'spot' || mode === 'stripe') {
+          const k = mode === 'spot' ? [0.66, 0.58, 0.56] : [0.62, 0.62, 0.74]
+          for (let ch = 0; ch < 3; ch++) d[i + ch] = light ? d[i + ch] * k[ch] : Math.min(255, d[i + ch] + 40)
+        } else {
+          const t = mode === 'freckle' ? (light ? [120, 64, 40] : [255, 214, 140]) : [255, 128, 156]
+          const m = mode === 'freckle' ? 0.75 : 0.6
+          for (let ch = 0; ch < 3; ch++) d[i + ch] = d[i + ch] * (1 - m) + t[ch] * m
+        }
+      }
+  }
+  const dh = look === 1 ? -11 : look === 2 || look === 7 ? 11 : 0
+  const dl = look === 1 ? -0.035 : look === 2 ? 0.045 : 0
+  const rs = rare ? rareShift(id) : 0
+  if (dh || dl || rare) {
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] === 0) continue
+      if (rare && d[i] >= 254 && d[i + 1] >= 254 && d[i + 2] >= 254) continue
+      let [h, s, l] = toHsl(d[i], d[i + 1], d[i + 2])
+      if (l < 0.17) continue
+      if (rare) {
+        s += Math.max(0, 0.5 - s) * 0.85
+        if (l > 0.88) l = 0.88 + (l - 0.88) * 0.45
+        h += rs
+      } else {
+        if (s < 0.1 || l > 0.97) continue
+        h += dh
+        l += dl
+      }
+      const [r, gg, b] = fromHsl(h, s, l)
+      d[i] = r
+      d[i + 1] = gg
+      d[i + 2] = b
+    }
+  }
+  g.putImageData(img, 0, 0)
+}
+const FRECKLES = [[0.3, 0.2], [0.52, 0.3], [0.16, 0.34], [0.62, 0.08], [0.4, 0.42], [0.04, 0.22], [0.55, 0.5]]
+
+const clampTo = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x))
+/** 表情のしるし（ハート・よだれ・z・あせ・#）。色ちがいの色相ずらしを受けないよう、最後に重ねる */
+function drawMark(g: G, mark: Mark, o: Geom, f: number) {
+  if (!mark) return
+  const alt = f % 2
+  const top = o.hy - o.hr
+  if (mark === 'drool') {
+    const x = clampTo(o.mx + 1.2, 2, 31)
+    const y = clampTo(o.my + 2.6 + alt * 0.9, 3, 29)
+    poly(g, '#8fd8ff', [x, y - 1.6, x - 0.9, y, x + 0.9, y])
+    ell(g, '#8fd8ff', x, y + 0.2, 1, 1)
+    rect(g, '#ffffff', x - 0.5, y - 0.3, 0.5, 0.5)
+  } else if (mark === 'z') {
+    const x = clampTo(o.hx + o.hr * 0.8 + 1, 3, 29)
+    const y = clampTo(top - 1.5 - alt, 6, 24)
+    const z = (zx: number, zy: number, w: number) => {
+      rect(g, '#d8ecff', zx, zy, w, 0.6)
+      rect(g, '#d8ecff', zx, zy + w - 0.6, w, 0.6)
+      poly(g, '#d8ecff', [zx + w, zy + 0.5, zx + w - 0.9, zy + 0.5, zx, zy + w - 0.5, zx + 0.9, zy + w - 0.5])
+    }
+    z(x, y, 3)
+    z(x + 2.8, y - 3.8, 2)
+  } else if (mark === 'vein') {
+    const x = clampTo(o.hx + o.hr * 0.7, 3, 30)
+    const y = clampTo(top - 0.5, 4, 26)
+    const a = alt ? 1.15 : 1
+    const c = '#ff3b3b'
+    rect(g, c, x - 0.9 * a, y - 1.6 * a, 0.5, 3.2 * a)
+    rect(g, c, x + 0.5 * a, y - 1.6 * a, 0.5, 3.2 * a)
+    rect(g, c, x - 1.6 * a, y - 0.9 * a, 3.2 * a, 0.5)
+    rect(g, c, x - 1.6 * a, y + 0.5 * a, 3.2 * a, 0.5)
+  } else if (mark === 'sweat') {
+    const x = clampTo(o.hx + o.hr * 0.95, 3, 31)
+    const y = clampTo(o.hy - o.hr * 0.5 + alt * 0.9, 4, 26)
+    poly(g, '#7fd1ff', [x, y - 2.2, x - 1.2, y + 0.2, x + 1.2, y + 0.2])
+    ell(g, '#7fd1ff', x, y + 0.5, 1.2, 1.2)
+    rect(g, '#ffffff', x - 0.6, y, 0.5, 0.8)
+  } else if (mark === 'heart') {
+    const x = clampTo(o.hx + o.hr * 0.8 + 1, 4, 30)
+    const y = clampTo(top - 2 - alt, 5, 26)
+    const c = '#ff6f9c'
+    rect(g, c, x - 1.5, y - 1, 1, 1)
+    rect(g, c, x + 0.5, y - 1, 1, 1)
+    rect(g, c, x - 1.5, y, 3, 1)
+    rect(g, c, x - 1, y + 1, 2, 1)
+    rect(g, c, x - 0.5, y + 2, 1, 0.5)
+    rect(g, '#ffd0e0', x - 1.5, y - 1, 0.5, 0.5)
+  }
+}
+/** 色ちがいのしるし：あたまの上の金の ★ */
+function drawStar(g: G, o: Geom, f: number) {
+  const x = clampTo(o.hx - o.hr * 0.55, 4, 29)
+  const y = clampTo(o.hy - o.hr - 2.4, 3.6, 26)
+  const R = f % 2 ? 2.6 : 2.2
+  const star = (r: number, c: string) => {
+    const pts: number[] = []
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + (i * Math.PI) / 5
+      const rr = i % 2 ? r * 0.45 : r
+      pts.push(x + Math.cos(a) * rr, y + Math.sin(a) * rr)
+    }
+    poly(g, c, pts)
+  }
+  star(R, '#ffd23f')
+  star(R * 0.5, '#fff6b0')
+}
+
+function paintFrame(g: G, id: SpeciesId, p: Pose, i: number, vk: number) {
+  g.scale(2, 2)
+  const geo = drawBody(g, id, p, i)
+  decorate(g, geo, vk, id)
+  if (p.mark) drawMark(g, p.mark, geo, i)
+  if (vk >= 8) drawStar(g, geo, i)
+}
+
+const cache = new Map<string, Sheet>()
+/** スプライトシート：id × 見た目 vk（0〜15、8 以上 = 色ちがい）。生成時に 1 回だけ焼いてキャッシュする */
+export function sheetFor(id: SpeciesId, vk = 0): Sheet {
+  const key = `${id}:${vk}`
+  let s = cache.get(key)
   if (!s) {
     // 2 倍の解像度（68×64）で描き、自動陰影と色付き輪郭をかける
-    const frames = POSES.map((p, i) =>
-      pixelSprite(68, 64, (g) => {
-        g.scale(2, 2)
-        ;(DRAW_OLD[id as OldId] ?? ((gg: G, pp: Pose, ff: number) => critter(gg, pp, ff, LOOKS[id])))(g, p, i)
-      }, '#1a1530', { shade: true }),
-    )
+    const frames = POSES.map((p, i) => pixelSprite(68, 64, (g) => paintFrame(g, id, p, i, vk), '#1a1530', { shade: true }))
     s = buildSheet(frames, ANIMS)
-    cache.set(id, s)
+    cache.set(key, s)
+  }
+  return s
+}
+
+const portraits = new Map<string, HTMLCanvasElement>()
+/** ずかん用：1 コマ目だけ焼いた小さな絵（シート全体を作らない） */
+export function portraitFor(id: SpeciesId, vk = 0): HTMLCanvasElement {
+  const key = `${id}:${vk}`
+  let c = portraits.get(key)
+  if (!c) {
+    c = cache.get(key) ? (cache.get(key)!.texture.image as HTMLCanvasElement) : pixelSprite(68, 64, (g) => paintFrame(g, id, POSES[0], 0, vk), '#1a1530', { shade: true })
+    portraits.set(key, c)
+  }
+  return c
+}
+
+const silhouettes = new Map<string, Sheet>()
+/** 進化の演出用：白いシルエットだけの 1 コマ（どのアニメ名でも同じ絵）。色ちがいの飾りや表情は入れない */
+export function silhouetteFor(id: SpeciesId): Sheet {
+  let s = silhouettes.get(id)
+  if (!s) {
+    const frame = pixelSprite(
+      68,
+      64,
+      (g) => {
+        g.scale(2, 2)
+        drawBody(g, id, POSES[0], 0)
+        g.globalCompositeOperation = 'source-in'
+        g.fillStyle = '#ffffff'
+        g.fillRect(-10, -10, 80, 80)
+      },
+      '#9fdcff',
+    )
+    const anims: Record<string, AnimDef> = {}
+    for (const k of Object.keys(ANIMS)) anims[k] = { frames: [0], fps: 1, loop: true }
+    s = buildSheet([frame], anims, false)
+    silhouettes.set(id, s)
   }
   return s
 }
@@ -798,18 +1554,23 @@ export interface MonsterView {
   play(name: string): void
   update(dt: number): void
   setHeight(h: number): void
-  setSpecies(id: SpeciesId, height: number): void
+  setSpecies(id: SpeciesId, height: number, variant?: number): void
+  /** 進化の演出：白いシルエットにする（setSpecies で元にもどる）。3D モデルでは使わない */
+  silhouette?(id: SpeciesId, height: number): void
   dispose(): void
 }
 
 /** 2.5D のドット絵キャラ（やられた時は赤く色づく） */
 export class SpriteMonster extends SpriteAnim implements MonsterView {
   private cur = 'idle'
-  constructor(id: SpeciesId, height: number) {
-    super(sheetFor(id), height, 'idle')
+  constructor(id: SpeciesId, height: number, variant = 0) {
+    super(sheetFor(id, variant), height, 'idle')
   }
-  setSpecies(id: SpeciesId, height: number) {
-    this.setSheet(sheetFor(id), height)
+  setSpecies(id: SpeciesId, height: number, variant = 0) {
+    this.setSheet(sheetFor(id, variant), height)
+  }
+  silhouette(id: SpeciesId, height: number) {
+    this.setSheet(silhouetteFor(id), height)
   }
   play(name: string, restart = false) {
     this.cur = name

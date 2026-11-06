@@ -39,7 +39,11 @@ export default defineConfig({
         lang: 'ja',
         start_url: '.',
         scope: '.',
-        display: 'fullscreen',
+        // 全画面に対応していない環境では standalone（それも無ければ通常のブラウザ表示）になる
+        display: 'standalone',
+        display_override: ['fullscreen', 'standalone'],
+        id: './',
+        categories: ['games', 'entertainment'],
         orientation: 'portrait',
         background_color: '#1d1a17',
         theme_color: '#1d1a17',
@@ -49,7 +53,23 @@ export default defineConfig({
           { src: 'icons/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      workbox: { globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'] },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
+        // ドット文字（Google Fonts）は本体に含めず、一度表示したらキャッシュして、オフラインでも同じ見た目にする
+        // （読めない時は World.ts の FONT / style.css の代替フォントになる）
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/fonts\.googleapis\.com\//,
+            handler: 'StaleWhileRevalidate',
+            options: { cacheName: 'pulsar-font-css', cacheableResponse: { statuses: [0, 200] } },
+          },
+          {
+            urlPattern: /^https:\/\/fonts\.gstatic\.com\//,
+            handler: 'CacheFirst',
+            options: { cacheName: 'pulsar-font-files', expiration: { maxEntries: 40, maxAgeSeconds: 60 * 60 * 24 * 365 }, cacheableResponse: { statuses: [0, 200] } },
+          },
+        ],
+      },
     }),
   ],
 })
