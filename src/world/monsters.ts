@@ -1,4 +1,5 @@
 import { PAD, SpriteAnim, buildSheet, pixelSprite, type AnimDef, type Sheet } from './sprites'
+import { SECRET_FORMS, secretSpecies, type SecretId } from './secrets'
 import { CHAINS, FAMILIES, FAMILY_OF, FAMILY_SPEED, TIER_BASE, WATER_NEW, EVOLVE, type Look, type Family } from './families'
 
 /**
@@ -13,7 +14,7 @@ type FoeId = 'shimonoiz' | 'homurabug' | 'tetsubug' | 'fuguran' | 'shirokage' | 
 /** 系統の仲間（families.ts） */
 export type NewId =
   | 'nejiru' | 'boruta' | 'kacha' | 'tankuru' | 'kurokko' | 'metarion' | 'ryuuko' | 'honora' | 'kazeru' | 'bakuryu' | 'raigaru' | 'tenryuu' | 'mimiko' | 'tsumeru' | 'yoruna' | 'torahime' | 'tsukineko' | 'nekomata' | 'wanko' | 'kibaru' | 'fuwan' | 'garufu' | 'mamoru' | 'rouga' | 'piyo' | 'habataki' | 'utaru' | 'hayate' | 'hoshiro' | 'hikaritori' | 'gabuko' | 'oniko' | 'nurari' | 'ogaran' | 'bakeran' | 'yamatan' | 'shizuku' | 'awako' | 'kaimaru'
-export type SpeciesId = OldId | NewId | FoeId
+export type SpeciesId = OldId | NewId | FoeId | SecretId
 
 export interface Species {
   id: SpeciesId
@@ -1173,6 +1174,11 @@ for (const ch of CHAINS) {
     }
   })
 }
+// 隠しの姿（secrets.ts）：見た目・技・ステータスを足す
+for (const s of SECRET_FORMS) {
+  LOOKS[s.id] = s.look
+  NEW_SKILLS[s.id] = { name: s.skill[0], kind: s.skill[1], color: s.skill[2], mult: s.skill[3] }
+}
 /** 敵の亜種 6 種とボス 3 種（オリジナル）。もとの敵に混ざって、ステージや敵軍の波で出てくる */
 const FOE_SPECIES: Record<FoeId, Species> = {
   shimonoiz: { id: 'shimonoiz', name: 'シモノイズ', kind: 'こおりのかけら型', height: 1.4, hp: 42, atk: 7, speed: 1.4, temper: 'wild', tier: 0 },
@@ -1197,7 +1203,7 @@ const FOE_SKILLS: Record<FoeId, { name: string; kind: 'shot' | 'burst' | 'dash' 
   sangogani: { name: 'サンゴのたたき', kind: 'wave', color: '#ff8ab8', mult: 2.3 },
 }
 Object.assign(NEW_SKILLS, FOE_SKILLS)
-export const SPECIES: Record<SpeciesId, Species> = { ...OLD_SPECIES, ...NEW_SPECIES, ...FOE_SPECIES }
+export const SPECIES: Record<SpeciesId, Species> = { ...OLD_SPECIES, ...NEW_SPECIES, ...FOE_SPECIES, ...secretSpecies() }
 export const familyOf = (id: SpeciesId): Family => (FAMILY_OF[id] as Family | undefined) ?? 'plain'
 /** つぎの姿：系統ごとの枝分かれ → なければ 昔からの BRANCH */
 export function nextForm(id: SpeciesId, tier: 1 | 2 | 3, care: Care): SpeciesId {

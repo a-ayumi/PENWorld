@@ -82,6 +82,19 @@ body.clean #toolbar, body.clean #dress, body.clean #dress-panel, body.clean #dex
 .dex-cell canvas.rare { position: absolute; top: 1px; right: 1px; width: 26px; height: 24px; border-radius: 8px; background: rgba(255,214,64,.18); box-shadow: 0 0 0 1px rgba(255,214,64,.55); }
 .dex-cell.rare-seen canvas.rare { opacity: .6; }
 .dex-cell.seen canvas.rare { opacity: .6; }
+#dex-panel h3 span { color: var(--ink); font-weight: 400; margin-left: 6px; }
+#sec-forms { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+.sec-row { display: flex; gap: 8px; align-items: flex-start; padding: 8px; border-radius: 10px; background: rgba(255,255,255,.05); color: var(--muted); }
+.sec-row.found { background: rgba(242,177,52,.14); color: var(--ink); }
+.sec-row canvas { width: 56px; height: 52px; flex: none; image-rendering: pixelated; }
+.sec-row b { display: block; font-size: calc(13px * var(--ts)); color: var(--ink); }
+.sec-row small { font-size: calc(10px * var(--ts)); opacity: .75; }
+.sec-row ul { margin: 4px 0 0; padding-left: 14px; font-size: calc(11px * var(--ts)); line-height: 1.55; }
+#sec-events { display: grid; gap: 6px; }
+.sec-ev { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; border-radius: 10px; background: rgba(255,255,255,.05); color: var(--muted); }
+.sec-ev.found { background: rgba(242,177,52,.14); color: var(--ink); }
+.sec-ev b { font-size: calc(12px * var(--ts)); color: var(--ink); }
+.sec-ev small { font-size: calc(11px * var(--ts)); line-height: 1.5; }
 #dex-lineage { margin: 0; font-size: calc(12px * var(--ts)); line-height: 1.7; color: var(--ink); }
 
 /* 画面に入る（Cボタンは「もどる」専用なので、入るのは外のボタン） */

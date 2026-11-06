@@ -501,6 +501,60 @@ resetBtn.addEventListener('click', () => {
 // ---------------- ずかん ----------------
 const dexBtn = document.getElementById('dex-btn') as HTMLButtonElement
 const dexPanel = document.getElementById('dex-panel') as HTMLElement
+/** ずかんの「ひみつ」欄：隠しの姿（ヒントが 1 行ずつ増える）とできごと。文字は textContent だけで入れる */
+function renderSecrets() {
+  const info = world.secretInfo()
+  document.getElementById('sec-form-n')!.textContent = `${info.formsFound}/${info.forms.length}`
+  document.getElementById('sec-ev-n')!.textContent = `${info.eventsFound}/${info.events.length}`
+  const forms = document.getElementById('sec-forms')!
+  forms.replaceChildren()
+  for (const f of info.forms) {
+    const row = document.createElement('div')
+    row.className = 'sec-row' + (f.found ? ' found' : '')
+    const cv = document.createElement('canvas')
+    cv.width = 56
+    cv.height = 52
+    const g = cv.getContext('2d')
+    if (g && f.found) {
+      const pic = portraitFor(f.id as SpeciesId)
+      g.imageSmoothingEnabled = false
+      g.drawImage(pic, 0, 0, pic.width, pic.height, 0, 0, 56, 52)
+    } else if (g) {
+      g.fillStyle = 'rgba(243,234,216,.35)'
+      g.font = '28px sans-serif'
+      g.textAlign = 'center'
+      g.fillText('?', 28, 38)
+    }
+    const body = document.createElement('div')
+    const name = document.createElement('b')
+    name.textContent = f.found ? f.name : '？？？'
+    const meta = document.createElement('small')
+    meta.textContent = f.found ? f.kind : `${f.known}/${f.total} ヒント`
+    body.append(name, meta)
+    const ul = document.createElement('ul')
+    const lines = f.found && f.story ? [f.story, ...f.lines] : f.lines
+    for (const l of lines.length ? lines : ['まだ なにも わからない…']) {
+      const li = document.createElement('li')
+      li.textContent = l
+      ul.appendChild(li)
+    }
+    body.appendChild(ul)
+    row.append(cv, body)
+    forms.appendChild(row)
+  }
+  const evs = document.getElementById('sec-events')!
+  evs.replaceChildren()
+  for (const e of info.events) {
+    const row = document.createElement('div')
+    row.className = 'sec-ev' + (e.found ? ' found' : '')
+    const name = document.createElement('b')
+    name.textContent = e.found ? `★ ${e.name}` : '？？？'
+    const text = document.createElement('small')
+    text.textContent = e.text
+    row.append(name, text)
+    evs.appendChild(row)
+  }
+}
 function renderDex() {
   const info = world.dexInfo()
   document.getElementById('dex-summary')!.textContent = `なかま ${info.owned}/${info.total}　みつけた ${info.seen}/${info.all}　★いろちがい ${info.rareOwned}/${info.rareSeen}　いまは だい${info.gen}せだい（じゅみょう ${Math.round((1 - info.life) * 100)}%）`
@@ -555,6 +609,7 @@ function renderDex() {
     }
     grid.appendChild(cell)
   }
+  renderSecrets()
   document.getElementById('dex-lineage')!.textContent = info.lineage.length ? `${info.lineage.join(' → ')} → ${info.pet}（いま）` : `${info.pet}（はじめの だい）`
 }
 dexBtn.addEventListener('click', () => {
