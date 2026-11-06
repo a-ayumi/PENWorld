@@ -241,13 +241,15 @@ const WEATHER_NAME: Record<Weather, string> = { sun: 'はれ', cloud: 'くもり
 const WEATHER_MSG: Record<Weather, string> = {
   sun: 'そらが はれてきた', cloud: 'くもが でてきた', rain: 'あめが ふってきた', snow: 'ゆきが ふってきた', ember: 'ひのこが まいはじめた…',
 }
-/** ステージごとの天気の出やすさ（森・砂丘・入り江・雪原・雪山） */
+/** ステージごとの天気の出やすさ（森・砂丘・入り江・雪原・雪山・火山・遺跡） */
 const WEATHER_W: Partial<Record<Weather, number>>[] = [
   { sun: 4, cloud: 2.5, rain: 2.5, snow: 0.4, ember: 0.6 },
   { sun: 4.5, cloud: 2, ember: 3, rain: 0.5 },
   { sun: 4.5, cloud: 2, rain: 3, ember: 0.5 },
   { snow: 5, cloud: 2.5, sun: 2.5, ember: 0.3 },
   { snow: 6, cloud: 3, sun: 1, ember: 0.6 },
+  { ember: 6, cloud: 2.5, sun: 2, rain: 0.2 }, // かざん
+  { cloud: 4, rain: 3, sun: 2.5, ember: 0.1 }, // いせき（くもり = きりが深い）
 ]
 /** 天気ごとの「目標」（強さは World.wx が なめらかに近づく） */
 const WX: Record<Weather, { rain: number; snow: number; ember: number; wind: number; cloud: number; grey: number; mist: number }> = {
@@ -438,7 +440,7 @@ export class World {
     this.scene.add(s.group)
     fxLod(s.group, this.high)
     this.wfx.setGround(s.heightAt, SIZE, s.obstacles.filter((o) => o.water))
-    this.scene.fog = new THREE.Fog(s.fog, 14, 34)
+    this.scene.fog = new THREE.Fog(s.fog, ...(s.fogRange ?? [14, 34]))
     this.hemi.color.set(s.hemi[0])
     this.hemi.groundColor.set(s.hemi[1])
     this.sun.color.set(s.sun.color)
@@ -484,9 +486,9 @@ export class World {
     this.ambient = []
     const bfSheets = ['#ffd23f', '#ff8fb1', '#9fd8ff', '#ffffff', '#b48cff'].map((col) => iconSheet(['.....', 'oo.oo', 'ooxoo', 'oo.oo', '.....'], { o: col, x: '#3d2a1e' }))
     const ff = iconSheet(['.....', '..o..', '.ooo.', '..o..', '.....'], { o: '#d8ff7a' })
-    const ice = iconSheet(['.....', '..o..', '.ooo.', '..o..', '.....'], { o: '#aef0ff' })
+    const ice = iconSheet(['.....', '..o..', '.ooo.', '..o..', '.....'], { o: this.stageIndex === 5 ? '#ffb347' : '#aef0ff' })
     for (let i = 0; i < 12; i++) {
-      const kind: 'bf' | 'ff' | 'ice' = this.stageIndex === 4 ? 'ice' : i < 7 ? 'bf' : 'ff'
+      const kind: 'bf' | 'ff' | 'ice' = this.stageIndex === 4 || this.stageIndex === 5 ? 'ice' : i < 7 ? 'bf' : 'ff'
       const sheet = kind === 'bf' ? bfSheets[i % bfSheets.length] : kind === 'ff' ? ff : ice
       const s = new SpriteAnim(sheet, kind === 'bf' ? 0.32 : kind === 'ff' ? 0.3 : 0.22)
       s.sprite.center.set(0.5, 0.5)
@@ -2108,7 +2110,7 @@ export class World {
     return this.vLv
   }
   private villageName() {
-    const base = ['ミドリ', 'スナハマ', 'サンゴ', 'ワタユキ', 'コオリ'][this.stageIndex] ?? 'ホシ'
+    const base = ['ミドリ', 'スナハマ', 'サンゴ', 'ワタユキ', 'コオリ', 'ホムラ', 'イシブミ'][this.stageIndex] ?? 'ホシ'
     return base + ['', 'むら', 'まち', 'じょうかまち'][this.vLv]
   }
 
@@ -3165,8 +3167,8 @@ export class World {
     // 夜だけ出てくる敵
     this.nightSpawnT -= dt
     const shadows = this.creatures.filter((c) => c.sp.habit === 'night' && c.state !== 'dead')
-    if (this.night > 0.6 && this.nightSpawnT <= 0 && shadows.length < 2) {
-      this.nightSpawnT = 25
+    if (this.night > 0.6 && this.nightSpawnT <= 0 && shadows.length < (this.stage.shadows ?? 2)) {
+      this.nightSpawnT = this.stage.shadows ? 14 : 25
       const q = this.freePos(6)
       this.spawn('yamikage', 'wild', q.x, q.z)
       if (shadows.length === 0) this.say('くらやみから ヤミカゲが あらわれた…')
