@@ -137,6 +137,7 @@ function applyQuality() {
   composer.setPixelRatio(dpr)
   bokeh.enabled = quality === 'high'
   bloom.enabled = quality === 'high'
+  world.setQuality(quality)
   const q = quality === 'high' ? '高' : '低'
   qualityBtn.textContent = `画質: ${qualityPref === 'auto' ? `自動(${q})` : q}`
   syncQualityChips()
@@ -267,6 +268,7 @@ function rebuildPlace() {
 function applyMood(name: keyof typeof MOODS) {
   if (name === currentMood) return
   currentMood = name
+  world.setDayPart(name)
   const m: Mood = MOODS[name]
   sun.color.set(m.sun)
   sun.intensity = m.sunI

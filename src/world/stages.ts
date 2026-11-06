@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { psx, SNAP_GLSL, snapUniform } from './psx'
 import { Tex, rng } from './textures'
+import { fxU } from './fx'
+import { floaters, grass, swayify, waterSurface } from './fxprops'
 import type { SpeciesId } from './monsters'
 
 /**
@@ -55,7 +57,7 @@ function mounds(x: number, z: number, list: [number, number, number, number][]) 
 const edge = (x: number, z: number) => smooth(SIZE / 2, SIZE / 2 - 2.5, Math.max(Math.abs(x), Math.abs(z)))
 
 // ---------- 共通パーツ ----------
-function terrain(heightAt: (x: number, z: number) => number, map: THREE.Texture, tint: [string, string]) {
+function terrain(heightAt: (x: number, z: number) => number, map: THREE.Texture, tint: [string, string], snowy = true) {
   // 起伏をなめらかに見せるため 1 マスを 2 分割（PS1 っぽさは頂点スナップで残る）
   const geo = new THREE.PlaneGeometry(SIZE, SIZE, SIZE * 2, SIZE * 2).rotateX(-Math.PI / 2)
   const pos = geo.attributes.position
@@ -73,7 +75,7 @@ function terrain(heightAt: (x: number, z: number) => number, map: THREE.Texture,
   }
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
   geo.computeVertexNormals()
-  const mesh = new THREE.Mesh(geo, psx(new THREE.MeshLambertMaterial({ map, vertexColors: true })))
+  const mesh = new THREE.Mesh(geo, psx(new THREE.MeshLambertMaterial({ map, vertexColors: true }), { ground: true, snow: snowy }))
   return mesh
 }
 
@@ -129,23 +131,51 @@ function skyDome(colors: [string, string, string], aurora: number) {
     uniforms: {
       top: { value: new THREE.Color(colors[0]) }, mid: { value: new THREE.Color(colors[1]) }, bot: { value: new THREE.Color(colors[2]) },
       time: { value: 0 }, night: { value: 0 }, aurora: { value: aurora }, uSnap: snapUniform,
+      uGrey: fxU.uGrey, uEmber: fxU.uEmber, uBow: fxU.uBow, uBowDir: fxU.uBowDir,
     },
     vertexShader: /* glsl */ `
       ${SNAP_GLSL}
       varying vec3 vDir;
       void main() { vDir = normalize(position); gl_Position = psxSnap(projectionMatrix * modelViewMatrix * vec4(position, 1.0)); }`,
     fragmentShader: /* glsl */ `
-      uniform vec3 top; uniform vec3 mid; uniform vec3 bot; uniform float time; uniform float night; uniform float aurora;
+      uniform vec3 top; uniform vec3 mid; uniform vec3 bot; uniform float time; uniform float night; uniform float aurora; uniform float uGrey; uniform float uEmber; uniform float uBow; uniform vec3 uBowDir;
       varying vec3 vDir;
       float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
       void main() {
         float y = vDir.y;
         vec3 c = y > 0.0 ? mix(mid, top, smoothstep(0.0, 0.6, y)) : mix(mid, bot, smoothstep(0.0, -0.4, y));
+        // 天気：くもり・あめは灰色に、ひのこは赤く煙る
+        c = mix(c, vec3(dot(c, vec3(0.3, 0.59, 0.11))) * vec3(0.86, 0.9, 0.98) * 0.9, uGrey);
+        c = mix(c, mix(vec3(0.5, 0.1, 0.06), vec3(1.0, 0.42, 0.16), smoothstep(0.45, -0.05, y)), uEmber * 0.85);
         c = mix(c, c * vec3(0.18, 0.22, 0.45), night);
-        // 星
-        vec2 g = floor(vec2(atan(vDir.z, vDir.x) * 60.0, y * 60.0));
+        // 星（ゆっくり回る。曇りは見えない）
+        float ang = atan(vDir.z, vDir.x) + time * 0.012;
+        vec2 g = floor(vec2(ang * 60.0, y * 60.0));
         float s = step(0.992, hash(g)) * smoothstep(0.05, 0.4, y);
-        c += vec3(s) * (night * 0.9 + aurora * 0.6) * (0.6 + 0.4 * sin(time * 2.0 + hash(g) * 30.0));
+        c += vec3(s) * (night * 0.9 * (1.0 - uGrey) + aurora * 0.6) * (0.6 + 0.4 * sin(time * 2.0 + hash(g) * 30.0));
+        // 月（ほそい月が空をゆっくり横切る）
+        if (night > 0.02) {
+          float ma = time * 0.02 + 2.2;
+          vec3 md = normalize(vec3(cos(ma) * 0.85, 0.48 + 0.12 * sin(ma * 0.7), sin(ma) * 0.85));
+          vec3 t1 = normalize(cross(md, vec3(0.0, 1.0, 0.0)));
+          vec3 t2 = cross(t1, md);
+          vec2 mp = vec2(dot(vDir, t1), dot(vDir, t2)) / 0.075;
+          float inFront = step(0.0, dot(vDir, md));
+          float disc = step(length(mp), 1.0) * inFront;
+          float bite = step(length(mp - vec2(0.5, 0.25)), 0.88);
+          float halo = smoothstep(2.6, 1.0, length(mp)) * inFront;
+          c += (disc * (1.0 - bite) * vec3(1.0, 0.96, 0.78) + halo * vec3(0.05, 0.06, 0.1)) * night * (1.0 - uGrey * 0.9);
+        }
+        // にじ（雨あがり。太陽の反対がわに 7 色の弧）
+        if (uBow > 0.01) {
+          vec3 bc = normalize(vec3(uBowDir.x, -0.35, uBowDir.z));
+          float bd = acos(clamp(dot(vDir, bc), -1.0, 1.0)) - 0.66;
+          float bi = floor(bd / 0.017);
+          if (bi >= 0.0 && bi < 7.0) {
+            vec3 rb = bi < 1.0 ? vec3(1.0, 0.25, 0.25) : bi < 2.0 ? vec3(1.0, 0.6, 0.2) : bi < 3.0 ? vec3(1.0, 0.95, 0.35) : bi < 4.0 ? vec3(0.4, 0.9, 0.4) : bi < 5.0 ? vec3(0.35, 0.8, 1.0) : bi < 6.0 ? vec3(0.4, 0.45, 1.0) : vec3(0.7, 0.4, 0.95);
+            c = mix(c, rb, uBow * 0.55 * smoothstep(-0.02, 0.12, y));
+          }
+        }
         // オーロラ
         float band = sin(atan(vDir.z, vDir.x) * 5.0 + time * 0.25) * 0.08 + 0.32;
         float a = smoothstep(0.12, 0.0, abs(y - band)) * aurora;
@@ -190,7 +220,7 @@ function motes(color: string, count = 60, fall = false) {
 }
 
 function lambert(color: string, extra: THREE.MeshLambertMaterialParameters = {}) {
-  return psx(new THREE.MeshLambertMaterial({ color, flatShading: true, ...extra }))
+  return psx(new THREE.MeshLambertMaterial({ color, flatShading: true, ...extra }), { snow: !extra.emissive })
 }
 
 /** 小物の置き場所を選ぶ（中央と既存の物を避ける） */
@@ -225,23 +255,12 @@ function seedGrove(): Stage {
   const foodSpots: FoodSpot[] = []
   const put = placer(11, obstacles)
 
-  // データの泉（光る水面）
-  const springMat = new THREE.ShaderMaterial({
-    uniforms: { time: { value: 0 }, uSnap: snapUniform },
-    vertexShader: `${SNAP_GLSL} varying vec2 vUv; void main(){ vUv = uv; gl_Position = psxSnap(projectionMatrix * modelViewMatrix * vec4(position,1.0)); }`,
-    fragmentShader: /* glsl */ `
-      uniform float time; varying vec2 vUv;
-      void main(){
-        float d = distance(vUv, vec2(0.5));
-        float ring = step(0.5, fract(d * 9.0 - time * 0.8));
-        vec3 c = mix(vec3(0.12, 0.55, 0.85), vec3(0.45, 0.95, 1.0), ring * 0.6);
-        c += step(0.47, d) * 0.4;
-        gl_FragColor = vec4(c, 1.0);
-      }`,
-  })
+  // データの泉（光る水面。さざ波・泡・きらめきは waterSurface）
+  const springMat = waterSurface({ deep: '#1f8fd8', shallow: '#78f0ff', rings: true })
   const water = new THREE.Mesh(new THREE.CircleGeometry(spring.r, 10).rotateX(-Math.PI / 2), springMat)
   water.position.set(spring.x, 0.27, spring.z)
   group.add(water)
+  floaters(group, spring, 0.27, 'pad', 4, 11)
   const stoneMat = lambert('#9aa1ab', { map: Tex.rock() })
   for (let i = 0; i < 9; i++) {
     const a = (i / 9) * Math.PI * 2
@@ -273,6 +292,7 @@ function seedGrove(): Stage {
       fr.position.set(Math.cos(a) * 0.7, 1.4 + k * 0.15, Math.sin(a) * 0.7)
       t.add(fr)
     }
+    swayify(t)
     t.scale.setScalar(s)
     t.position.set(p.x, heightAt(p.x, p.z) - 0.05, p.z)
     t.rotation.y = p.r() * Math.PI
@@ -319,6 +339,7 @@ function seedGrove(): Stage {
   group.add(sign)
   obstacles.push({ x: -2.2, z: 2.4, r: 0.3 })
 
+  group.add(grass(heightAt, obstacles, SIZE, { count: dens(230), colors: ['#2a6e30', '#8fe070'], flowers: ['#ff8fb1', '#ffd23f', '#ffffff', '#b48cff'], flowerRate: 0.2, height: 0.34, seed: 301 }))
   const sky = skyDome(['#3f7fe0', '#a8dcff', '#1b2a5a'], 0)
   const vs = voidSpace('#5ef2ff')
   const mt = motes('#c8fff4', 50)
@@ -331,7 +352,6 @@ function seedGrove(): Stage {
     fog: '#bfe6ff', sky: ['#3f7fe0', '#a8dcff', '#1b2a5a'],
     sun: { color: '#fff1d6', intensity: 2.2, dir: [5, 9, 4] }, hemi: ['#d8efff', '#4a7a3a', 1.4],
     update(t, night) {
-      springMat.uniforms.time.value = t
       sky.mat.uniforms.time.value = t
       sky.mat.uniforms.night.value = night
       ;(mt.material as THREE.ShaderMaterial).uniforms.time.value = t
@@ -376,7 +396,7 @@ function glassDunes(): Stage {
     foodSpots.push({ x: p.x, z: p.z })
   }
   // 遺跡の柱とアーチ
-  const ruin = psx(new THREE.MeshLambertMaterial({ map: Tex.ruin() }))
+  const ruin = psx(new THREE.MeshLambertMaterial({ map: Tex.ruin() }), { snow: true })
   const pillar = (x: number, z: number, h: number, tilt: number) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(0.55, h, 0.55), ruin)
     m.position.set(x, heightAt(x, z) + h / 2 - 0.2, z)
@@ -402,6 +422,7 @@ function glassDunes(): Stage {
   group.add(fallen)
   obstacles.push({ x: 3.2, z: 3.5, r: 0.8 })
 
+  group.add(grass(heightAt, obstacles, SIZE, { count: dens(90), colors: ['#8a6a3a', '#e8cf86'], height: 0.36, seed: 302 }))
   const sky = skyDome(['#5b3a8a', '#ff9b6a', '#2a1a3a'], 0)
   const vs = voidSpace('#ff7ad9')
   const mt = motes('#ffe6a8', 40)
@@ -432,7 +453,7 @@ function frostCircuit(): Stage {
     return 0.3 + (hill + Math.sin(x * 0.5) * Math.sin(z * 0.45) * 0.35 + mounds(x, z, [[5, 5, 2.2, 1.3], [5.5, -4, 1.6, 0.8]])) * edge(x, z)
   }
   const group = new THREE.Group()
-  group.add(terrain(heightAt, Tex.snow(), ['#ffffff', '#dfe9ff']), base('snow'))
+  group.add(terrain(heightAt, Tex.snow(), ['#ffffff', '#dfe9ff'], false), base('snow'))
   const obstacles: Obstacle[] = []
   const foodSpots: FoodSpot[] = []
   const put = placer(37, obstacles)
@@ -456,6 +477,7 @@ function frostCircuit(): Stage {
     const cap = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.35, 7), snow)
     cap.position.y = 1.9
     t.add(cap)
+    swayify(t, 0.7)
     const s = 0.9 + p.r() * 0.6
     t.scale.setScalar(s)
     t.position.set(p.x, heightAt(p.x, p.z) - 0.05, p.z)
@@ -500,6 +522,7 @@ function frostCircuit(): Stage {
   group.add(tower)
   obstacles.push({ x: -3, z: -3, r: 0.7 })
 
+  group.add(grass(heightAt, obstacles, SIZE, { count: dens(80), colors: ['#4f7a7a', '#dff4ff'], height: 0.3, seed: 303 }))
   const sky = skyDome(['#0d1a3a', '#3a5a9a', '#0a1028'], 1)
   const vs = voidSpace('#9be7ff')
   const flakes = motes('#ffffff', 140, true)
@@ -523,27 +546,6 @@ function frostCircuit(): Stage {
 }
 
 
-/** 波打つ水面（PS1 風に色数少なめ、ふちに白波） */
-function waterMat(deep: string, shallow: string) {
-  return new THREE.ShaderMaterial({
-    uniforms: { time: { value: 0 }, deep: { value: new THREE.Color(deep) }, shallow: { value: new THREE.Color(shallow) }, uSnap: snapUniform },
-    vertexShader: `${SNAP_GLSL} uniform float time; varying vec2 vUv;
-      void main(){ vUv = uv; vec3 p = position; p.z += sin(p.x * 2.0 + time * 1.5) * 0.03;
-        gl_Position = psxSnap(projectionMatrix * modelViewMatrix * vec4(p, 1.0)); }`,
-    fragmentShader: /* glsl */ `
-      uniform float time; uniform vec3 deep; uniform vec3 shallow; varying vec2 vUv;
-      void main(){
-        float d = distance(vUv, vec2(0.5)) * 2.0;
-        vec2 q = floor(vUv * 48.0) / 48.0;
-        float w = sin(q.x * 30.0 + time * 1.2) * sin(q.y * 26.0 - time * 0.9);
-        vec3 c = mix(deep, shallow, smoothstep(0.2, 0.95, d));
-        c += step(0.82, w) * 0.22;
-        c = mix(c, vec3(0.95, 1.0, 1.0), step(0.9, d + sin(atan(vUv.y - 0.5, vUv.x - 0.5) * 9.0 + time * 2.0) * 0.03));
-        gl_FragColor = vec4(c, 1.0);
-      }`,
-  })
-}
-
 // =====================================================================
 // 4. さんごの入り江（Coral Cove）— 海ゾーン
 // =====================================================================
@@ -563,12 +565,14 @@ function coralCove(): Stage {
   const foodSpots: FoodSpot[] = []
   const put = placer(51, obstacles)
 
-  const water = waterMat('#1d7fd1', '#5fe0e8')
+  const water = waterSurface({ deep: '#1d7fd1', shallow: '#5fe0e8' })
   for (const p of pools) {
     const m = new THREE.Mesh(new THREE.CircleGeometry(p.r + 0.2, 14).rotateX(-Math.PI / 2), water)
     m.position.set(p.x, 0.34, p.z)
     group.add(m)
   }
+  floaters(group, pools[0], 0.34, 'log', 3, 21)
+  floaters(group, pools[1], 0.34, 'log', 1, 22)
   // さんご（水から顔を出す）
   const coralMats = ['#ff7aa8', '#ff9f43', '#b48cff', '#ff5e7a'].map((c) => lambert(c, { emissive: c, emissiveIntensity: 0.12 }))
   const r = rng(77)
@@ -625,6 +629,7 @@ function coralCove(): Stage {
       n.position.copy(top).add(new THREE.Vector3(Math.cos(k * 2.1) * 0.14, -0.15, Math.sin(k * 2.1) * 0.14))
       t.add(n)
     }
+    swayify(t, 1.3)
     t.position.set(p.x, heightAt(p.x, p.z) - 0.05, p.z)
     t.rotation.y = p.r() * Math.PI * 2
     group.add(t)
@@ -678,6 +683,7 @@ function coralCove(): Stage {
   buoy.position.set(pools[0].x + 0.6, 0.45, pools[0].z - 0.4)
   group.add(buoy)
 
+  group.add(grass(heightAt, obstacles, SIZE, { count: dens(100), colors: ['#5f8f3a', '#d6e87a'], flowers: ['#ff7aa8', '#fff6e8'], flowerRate: 0.1, height: 0.34, seed: 304 }))
   const sky = skyDome(['#2f8ff0', '#bfeeff', '#123a6a'], 0)
   const vs = voidSpace('#5fe0e8')
   const bubbles = motes('#e8ffff', 50)
@@ -689,7 +695,6 @@ function coralCove(): Stage {
     fog: '#bfe9ff', sky: ['#2f8ff0', '#bfeeff', '#123a6a'],
     sun: { color: '#fff6e0', intensity: 2.4, dir: [3, 10, 5] }, hemi: ['#dff6ff', '#c9a070', 1.4],
     update(t, night) {
-      water.uniforms.time.value = t
       sky.mat.uniforms.time.value = t
       sky.mat.uniforms.night.value = night
       ;(bubbles.material as THREE.ShaderMaterial).uniforms.time.value = t
@@ -712,7 +717,7 @@ function cottonField(): Stage {
     return Math.max(0.24, THREE.MathUtils.lerp(0.26, h, smooth(lake.r, lake.r + 1.2, Math.hypot(x - lake.x, z - lake.z))))
   }
   const group = new THREE.Group()
-  group.add(terrain(heightAt, Tex.powder(), ['#ffffff', '#e8f0ff']), base('snow'))
+  group.add(terrain(heightAt, Tex.powder(), ['#ffffff', '#e8f0ff'], false), base('snow'))
   const obstacles: Obstacle[] = []
   const foodSpots: FoodSpot[] = []
   const put = placer(63, obstacles, [{ ...lake, r: lake.r }])
@@ -758,6 +763,7 @@ function cottonField(): Stage {
       b.position.set(Math.cos(k * 2.2) * 0.6, 1.15 + k * 0.12, Math.sin(k * 2.2) * 0.6)
       t.add(b)
     }
+    swayify(t)
     const s = 0.9 + p.r() * 0.5
     t.scale.setScalar(s)
     t.position.set(p.x, heightAt(p.x, p.z) - 0.05, p.z)
@@ -811,6 +817,7 @@ function cottonField(): Stage {
     obstacles.push({ x, z, r: 0.2 })
   }
 
+  group.add(grass(heightAt, obstacles, SIZE, { count: dens(90), colors: ['#8aa6c8', '#f4f8ff'], flowers: ['#ff9ecb'], flowerRate: 0.12, height: 0.3, seed: 305 }))
   const sky = skyDome(['#7fb2ff', '#e6f0ff', '#3a4a7a'], 0)
   const vs = voidSpace('#bcd4ff')
   const flakes = motes('#ffffff', 110, true)

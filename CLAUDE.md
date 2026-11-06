@@ -21,7 +21,8 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - `src/world/families.ts` — 系統（きかい・りゅう・ねこ・いぬ・とり・みず・モンスター）の仲間 39 種のデータ。名前・ステータスの元・技・見た目の指定 `Look`、進化の枝分かれ `EVOLVE`、たまごの色 `EGG_COLORS`、ステージごとの出やすさ `STAGE_EGGS`。見た目は `monsters.ts` の `critter()` が Look から描く
 - `src/world/models.ts` — モンスターの 3D モデル版（きせかえの「キャラの表現」でポリゴンを選んだ時に使う）。既定は 2.5D のドット絵（`SpriteMonster`）。3D が無い種族はドット絵で表示（`hasModel`）
 - `src/world/structures.ts` — 家のほかの建物 7 種（はたけ・いど・みはりとう・ゆりかごごや・へい・おしろ・はし）の定義 `STRUCTS`（必要資材・HP・当たり判定・村の点数）と 3D モデル、ステージごとの建物の色 `STYLES`
-- `src/world/psx.ts` — PS1 風の表現（頂点スナップ・ディザ・15bit カラー・グリッチ）
+- `src/world/psx.ts` — PS1 風の表現（頂点スナップ・ディザ・15bit カラー・グリッチ・ひのこの熱ゆらぎ）
+- `src/world/fx.ts` / `fxprops.ts` — 風・ぬれ・雪・雲の影・水面・雨雪火の粉の粒子（上の「地形と天気の見た目」）
 - `src/world/sprites.ts` / `textures.ts` — ドット絵スプライト生成、手続きテクスチャ
 - `src/scene.ts` — 時間帯の雰囲気（MOODS）、机の木目、背景の玉ボケ、ほこり粒子、仕上げシェーダー
 - `src/beep.ts` — 圧電ブザー風の効果音
@@ -60,6 +61,9 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - ペットの行動結果は `delta()` で増減を付けてメッセージに出す（ごはん・ねむり・トレーニング・あそび・家づくり）
 - **セキュリティ**（公開リポジトリ）：秘密・鍵・個人情報をコミットしない／外部通信を増やさない（CSP の `connect-src 'self'`、許可元は `vite.config.ts` の `CSP`）／セーブや読み込んだコードは信用せず `isSpecies()` / `num()` で検査／`innerHTML` に外部データを入れない。方針は `SECURITY.md`
 - 天気は `setWeather()`、出やすさはステージごとの `WEATHER_W`
+- **地形と天気の見た目**（`world/fx.ts` + `fxprops.ts`）：天気の強さは `World.wx`（0〜1・なめらかに変わる）、シェーダー共通の値は `fxU`（`updateWeather` が毎フレーム入れる。ステージの `update` は不要）。木は `swayify(t)`（頂点に風の重みを焼く）、草と花は `grass()`、水面は `waterSurface()`、浮き物は `floaters()`。材質へは `psx(m, { sway, ground, snow })`。ぬれ・水たまり・波紋・雲の影・雪の積もり・にじ（雨あがり）・もや（朝）・熱のゆらぎ（ひのこ）・月と星の移動
+- **画質「低」**は `World.setQuality()`（main.ts の `applyQuality` から）：`fxU.uHigh = 0` で風のゆれ・雲の影・水たまり・波紋・水面のきらめきを切り、粒と草を減らし、もやと熱のゆらぎを切る。雪の積もり・ぬれの暗さは低でも出る（軽いため）。新しい効果もこの形で足す
+- 朝のもやは `World.setDayPart(mood)`（main.ts の `applyMood` から）。新ステージの木・草・水は `docs/TECHNIQUES.md` の「天気と風と水」の 1〜2 行の呼び出しだけで天気に反応する
 - セーブは localStorage の `pulsar-save-v1`（10 秒ごと + 画面を離れた時）。項目を増やしたら `save()` と `load()` の両方を直す
 - データの書き出し・読み込み・やり直しは `src/backup.ts`（コードは `PULSAR1:` + base64 の JSON）。設定のキーを増やしたら `KEYS` にも足す。読み込み・やり直しの前は `world.saveLocked = true` にして上書きを防ぐ。起動時に `navigator.storage.persist()` を頼む
 - **仕上げ（軽さ・オフライン・設定）**：画質は 高 / 低 / 自動（`pulsar-quality`。自動は平均 FPS が低い状態が続いたら 高 → 低 → ピクセル比を下げる。手動で選んだ時は勝手に変えない。自動テスト中 `navigator.webdriver` は `?autoq=1` が無いと自動調整しない）。`document.hidden` の間は描画もシミュレーションも止め、戻ったら止まっていた分のうち 1 秒ぶんまでを進める。60 秒操作が無いと 30fps に落とす。`obstacles()` は 1 フレームに 1 回だけ組み立てる（`obsFrame`）、HUD は 30 回/秒まで（`hudNow` でボタン・タップ直後は即描画）
