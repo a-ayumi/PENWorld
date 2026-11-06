@@ -15,10 +15,20 @@ import { SHAPES, SKINS, type ShapeId, type SkinId } from './device'
 import { Beeper, VOLUME_NAMES } from './beep'
 import { exportCode, importCode, requestPersist } from './backup'
 import { sheetFor, type SpeciesId } from './world/monsters'
+import { hideSplash, initTips, NO_WEBGL, showFatal, showOfflineReady, showUpdateBar, tipsSeen, watchContextLoss } from './shell'
 
 // ---------------- レンダラー ----------------
 const canvas = document.getElementById('scene') as HTMLCanvasElement
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
+// WebGL が使えない端末では、真っ黒にせず案内を出す
+const renderer = (() => {
+  try {
+    return new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
+  } catch (e) {
+    showFatal(NO_WEBGL.title, NO_WEBGL.body)
+    throw e
+  }
+})()
+watchContextLoss(canvas)
 // 色が転びにくい Neutral トーンマッピング（プラスチックの色をそのまま見せる）
 renderer.toneMapping = THREE.NeutralToneMapping
 renderer.shadowMap.enabled = true
@@ -105,34 +115,118 @@ const finish = new ShaderPass(FinishShader)
 composer.addPass(finish)
 composer.addPass(new OutputPass())
 
-// 画質（低 = ポストエフェクト無し・解像度控えめ）
+// 画質（低 = ポストエフェクト無し・解像度控えめ）。「自動」は重い時だけ自分で下げる（手動で選んだ時は勝手に変えない）
 type Quality = 'high' | 'low'
-let quality: Quality = matchMedia('(pointer: coarse)').matches ? 'low' : 'high'
+type QualityPref = Quality | 'auto'
+const QUALITY_PREFS: Record<QualityPref, { name: string }> = { high: { name: '高' }, low: { name: '低' }, auto: { name: '自動' } }
+const coarsePointer = matchMedia('(pointer: coarse)').matches
+let qualityPref: QualityPref = 'auto'
 try {
   const saved = localStorage.getItem('pulsar-quality')
-  if (saved === 'high' || saved === 'low') quality = saved
+  if (saved === 'high' || saved === 'low' || saved === 'auto') qualityPref = saved
 } catch {
   /* noop */
 }
+let quality: Quality = qualityPref === 'auto' ? (coarsePointer ? 'low' : 'high') : qualityPref
+/** 自動で重い時に下げる、ピクセル比の係数（1 → 0.8 → 0.6） */
+let autoScale = 1
 const qualityBtn = document.getElementById('quality') as HTMLButtonElement
 function applyQuality() {
-  const dpr = Math.min(window.devicePixelRatio, quality === 'high' ? 2 : 1.5)
+  const dpr = Math.max(0.5, Math.min(window.devicePixelRatio, quality === 'high' ? 2 : 1.5) * (qualityPref === 'auto' ? autoScale : 1))
   renderer.setPixelRatio(dpr)
   composer.setPixelRatio(dpr)
   bokeh.enabled = quality === 'high'
   bloom.enabled = quality === 'high'
-  qualityBtn.textContent = `画質: ${quality === 'high' ? '高' : '低'}`
+  const q = quality === 'high' ? '高' : '低'
+  qualityBtn.textContent = `画質: ${qualityPref === 'auto' ? `自動(${q})` : q}`
+  syncQualityChips()
   resize()
 }
-qualityBtn.addEventListener('click', () => {
-  quality = quality === 'high' ? 'low' : 'high'
+function setQualityPref(p: QualityPref) {
+  qualityPref = p
   try {
-    localStorage.setItem('pulsar-quality', quality)
+    localStorage.setItem('pulsar-quality', p)
   } catch {
     /* noop */
   }
+  autoScale = 1
+  quality = p === 'auto' ? (coarsePointer ? 'low' : 'high') : p
+  fpsWatch.reset(6)
   applyQuality()
+}
+qualityBtn.addEventListener('click', () => {
+  const order: QualityPref[] = ['high', 'low', 'auto']
+  setQualityPref(order[(order.indexOf(qualityPref) + 1) % order.length])
 })
+/** 自動画質：2 秒ごとの平均 FPS が低い状態が続いたら 1 段下げる（高 → 低 → ピクセル比を小さく）。自動テスト中（webdriver）は ?autoq=1 を付けた時だけ */
+const autoQualityOn = !navigator.webdriver || new URLSearchParams(location.search).has('autoq')
+const fpsWatch = {
+  warm: 6,
+  acc: 0,
+  n: 0,
+  bad: 0,
+  reset(warm = 3) {
+    this.warm = warm
+    this.acc = this.n = this.bad = 0
+  },
+  tick(raw: number) {
+    if (qualityPref !== 'auto' || !autoQualityOn) return
+    if (raw > 0.5) return this.reset(1) // 裏に回った直後などの長い間は数えない
+    if (this.warm > 0) {
+      this.warm -= raw
+      return
+    }
+    this.acc += raw
+    this.n++
+    if (this.acc < 2) return
+    const fps = this.n / this.acc
+    this.acc = this.n = 0
+    if (fps >= 24) {
+      this.bad = Math.max(0, this.bad - 1)
+      return
+    }
+    if (++this.bad < 2) return
+    this.reset(3)
+    if (quality === 'high') quality = 'low'
+    else if (autoScale > 0.61) autoScale = Math.max(0.6, autoScale - 0.2)
+    else return
+    applyQuality()
+  },
+}
+
+// ---------------- せってい（文字の大きさ・うごき・画質）----------------
+type TextSize = 'normal' | 'large'
+const TEXT_SIZES: Record<TextSize, { name: string }> = { normal: { name: 'ふつう' }, large: { name: '大きい' } }
+const MOTIONS = { normal: { name: 'ふつう' }, reduce: { name: 'へらす' } }
+let textSize: TextSize = 'normal'
+let motion: 'normal' | 'reduce' = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'reduce' : 'normal'
+let motionSaved = false
+try {
+  if (localStorage.getItem('pulsar-text') === 'large') textSize = 'large'
+  const m = localStorage.getItem('pulsar-motion')
+  if (m === 'normal' || m === 'reduce') {
+    motion = m
+    motionSaved = true
+  }
+} catch {
+  /* noop */
+}
+let motionK = 1
+function applyText() {
+  document.documentElement.dataset.text = textSize
+}
+function applyMotion() {
+  motionK = motion === 'reduce' ? 0.3 : 1
+  document.documentElement.dataset.motion = motion
+  world.reducedMotion = motion === 'reduce'
+}
+function syncChipGroup(el: HTMLElement, current: string) {
+  el.querySelectorAll<HTMLElement>('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.id === current)))
+}
+function syncQualityChips() {
+  const el = document.getElementById('set-quality')
+  if (el) syncChipGroup(el, qualityPref)
+}
 
 // ---------------- 時間帯 ----------------
 let currentMood = ''
@@ -198,6 +292,7 @@ function chips(el: HTMLElement, items: Record<string, { name: string }>, current
     const b = document.createElement('button')
     b.type = 'button'
     b.className = 'chip'
+    b.dataset.id = id
     b.textContent = it.name
     b.setAttribute('aria-pressed', String(current() === id))
     b.addEventListener('click', () => {
@@ -274,14 +369,43 @@ volBtn.addEventListener('click', () => {
   showVol()
   beeper.beep(2600, 0.06)
 })
+/** 入力欄に文字を打っている時は、ゲームのキー（A・B・C・V など）に反応しない */
+const typing = (e: Event) => e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'KeyV' && !e.repeat) viewBtn.click()
+  if (e.code === 'KeyV' && !e.repeat && !typing(e)) viewBtn.click()
 })
 
 chips(document.getElementById('chara-list')!, CHARA, () => charaStyle, (id) => {
   charaStyle = id as 'sprite' | 'model'
   save('pulsar-chara', id)
   world.setStyle(charaStyle)
+})
+chips(document.getElementById('set-text')!, TEXT_SIZES, () => textSize, (id) => {
+  textSize = id as TextSize
+  save('pulsar-text', id)
+  applyText()
+})
+chips(document.getElementById('set-motion')!, MOTIONS, () => motion, (id) => {
+  motion = id as 'normal' | 'reduce'
+  motionSaved = true
+  save('pulsar-motion', id)
+  applyMotion()
+})
+chips(document.getElementById('set-quality')!, QUALITY_PREFS, () => qualityPref, (id) => setQualityPref(id as QualityPref))
+applyText()
+applyMotion()
+// OS の「視覚効果を減らす」を後から変えた時（自分で選んでいなければ）についていく
+matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', (e) => {
+  if (motionSaved) return
+  motion = e.matches ? 'reduce' : 'normal'
+  applyMotion()
+  syncChipGroup(document.getElementById('set-motion')!, motion)
+})
+const tips = initTips()
+document.getElementById('tips-open')?.addEventListener('click', () => {
+  dressPanel.hidden = true
+  dressBtn.setAttribute('aria-expanded', 'false')
+  tips.show()
 })
 dressBtn.addEventListener('click', () => {
   dressPanel.hidden = !dressPanel.hidden
@@ -477,6 +601,20 @@ function setMode(m: Mode) {
   document.getElementById('hint')!.hidden = m === 'inside'
 }
 
+/** Esc：開いているパネルやヒントを閉じて、押したボタンにフォーカスを戻す */
+function closePanels() {
+  const returnTo = !dressPanel.hidden ? dressBtn : !dexPanel.hidden ? dexBtn : null
+  if (!dressPanel.hidden || !dexPanel.hidden) {
+    dressPanel.hidden = dexPanel.hidden = true
+    dressBtn.setAttribute('aria-expanded', 'false')
+    dexBtn.setAttribute('aria-expanded', 'false')
+    returnTo?.focus()
+  }
+  tips.hide()
+}
+let lastInput = performance.now()
+for (const ev of ['pointerdown', 'wheel', 'touchstart'] as const) window.addEventListener(ev, () => (lastInput = performance.now()), { passive: true })
+
 // ---------------- ボタン ----------------
 const tilt = { x: 0, y: 0, vx: 0, vy: 0 }
 
@@ -506,11 +644,13 @@ enterBtn.addEventListener('click', () => {
 })
 
 window.addEventListener('keydown', (e) => {
-  if (e.repeat) return
+  lastInput = performance.now()
+  if (e.repeat || typing(e)) return
   const map: Record<string, 'A' | 'B' | 'C'> = { KeyA: 'A', KeyB: 'B', KeyC: 'C', KeyZ: 'A', KeyX: 'B', Digit1: 'A', Digit2: 'B', Digit3: 'C' }
   const k = map[e.code]
   if (k) press(k)
   if (e.code === 'Escape' && mode === 'inside') setMode('leaving')
+  if (e.code === 'Escape' && mode === 'device') closePanels()
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && mode === 'device' && !e.repeat && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement)) {
     beeper.beep(1200, 0.05)
     setMode('entering')
@@ -638,6 +778,7 @@ canvas.addEventListener(
 )
 const panKeys: Record<string, [number, number]> = { ArrowLeft: [0.04, 0], ArrowRight: [-0.04, 0], ArrowUp: [0, 0.04], ArrowDown: [0, -0.04] }
 window.addEventListener('keydown', (e) => {
+  if (typing(e)) return
   const k = panKeys[e.code]
   if (k) {
     e.preventDefault()
@@ -681,11 +822,38 @@ setTimeout(() => document.getElementById('hint')?.classList.add('fade'), 7000)
 const timer = new THREE.Timer()
 let elapsed = 0
 let moodCheck = 0
+let frames = 0
+let idleFlip = false
+let catchUp = 0
+let hiddenAt = 0
+// 裏に回ったら描画もシミュレーションも止める。戻ったら、止まっていた分のうち 1 秒ぶんまでを進める
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    hiddenAt = performance.now()
+    world.save()
+    return
+  }
+  catchUp = hiddenAt ? Math.min(1, (performance.now() - hiddenAt) / 1000) : 0
+  hiddenAt = 0
+  fpsWatch.reset(2)
+})
 renderer.setAnimationLoop((t) => {
+  if (document.hidden) return
+  // 長いあいだ操作が無い時は 30fps に落として電池を節約（触るとすぐ戻る）
+  const idle = performance.now() - lastInput > 60000
+  if (idle && (idleFlip = !idleFlip)) return
   timer.update(t)
+  const rawDt = timer.getDelta()
+  if (!idle) fpsWatch.tick(rawDt)
   // 初回フレームは時刻の差がマイナスになることがあるので 0〜1/20 秒に収める
-  const dt = THREE.MathUtils.clamp(timer.getDelta(), 0, 1 / 20)
+  const dt = THREE.MathUtils.clamp(rawDt, 0, 1 / 20)
   elapsed += dt
+  while (catchUp > 0.001) {
+    const step = Math.min(1 / 15, catchUp)
+    world.update(step)
+    catchUp -= step
+  }
+  catchUp = 0
 
   // 本体のふわふわ + ばねで戻る傾き
   const k = 26
@@ -698,12 +866,14 @@ renderer.setAnimationLoop((t) => {
   tilt.y = THREE.MathUtils.clamp(tilt.y, -0.8, 0.8)
   // 場所ごとの揺れ（電車・歩き）+ ふわふわ
   place?.update(elapsed, dt)
-  const sw = place ? place.sway(elapsed) : { y: 0, rx: 0, rz: 0 }
+  const sw0 = place ? place.sway(elapsed) : { y: 0, rx: 0, rz: 0 }
+  // 「動きをへらす」では、電車や歩きの揺れ・ふわふわを弱める
+  const sw = { y: sw0.y * motionK, rx: sw0.rx * motionK, rz: sw0.rz * motionK }
   // 手に持っている時は、少し手前に傾けて、手のふるえのような小さな揺れを足す
   const heldNow = !!place?.held
-  device.group.position.y = Math.sin(elapsed * 1.1) * 0.05 + sw.y + (heldNow ? 0.22 + Math.sin(elapsed * 2.3) * 0.012 : 0)
+  device.group.position.y = Math.sin(elapsed * 1.1) * 0.05 * motionK + sw.y + (heldNow ? 0.22 + Math.sin(elapsed * 2.3) * 0.012 : 0)
   device.group.rotation.set(
-    (heldNow ? -0.2 : -0.08) + tilt.x + Math.sin(elapsed * 0.7) * 0.015 + sw.rx,
+    (heldNow ? -0.2 : -0.08) + tilt.x + Math.sin(elapsed * 0.7) * 0.015 * motionK + sw.rx,
     tilt.y + Math.sin(elapsed * 0.5) * 0.06,
     Math.sin(elapsed * 0.6) * 0.01 + sw.rz,
   )
@@ -752,6 +922,12 @@ renderer.setAnimationLoop((t) => {
   if (mode === 'inside') renderer.render(diveScene, diveCam)
   // 低画質ではボケ/ブルームが無効になり、色調整とビネットだけ残る
   else composer.render()
+
+  // 最初の数フレームを描いたら、スプラッシュをどける。初めての人にはあそびかたを出す
+  if (++frames === 3) {
+    hideSplash()
+    if (!tipsSeen()) setTimeout(() => mode === 'device' && !document.hidden && tips.show(), 1500)
+  }
 })
 
 // テスト用
@@ -762,13 +938,37 @@ renderer.setAnimationLoop((t) => {
   get device() {
     return device
   },
+  renderer,
+  composer,
   setShape: (id: ShapeId) => ((shapeId = id), setShape(id)),
   setMood: (m: keyof typeof MOODS) => applyMood(m),
   setPlace: (id: PlaceId) => ((placeId = id), rebuildPlace()),
   setSkin: (id: SkinId) => device.setSkin(id),
+  setQualityPref,
+  fpsWatch,
+  hideTips: () => tips.hide(),
 }
 
 // ---------------- PWA ----------------
 if ('serviceWorker' in navigator && !import.meta.env.VITE_NO_SW) {
-  void import('virtual:pwa-register').then(({ registerSW }) => registerSW({ onRegisterError() {} }))
+  void import('virtual:pwa-register').then(({ registerSW }) => {
+    const updateSW = registerSW({
+      // 新しいバージョンが用意できた：押してもらってから入れ替える（あそんでいる最中に勝手に再読み込みしない）
+      onNeedRefresh: () => showUpdateBar(applyUpdate),
+      onOfflineReady: () => showOfflineReady(),
+      // 開きっぱなしでも、30 分ごと・戻ってきた時に新しいバージョンを探す
+      onRegisteredSW(_url, reg) {
+        if (!reg) return
+        const check = () => navigator.onLine && void reg.update().catch(() => {})
+        setInterval(check, 30 * 60 * 1000)
+        document.addEventListener('visibilitychange', () => !document.hidden && check())
+      },
+      onRegisterError() {},
+    })
+    function applyUpdate() {
+      world.save()
+      void updateSW(true)
+    }
+    ;(window as unknown as { __pulsar: Record<string, unknown> }).__pulsar.showUpdateBar = () => showUpdateBar(applyUpdate)
+  })
 }
