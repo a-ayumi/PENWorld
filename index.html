@@ -12,9 +12,51 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" />
     <title>PULSAR</title>
+    <style>
+      /* 起動中の表示（スプラッシュ）。本体の CSS より先に出したいので、ここに置く */
+      #splash { position: fixed; inset: 0; z-index: 50; display: grid; place-content: center; justify-items: center; gap: 14px;
+        background: #1d1a17; color: #f3ead8; font-family: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+        transition: opacity .5s; }
+      #splash.gone { opacity: 0; pointer-events: none; }
+      #splash .logo { font-size: 30px; font-weight: 800; letter-spacing: .32em; text-indent: .32em; }
+      #splash .bar { width: 140px; height: 6px; border-radius: 3px; background: rgba(243, 234, 216, .16); overflow: hidden; }
+      #splash .bar i { display: block; width: 40%; height: 100%; border-radius: 3px; background: #f2b134; animation: splash-run 1.1s ease-in-out infinite alternate; }
+      #splash p { margin: 0; font-size: 12px; color: rgba(243, 234, 216, .62); text-align: center; line-height: 1.7; padding: 0 24px; }
+      #splash button { border: 0; border-radius: 999px; padding: 10px 18px; font-size: 13px; font-weight: 700; color: #3a2a00; background: #f2b134; cursor: pointer; }
+      @keyframes splash-run { from { transform: translateX(0); } to { transform: translateX(150%); } }
+      @media (prefers-reduced-motion: reduce) { #splash .bar i { animation: none; width: 100%; } #splash { transition: none; } }
+    </style>
   </head>
   <body>
-    <canvas id="scene" aria-label="液晶ペット本体。A・B・C のボタンを押して操作"></canvas>
+    <div id="splash" role="status" aria-live="polite">
+      <div class="logo">PULSAR</div>
+      <div class="bar" aria-hidden="true"><i></i></div>
+      <p id="splash-msg">よみこみちゅう…</p>
+      <button id="splash-reload" type="button" hidden>さいよみこみ</button>
+    </div>
+    <noscript><p style="position:fixed;inset:0;z-index:60;margin:0;display:grid;place-content:center;background:#1d1a17;color:#f3ead8;text-align:center;font-size:14px">PULSAR は JavaScript を つかいます。<br />ブラウザの せっていで JavaScript を オンに してください。</p></noscript>
+    <canvas id="scene" role="img" aria-label="液晶ペット本体。A・B・C のボタンを押して操作"></canvas>
+    <div id="gl-msg" role="alert" hidden>
+      <div class="gl-card">
+        <h2 id="gl-title">がめんが とまりました</h2>
+        <p id="gl-body"></p>
+        <button id="gl-reload" type="button">さいよみこみ</button>
+      </div>
+    </div>
+    <div id="update-bar" role="status" aria-live="polite" hidden>
+      <span>あたらしい バージョンが あります</span>
+      <button id="update-now" type="button">こうしん</button>
+      <button id="update-later" type="button" aria-label="あとで">あとで</button>
+    </div>
+    <div id="offline-toast" role="status" aria-live="polite" hidden>オフラインでも あそべるように なりました</div>
+    <section id="tips" role="dialog" aria-labelledby="tips-title" hidden>
+      <div class="tips-head"><h2 id="tips-title">あそびかた <span id="tips-step">1/3</span></h2><button id="tips-x" type="button" aria-label="とじる">とじる</button></div>
+      <p id="tips-text"></p>
+      <div class="tips-btns">
+        <button id="tips-never" type="button" class="chip">もう ださない</button>
+        <button id="tips-next" type="button" class="chip tips-primary">つぎへ</button>
+      </div>
+    </section>
     <div id="hint">
       <span class="kbd-only"><kbd>A</kbd>えらぶ <kbd>B</kbd>けってい <kbd>C</kbd>もどる ・ <kbd>Enter</kbd>画面に入る ・ ホイール・矢印でカメラ</span>
       <span class="touch-only">A えらぶ ・ B けってい ・ C もどる ・ 2本指でカメラ</span>
@@ -36,12 +78,20 @@
     </section>
     <section id="dress-panel" hidden aria-label="きせかえ">
       <div class="dress-head"><h2>きせかえ</h2><button id="dress-close" aria-label="閉じる">とじる</button></div>
+      <h3>本体のかたち</h3>
+      <div id="shape-list" class="chips"></div>
       <h3>本体のがら</h3>
       <div id="skin-list" class="chips"></div>
       <h3>いる場所</h3>
       <div id="place-list" class="chips"></div>
       <h3>キャラの表現</h3>
       <div id="chara-list" class="chips"></div>
+      <h3>せってい</h3>
+      <div class="setrow"><span class="setlabel" id="set-text-l">もじの おおきさ</span><div id="set-text" class="chips" role="group" aria-labelledby="set-text-l"></div></div>
+      <div class="setrow"><span class="setlabel" id="set-motion-l">うごき</span><div id="set-motion" class="chips" role="group" aria-labelledby="set-motion-l"></div></div>
+      <div class="setrow"><span class="setlabel" id="set-quality-l">画質</span><div id="set-quality" class="chips" role="group" aria-labelledby="set-quality-l"></div></div>
+      <div id="settings-extra"></div>
+      <div class="setrow"><span class="setlabel" id="set-help-l">あそびかた</span><div class="chips"><button type="button" class="chip" id="tips-open">もういちど みる</button></div></div>
       <h3>データ</h3>
       <div class="chips">
         <button type="button" class="chip" id="data-export">書き出す</button>
@@ -68,6 +118,7 @@
         <button data-key="C" aria-label="C ボタン">C</button>
       </div>
     </div>
+    <script type="module" src="/src/boot.ts"></script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

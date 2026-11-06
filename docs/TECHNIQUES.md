@@ -228,3 +228,10 @@ seek → eat → happy        sleep → 回復して idle
 - **粒子は強さ（0〜1）で数を出し入れする**：各粒子が持つ乱数 `seed < 強さ` のものだけ描くので、天気が変わる時に自然に入れかわる（`World.wx` が約 4 秒でなめらかに追う）。雨は `LineSegments`（頭が明るく、しっぽが消える。風で斜め）、雪は大きさ 3 段、火の粉はのぼるほど赤く暗く。ひのこの熱ゆらぎは**仕上げシェーダー**で 2px の行ごとに横ずらし（HUD は別サンプリングなのでゆがまない）。
 - **空**（`skyDome`）：`uGrey`（くもり・あめの灰色）・`uEmber`（赤）・`uBow`（にじ：太陽と反対がわの 7 色の弧を角度で塗る。向きは出た時に見ていた方向 `uBowDir`）、星は `atan` に時間を足してゆっくり回し、月は球面の接線平面で細い月を描いて空を横切らせる。
 - **画質「低」**：`World.setQuality('low')` が `uHigh = 0`（uniform の分岐で風・雲の影・水たまり・波紋・きらめきを飛ばす）、粒子の数を約半分、`fxLod()` で草を約 45%、もやと熱ゆらぎを無効にする。雪の積もりとぬれの暗さは軽いので低でも出す。新しい重い効果は同じように `uHigh` か `World.high` で切れる形にする。
+## 仕上げ：軽さ・オフライン・設定（`main.ts` / `shell.ts` / `style.css`）
+- **まず計測**：`world.update` と `drawHud` を 150 回まわして 1 回あたりの ms を出す（`performance.now()`）。メソッドを一時的に包んで時間を足し合わせると、どこが重いか分かる。重かったのは `drawHud`（文字の縁取りで `fillText` が 1 文字列 6 回）なので、HUD の再描画を 30 回/秒までにし、`project()` の使い捨て `Vector3` をやめた。`obstacles()` は呼ばれる回数が多い（生き物 1 匹ごとに数回）ので、フレーム番号つきのキャッシュにした。`nearest()` は先に距離（2 乗）で外してから条件の関数を呼ぶ。
+- **自動画質**：2 秒ごとの平均 FPS を見て、低い状態が 2 回続いたら 1 段下げる（高 → 低 → ピクセル比 1 → 0.8 → 0.6）。起動直後・裏から戻った直後・長いフレーム（0.5 秒超）は数えない。上げ戻しはしない（行き来を避ける）。手動で「高」「低」を選んだ時は一切触らない。
+- **裏に回ったら止める**：`document.hidden` の間はループで即 return。戻ったら `min(1, 離れていた秒数)` だけ `world.update` を 1/15 刻みで進める（大きな dt を一度に入れない）。
+- **オフライン**：本体（js/css/html/svg/png）は precache。Google Fonts は precache できないので `runtimeCaching`（CSS は StaleWhileRevalidate、字体は CacheFirst）で、一度見た後はオフラインでも使える。一度も見ていない時は `FONT` / `font-family` の代替フォント。確認は Playwright の `context.setOffline(true)` + リロード。
+- **やさしい失敗**：`new WebGLRenderer` を try/catch、`webglcontextlost` で `preventDefault()` して案内を出し `webglcontextrestored` で消す。CSP で inline script が使えないので、起動の見張りは別エントリ `boot.ts`。
+- **動きをへらす**：`prefers-reduced-motion` を既定にして、`World.reducedMotion` 一つで ゆれ・フラッシュ・ヒットストップ・ぷにぷに の係数を変える（係数を掛ける 1 行ずつの差分）。
