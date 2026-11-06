@@ -59,6 +59,8 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - **役割分担**：`Creature.role`（だいく / はたけがかり / みはり）を `assignRoles()` が 15 秒ごとに、性格 `bias` と村に足りない物（はたけ・みはりとう・おしろ）で決める。だいくは建築の確率が高く現場を優先、はたけがかりは `tend` 状態で畑の実りを早め、みはりは持ち場（みはりとう・おしろ）を見まわり 7 マス先の敵まで追う。頭の上に色つきの点
 - **世代交代**：ペットの `stats.petAge`（あそんだ秒）が `LIFESPAN`（3 時間）に達すると `retirePet()` → おはか（`memorial`）→ `rebirth()` で同じ系統の赤ちゃんとして生まれ変わる（育ちの傾向は 3 割引きつぎ、代をかさねるほど強く、25% で突然変異）。`stats.gen` / `lineage` を保存。テストは `world.ageUp(分)`
 - **かいたく**：箱庭の広さは `LAND_SIZES = [20, 26, 32]`（`stages.ts` の `setLandSize()`）。ショップの「かいたく ①②」で `expandLand()`（ステージを作り直し、家・建物・置き物・たまごは残す）。小物の数は `dens()` で面積に比例。広さは全ステージ共通で `land` を保存
+- **見た目の個体差と色ちがい**：`Creature.seed`（もよう・色のゆらぎ。`lookOf(seed)` で 0〜7 に量子化）と `Creature.rare`（色ちがい 約 3%、ふしぎなたまごは 8%）。スプライトは `sheetFor(id, variantOf(seed, rare))` で種族 × 16 種を生成時に 1 回だけ焼いてキャッシュ（もよう・色相ずらしは `decorate()` が描き終えた絵の「からだの色」の所にだけ重ねる。新しい種族を足したら `OLD_GEOM` / `FOE_GEOM` か `critter()` の Geom を返すだけで効く）。名前の前に ★、HUD に小さな ★、ずかんは `dexRare`（別記録・後方互換）。セーブは `seed` / `rare` / 卵の `lucky` / `dexRare`
+- **表情**：Pose の `eye` / `mouth` / `mark` で 12〜21 コマ（hungry / sleepy / glad / angry / worry）。`faceOf()` が止まっている時の状態から選ぶ。**進化**は `c.evo`（白いシルエット → ふくらむ → 新しい姿、約 1.8 秒。見えない・3D モデルはすぐ切りかえ）。**敵の亜種 6 種とボス 3 種**は `monsters.ts` の `enemyFor()`（ステージの敵に混ぜる）/ `armyMember()` / `armyBoss()`（敵軍の編成。3 回に 1 回ボス、HP バーは `drawBossBar()`）
 - ペットの行動結果は `delta()` で増減を付けてメッセージに出す（ごはん・ねむり・トレーニング・あそび・家づくり）
 - **セキュリティ**（公開リポジトリ）：秘密・鍵・個人情報をコミットしない／外部通信を増やさない（CSP の `connect-src 'self'`、許可元は `vite.config.ts` の `CSP`）／セーブや読み込んだコードは信用せず `isSpecies()` / `num()` で検査／`innerHTML` に外部データを入れない。方針は `SECURITY.md`
 - 天気は `setWeather()`、出やすさはステージごとの `WEATHER_W`

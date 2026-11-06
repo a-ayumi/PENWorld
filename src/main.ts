@@ -14,7 +14,7 @@ import { PLACES, buildPlace, type PlaceId, type PlaceInst } from './places'
 import { SHAPES, SKINS, type ShapeId, type SkinId } from './device'
 import { Beeper, VOLUME_NAMES } from './beep'
 import { exportCode, importCode, requestPersist } from './backup'
-import { sheetFor, type SpeciesId } from './world/monsters'
+import { portraitFor, type SpeciesId } from './world/monsters'
 import { hideSplash, initTips, NO_WEBGL, showFatal, showOfflineReady, showUpdateBar, tipsSeen, watchContextLoss } from './shell'
 
 // ---------------- レンダラー ----------------
@@ -503,7 +503,7 @@ const dexBtn = document.getElementById('dex-btn') as HTMLButtonElement
 const dexPanel = document.getElementById('dex-panel') as HTMLElement
 function renderDex() {
   const info = world.dexInfo()
-  document.getElementById('dex-summary')!.textContent = `なかま ${info.owned}/${info.total}　みつけた ${info.seen}/${info.all}　いまは だい${info.gen}せだい（じゅみょう ${Math.round((1 - info.life) * 100)}%）`
+  document.getElementById('dex-summary')!.textContent = `なかま ${info.owned}/${info.total}　みつけた ${info.seen}/${info.all}　★いろちがい ${info.rareOwned}/${info.rareSeen}　いまは だい${info.gen}せだい（じゅみょう ${Math.round((1 - info.life) * 100)}%）`
   const grid = document.getElementById('dex-grid')!
   grid.replaceChildren()
   let fam = ''
@@ -522,9 +522,10 @@ function renderDex() {
     cv.height = 52
     const g = cv.getContext('2d')
     if (g && e.state > 0) {
-      const sh = sheetFor(e.id as SpeciesId)
+      // 1 コマ目だけ焼いた小さな絵（シート全体は作らない）
+      const pic = portraitFor(e.id as SpeciesId)
       g.imageSmoothingEnabled = false
-      g.drawImage(sh.texture.image as CanvasImageSource, 0, 0, sh.cellW, sh.cellH, 0, 0, 56, 52)
+      g.drawImage(pic, 0, 0, pic.width, pic.height, 0, 0, 56, 52)
     } else if (g) {
       g.fillStyle = 'rgba(243,234,216,.35)'
       g.font = '28px sans-serif'
@@ -536,6 +537,22 @@ function renderDex() {
     const sub = document.createElement('small')
     sub.textContent = e.state === 2 ? `なかま ・ ${e.tier ? 'ランク' + e.tier : ''}` : e.state === 1 ? 'みつけた' : ''
     cell.append(cv, name, sub)
+    if (e.rare > 0) {
+      // 色ちがいを みつけた / なかまにした：小さな絵と ★ を右上に
+      const rc = document.createElement('canvas')
+      rc.className = 'rare'
+      rc.width = 28
+      rc.height = 26
+      const rg = rc.getContext('2d')
+      if (rg) {
+        const pic = portraitFor(e.id as SpeciesId, 8)
+        rg.imageSmoothingEnabled = false
+        rg.drawImage(pic, 0, 0, pic.width, pic.height, 0, 0, 28, 26)
+      }
+      rc.title = e.rare === 2 ? '★ いろちがい：なかまにした' : '★ いろちがい：みつけた'
+      cell.classList.add(e.rare === 2 ? 'rare-own' : 'rare-seen')
+      cell.appendChild(rc)
+    }
     grid.appendChild(cell)
   }
   document.getElementById('dex-lineage')!.textContent = info.lineage.length ? `${info.lineage.join(' → ')} → ${info.pet}（いま）` : `${info.pet}（はじめの だい）`
