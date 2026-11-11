@@ -62,6 +62,7 @@ kbd { display: inline-block; min-width: 18px; margin: 0 2px; padding: 0 4px; bor
 .file-chip { position: relative; overflow: hidden; display: inline-flex; align-items: center; }
 .file-chip input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 #data-msg { margin: 8px 0 0; font-size: calc(12px * var(--ts)); color: var(--muted); min-height: 1em; }
+.snd-note { margin: 8px 0 0; font-size: calc(11px * var(--ts)); color: var(--muted); }
 .widget-note { margin: 0 0 8px; font-size: calc(12px * var(--ts)); line-height: 1.6; color: var(--muted); }
 #widget-msg { margin: 8px 0 0; font-size: calc(12px * var(--ts)); color: var(--muted); min-height: 1em; }
 a.chip { text-decoration: none; display: inline-flex; align-items: center; }

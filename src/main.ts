@@ -12,7 +12,8 @@ import { buildDevice } from './device'
 import { FinishShader, MOODS, dustParticles, moodForHour, type Mood } from './scene'
 import { PLACES, buildPlace, type PlaceId, type PlaceInst } from './places'
 import { SHAPES, SKINS, type ShapeId, type SkinId } from './device'
-import { Beeper, VOLUME_NAMES } from './beep'
+import { Beeper, VOLUME_NAMES, createChain } from './beep'
+import { Music, describeSong } from './music'
 import { exportCode, importCode, requestPersist, widgetCode } from './backup'
 import { portraitFor, type SpeciesId } from './world/monsters'
 import { hideSplash, initTips, NO_WEBGL, showFatal, showOfflineReady, showUpdateBar, tipsSeen, watchContextLoss } from './shell'
@@ -377,6 +378,41 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyV' && !e.repeat && !typing(e)) viewBtn.click()
 })
 
+// BGM / 効果音の入り切り（きせかえパネルの「おと」。保存は '0' / '1' だけを受けつける）
+const loadFlag = (k: string) => {
+  try {
+    return localStorage.getItem(k) !== '0'
+  } catch {
+    return true
+  }
+}
+beeper.bgmOn = loadFlag('pulsar-bgm')
+beeper.sfxOn = loadFlag('pulsar-sfx')
+function soundChip(id: string, label: string, key: string, get: () => boolean, set: (on: boolean) => void) {
+  const b = document.getElementById(id) as HTMLButtonElement
+  const show = () => {
+    b.textContent = `${label} ${get() ? '入' : '切'}`
+    b.setAttribute('aria-pressed', String(get()))
+  }
+  show()
+  b.addEventListener('click', () => {
+    beeper.unlock()
+    set(!get())
+    save(key, get() ? '1' : '0')
+    show()
+    beeper.beep(get() ? 2600 : 1500, 0.05)
+  })
+}
+soundChip('snd-bgm', 'おんがく', 'pulsar-bgm', () => beeper.bgmOn, (on) => beeper.setBgm(on))
+soundChip('snd-sfx', 'こうかおん', 'pulsar-sfx', () => beeper.sfxOn, (on) => beeper.setSfx(on))
+// 最初の操作（タップ・キー）のあとに音を始める（ブラウザの自動再生の制限）
+const wakeAudio = () => {
+  beeper.unlock()
+  if (beeper.running) for (const ev of WAKE_EVENTS) window.removeEventListener(ev, wakeAudio)
+}
+const WAKE_EVENTS = ['pointerup', 'touchend', 'click', 'keydown']
+for (const ev of WAKE_EVENTS) window.addEventListener(ev, wakeAudio, { passive: true })
+
 chips(document.getElementById('chara-list')!, CHARA, () => charaStyle, (id) => {
   charaStyle = id as 'sprite' | 'model'
   save('pulsar-chara', id)
@@ -685,8 +721,59 @@ const SFX: Record<Sfx, () => void> = {
   egg: () => [1568, 1319, 1568, 2093].forEach((f, i) => beeper.beep(f, 0.08, i * 0.1)),
   skill: () => [1200, 1800, 2400, 3200].forEach((f, i) => beeper.beep(f, 0.04, i * 0.035)),
   boom: () => (beeper.beep(400, 0.06), beeper.beep(260, 0.1, 0.05), beeper.beep(1900, 0.04, 0.1)),
+  // 建築のトントン（かなづち）
+  build: () => (beeper.tone(300, 0.07, 0, { type: 'triangle', slideTo: 140, vol: 0.9 }), beeper.noise(0.03, 0, 2200, 7000, 0.35)),
+  // 建物の完成
+  built: () => ([1047, 1319, 1568].forEach((f, i) => beeper.beep(f, 0.06, i * 0.07)), beeper.tone(2093, 0.28, 0.22), beeper.tone(1568, 0.28, 0.22, { type: 'triangle', vol: 0.5 })),
+  // 卵がかえる（ひびわれ + のぼる音）
+  hatch: () => (beeper.noise(0.025, 0, 1500, 6000, 0.5), beeper.noise(0.025, 0.09, 1500, 6000, 0.5), [1319, 1568, 1976, 2637].forEach((f, i) => beeper.beep(f, 0.06, 0.2 + i * 0.07))),
+  // ずかん登録（ちいさな鈴）
+  dex: () => [1976, 2637].forEach((f, i) => beeper.tone(f, 0.18, i * 0.1, { type: 'sine', vol: 0.7 })),
+  // 役割がつく（ぽん、と判を押す）
+  role: () => (beeper.tone(1568, 0.05, 0, { type: 'triangle' }), beeper.tone(1175, 0.09, 0.06, { type: 'triangle' })),
+  // 世代交代（BGM が切れている時は、鈴がゆっくりのぼる。入っている時は短い曲を流す）
+  generation: () => {
+    if (!beeper.music?.jingle('rebirth')) [1047, 1319, 1568, 2093, 2637, 3136].forEach((f, i) => beeper.tone(f, 0.3, i * 0.16, { type: 'sine', vol: 0.6 }))
+  },
+  // 敵軍の予告（サイレン）
+  alarm: () => ([880, 660, 880, 660].forEach((f, i) => beeper.tone(f, 0.13, i * 0.15, { vol: 0.55 })), beeper.noise(0.4, 0, 200, 1200, 0.25)),
+  // ボス登場（低いうなり + 爆発）
+  boss: () => (beeper.tone(140, 0.55, 0, { type: 'sawtooth', slideTo: 50, vol: 0.8 }), beeper.noise(0.35, 0, 100, 900, 0.5), SFX.boom()),
+  // みはりとうの発射
+  tower: () => beeper.tone(2600, 0.07, 0, { slideTo: 900, vol: 0.45 }),
+  // かいたい（くずれる）
+  demolish: () => (beeper.noise(0.22, 0, 150, 1800, 0.55), beeper.tone(320, 0.2, 0, { type: 'triangle', slideTo: 70, vol: 0.8 })),
+  // ショップで買う
+  buy: () => ([1319, 1760, 2349].forEach((f, i) => beeper.beep(f, 0.045, i * 0.05)), beeper.tone(3136, 0.12, 0.16, { type: 'sine', vol: 0.6 })),
+  // 箱庭がひろがる
+  expand: () => (beeper.tone(260, 0.45, 0, { type: 'triangle', slideTo: 1500, vol: 0.8 }), [1568, 2093, 2637, 3136].forEach((f, i) => beeper.beep(f, 0.05, 0.35 + i * 0.05))),
+  // 敵軍をたおした（勝利のファンファーレ。BGM が切れている時は短い効果音）
+  victory: () => {
+    if (!beeper.music?.jingle('fanfare')) SFX.win()
+  },
 }
-world.onSfx = (k) => SFX[k]()
+// 同じ音の最短のあき（ミリ秒）。うるさくならないようにする
+const SFX_GAP: Partial<Record<Sfx, number>> = {
+  hit: 55, crit: 70, train: 90, eat: 120, skill: 90, coin: 60, build: 300, built: 500, hatch: 400, dex: 700, role: 900, generation: 2000, alarm: 4000, boss: 1500,
+  tower: 140, demolish: 180, buy: 150, expand: 1500, victory: 3000, win: 250, lose: 300, evolve: 300, egg: 300, friend: 200, boom: 200, warp: 300,
+}
+/** 大事な音（数が多くても落とさない） */
+const SFX_KEEP = new Set<Sfx>(['victory', 'generation', 'alarm', 'boss', 'expand', 'hatch', 'evolve', 'built'])
+const sfxLast = new Map<Sfx, number>()
+const sfxRecent: number[] = []
+function playSfx(k: Sfx) {
+  // BGM の曲（勝利・世代交代）は、効果音が切れていても鳴らす
+  if (!beeper.sfxOn && k !== 'victory' && k !== 'generation') return
+  const now = performance.now()
+  if (now - (sfxLast.get(k) ?? -1e9) < (SFX_GAP[k] ?? 40)) return
+  // 全体でも 0.5 秒に 8 回まで
+  while (sfxRecent.length && now - sfxRecent[0] > 500) sfxRecent.shift()
+  if (sfxRecent.length >= 8 && !SFX_KEEP.has(k)) return
+  sfxLast.set(k, now)
+  sfxRecent.push(now)
+  SFX[k]()
+}
+world.onSfx = playSfx
 
 // ---------------- 画面に入る（全画面モード） ----------------
 type Mode = 'device' | 'entering' | 'inside' | 'leaving'
@@ -933,6 +1020,7 @@ setTimeout(() => document.getElementById('hint')?.classList.add('fade'), 7000)
 const timer = new THREE.Timer()
 let elapsed = 0
 let moodCheck = 0
+let musicT = 1
 let frames = 0
 let idleFlip = false
 let catchUp = 0
@@ -1001,6 +1089,13 @@ renderer.setAnimationLoop((t) => {
   ;(lampMesh.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.2 + Math.max(0, Math.sin(elapsed * 3)) * 2
 
   world.update(dt)
+  // BGM：場面を伝えて、少し先の音までスケジュールする
+  musicT += dt
+  if (musicT > 0.2) {
+    musicT = 0
+    beeper.setMusicState({ ...world.musicState(), evening: currentMood === 'evening' })
+  }
+  beeper.update()
   world.render(renderer)
   ;(dust.material as THREE.ShaderMaterial).uniforms.time.value = elapsed
   finish.uniforms.time.value = elapsed
@@ -1052,6 +1147,11 @@ renderer.setAnimationLoop((t) => {
   renderer,
   composer,
   setShape: (id: ShapeId) => ((shapeId = id), setShape(id)),
+  beeper,
+  musicInfo: () => beeper.music?.info() ?? null,
+  describeSong,
+  /** 曲を書き出して音の大きさを確かめる（確認用） */
+  renderMusic: (st: Parameters<typeof describeSong>[0], seconds: number, jingle?: 'fanfare' | 'rebirth') => Music.renderOffline(st, seconds, (c) => createChain(c, 1).bgm, jingle),
   setMood: (m: keyof typeof MOODS) => applyMood(m),
   setPlace: (id: PlaceId) => ((placeId = id), rebuildPlace()),
   setSkin: (id: SkinId) => device.setSkin(id),

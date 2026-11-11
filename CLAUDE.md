@@ -30,7 +30,8 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - `src/world/fx.ts` / `fxprops.ts` — 風・ぬれ・雪・雲の影・水面・雨雪火の粉の粒子（上の「地形と天気の見た目」）
 - `src/world/sprites.ts` / `textures.ts` — ドット絵スプライト生成、手続きテクスチャ
 - `src/scene.ts` — 時間帯の雰囲気（MOODS）、机の木目、背景の玉ボケ、ほこり粒子、仕上げシェーダー
-- `src/beep.ts` — 圧電ブザー風の効果音
+- `src/beep.ts` — 音の出口（効果音 + BGM → コンプレッサ → マスター音量）。圧電ブザー風の効果音 `beep` / `tone` / `noise`
+- `src/music.ts` — BGM エンジン（WebAudio で手続き生成・先読みスケジュール・クロスフェード）
 
 ## ルール
 - **デザインはすべてオリジナル**。実在する製品・ゲームの本体形状、キャラ、ロゴ、アイコン、効果音を再現しない
@@ -76,6 +77,7 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - セーブは localStorage の `pulsar-save-v1`（10 秒ごと + 画面を離れた時）。項目を増やしたら `save()` と `load()` の両方を直す
 - **iPhone のウィジェット**（Scriptable）：せってい →「ウィジェットに送る」で `World.widgetData()`（生き物を消した いまの景色 480×480 JPEG に PS1 風の仕上げ・立たせる場所 `spots`・顔ぶれとドット絵）を `PULSARW1:` コードにしてコピー。スクリプトは `public/scriptable/PULSAR.js`（Scriptable の API だけ。ネットにはつながない。コードは信用せず `clean()` で検査）。ウィジェットは 15 分ごとに時刻から居場所・ねる/おきる・ほたるを決めなおす。データの形を変えたら両方を直す
 - データの書き出し・読み込み・やり直しは `src/backup.ts`（コードは `PULSAR1:` + base64 の JSON）。設定のキーを増やしたら `KEYS` にも足す。読み込み・やり直しの前は `world.saveLocked = true` にして上書きを防ぐ。起動時に `navigator.storage.persist()` を頼む
+- **音**：音声ファイルは使わず全部 WebAudio。BGM は `music.ts` が `World.musicState()`（`night / weather / stage / army / villageLv`）+ 本体側の夕方フラグから曲を選び、変わるとクロスフェード（昼・夕・夜・敵軍・天気ごとのアレンジ、ステージごとの調と音色は `STAGE_MUSIC`。ステージを足したら表に 1 行。表にない番号は 0 番）。勝利 `victory` / 世代交代 `generation` は短い曲（BGM が切れていれば効果音）。効果音は `main.ts` の `SFX` 表 + `SFX_GAP`（同じ音のレート制限）。「音」ボタンはマスター音量、きせかえの「おと」で BGM / 効果音を別々に入り切り（`pulsar-bgm` / `pulsar-sfx`、`backup.ts` の `KEYS` にも入っている）。最初のタップ・キーのあとに始まり、タブが裏に回ると止まる。曲の確認は `__pulsar.renderMusic(state, 秒)`（OfflineAudioContext で書き出す）
 - **仕上げ（軽さ・オフライン・設定）**：画質は 高 / 低 / 自動（`pulsar-quality`。自動は平均 FPS が低い状態が続いたら 高 → 低 → ピクセル比を下げる。手動で選んだ時は勝手に変えない。自動テスト中 `navigator.webdriver` は `?autoq=1` が無いと自動調整しない）。`document.hidden` の間は描画もシミュレーションも止め、戻ったら止まっていた分のうち 1 秒ぶんまでを進める。60 秒操作が無いと 30fps に落とす。`obstacles()` は 1 フレームに 1 回だけ組み立てる（`obsFrame`）、HUD は 30 回/秒まで（`hudNow` でボタン・タップ直後は即描画）
 - **せってい**（きせかえパネル内）：文字の大きさ `pulsar-text`（`html[data-text]`、CSS は `calc(Npx * var(--ts))`）、うごき `pulsar-motion`（既定は `prefers-reduced-motion`。`World.reducedMotion` が画面ゆれ・フラッシュ・ヒットストップ・ぷにぷにを弱める。ゆれやフラッシュを足す時は係数を掛ける）、画質。ほかの設定は `#settings-extra` に足す。キーを増やしたら `backup.ts` の `KEYS` にも
 - **起動と失敗時の表示**（`src/shell.ts` / `boot.ts`）：スプラッシュ（`#splash`、index.html にインライン CSS）、WebGL が使えない / コンテキストロスト時の案内（`#gl-msg`）、新バージョンのバー（`#update-bar`、`registerType: 'prompt'` で「こうしん」を押すまで入れ替えない）、初回だけの遊び方（`#tips`、`pulsar-hint`）。HTML の文字は `textContent` で入れる。Google Fonts は `runtimeCaching` で一度見たらオフラインでも使える（読めない時は代替フォント）。入力欄に打っている間はゲームのキーを無視する（`typing()`）
