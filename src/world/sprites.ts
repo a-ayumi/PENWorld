@@ -14,7 +14,8 @@ export function pixelSprite(w: number, h: number, draw: Draw, outline = '#1a1530
   const c = document.createElement('canvas')
   c.width = w + PAD * 2
   c.height = h + PAD * 2
-  const g = c.getContext('2d')!
+  // 何度も getImageData で読むので、CPU 側で持つ（色ちがい・もよう・陰影・輪郭のため）
+  const g = c.getContext('2d', { willReadFrequently: true })!
   g.translate(PAD, PAD)
   draw(g)
   const W = c.width

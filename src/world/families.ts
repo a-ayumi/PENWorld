@@ -166,6 +166,8 @@ export const STAGE_EGGS: EggKind[][] = [
   ['water', 'bird', 'dragon', 'dog'], // さんごの入り江
   ['cat', 'dog', 'bird', 'water'], // わたゆきの原
   ['machine', 'water', 'dragon', 'monster'], // こおりの回路峰
+  ['dragon', 'machine', 'monster', 'dog'], // ほむらのかざん
+  ['monster', 'machine', 'bird', 'cat'], // こだいのいせき
 ]
 
 /** 段階ごとの基本ステータス（ちから型は攻撃が高く、まもり型は体力が高い） */

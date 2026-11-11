@@ -12,13 +12,24 @@ import { buildDevice } from './device'
 import { FinishShader, MOODS, dustParticles, moodForHour, type Mood } from './scene'
 import { PLACES, buildPlace, type PlaceId, type PlaceInst } from './places'
 import { SHAPES, SKINS, type ShapeId, type SkinId } from './device'
-import { Beeper, VOLUME_NAMES } from './beep'
-import { exportCode, importCode, requestPersist } from './backup'
-import { sheetFor, type SpeciesId } from './world/monsters'
+import { Beeper, VOLUME_NAMES, createChain } from './beep'
+import { Music, describeSong } from './music'
+import { exportCode, importCode, requestPersist, widgetCode } from './backup'
+import { portraitFor, type SpeciesId } from './world/monsters'
+import { hideSplash, initTips, NO_WEBGL, showFatal, showOfflineReady, showUpdateBar, tipsSeen, watchContextLoss } from './shell'
 
 // ---------------- レンダラー ----------------
 const canvas = document.getElementById('scene') as HTMLCanvasElement
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
+// WebGL が使えない端末では、真っ黒にせず案内を出す
+const renderer = (() => {
+  try {
+    return new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
+  } catch (e) {
+    showFatal(NO_WEBGL.title, NO_WEBGL.body)
+    throw e
+  }
+})()
+watchContextLoss(canvas)
 // 色が転びにくい Neutral トーンマッピング（プラスチックの色をそのまま見せる）
 renderer.toneMapping = THREE.NeutralToneMapping
 renderer.shadowMap.enabled = true
@@ -105,34 +116,119 @@ const finish = new ShaderPass(FinishShader)
 composer.addPass(finish)
 composer.addPass(new OutputPass())
 
-// 画質（低 = ポストエフェクト無し・解像度控えめ）
+// 画質（低 = ポストエフェクト無し・解像度控えめ）。「自動」は重い時だけ自分で下げる（手動で選んだ時は勝手に変えない）
 type Quality = 'high' | 'low'
-let quality: Quality = matchMedia('(pointer: coarse)').matches ? 'low' : 'high'
+type QualityPref = Quality | 'auto'
+const QUALITY_PREFS: Record<QualityPref, { name: string }> = { high: { name: '高' }, low: { name: '低' }, auto: { name: '自動' } }
+const coarsePointer = matchMedia('(pointer: coarse)').matches
+let qualityPref: QualityPref = 'auto'
 try {
   const saved = localStorage.getItem('pulsar-quality')
-  if (saved === 'high' || saved === 'low') quality = saved
+  if (saved === 'high' || saved === 'low' || saved === 'auto') qualityPref = saved
 } catch {
   /* noop */
 }
+let quality: Quality = qualityPref === 'auto' ? (coarsePointer ? 'low' : 'high') : qualityPref
+/** 自動で重い時に下げる、ピクセル比の係数（1 → 0.8 → 0.6） */
+let autoScale = 1
 const qualityBtn = document.getElementById('quality') as HTMLButtonElement
 function applyQuality() {
-  const dpr = Math.min(window.devicePixelRatio, quality === 'high' ? 2 : 1.5)
+  const dpr = Math.max(0.5, Math.min(window.devicePixelRatio, quality === 'high' ? 2 : 1.5) * (qualityPref === 'auto' ? autoScale : 1))
   renderer.setPixelRatio(dpr)
   composer.setPixelRatio(dpr)
   bokeh.enabled = quality === 'high'
   bloom.enabled = quality === 'high'
-  qualityBtn.textContent = `画質: ${quality === 'high' ? '高' : '低'}`
+  world.setQuality(quality)
+  const q = quality === 'high' ? '高' : '低'
+  qualityBtn.textContent = `画質: ${qualityPref === 'auto' ? `自動(${q})` : q}`
+  syncQualityChips()
   resize()
 }
-qualityBtn.addEventListener('click', () => {
-  quality = quality === 'high' ? 'low' : 'high'
+function setQualityPref(p: QualityPref) {
+  qualityPref = p
   try {
-    localStorage.setItem('pulsar-quality', quality)
+    localStorage.setItem('pulsar-quality', p)
   } catch {
     /* noop */
   }
+  autoScale = 1
+  quality = p === 'auto' ? (coarsePointer ? 'low' : 'high') : p
+  fpsWatch.reset(6)
   applyQuality()
+}
+qualityBtn.addEventListener('click', () => {
+  const order: QualityPref[] = ['high', 'low', 'auto']
+  setQualityPref(order[(order.indexOf(qualityPref) + 1) % order.length])
 })
+/** 自動画質：2 秒ごとの平均 FPS が低い状態が続いたら 1 段下げる（高 → 低 → ピクセル比を小さく）。自動テスト中（webdriver）は ?autoq=1 を付けた時だけ */
+const autoQualityOn = !navigator.webdriver || new URLSearchParams(location.search).has('autoq')
+const fpsWatch = {
+  warm: 6,
+  acc: 0,
+  n: 0,
+  bad: 0,
+  reset(warm = 3) {
+    this.warm = warm
+    this.acc = this.n = this.bad = 0
+  },
+  tick(raw: number) {
+    if (qualityPref !== 'auto' || !autoQualityOn) return
+    if (raw > 0.5) return this.reset(1) // 裏に回った直後などの長い間は数えない
+    if (this.warm > 0) {
+      this.warm -= raw
+      return
+    }
+    this.acc += raw
+    this.n++
+    if (this.acc < 2) return
+    const fps = this.n / this.acc
+    this.acc = this.n = 0
+    if (fps >= 24) {
+      this.bad = Math.max(0, this.bad - 1)
+      return
+    }
+    if (++this.bad < 2) return
+    this.reset(3)
+    if (quality === 'high') quality = 'low'
+    else if (autoScale > 0.61) autoScale = Math.max(0.6, autoScale - 0.2)
+    else return
+    applyQuality()
+  },
+}
+
+// ---------------- せってい（文字の大きさ・うごき・画質）----------------
+type TextSize = 'normal' | 'large'
+const TEXT_SIZES: Record<TextSize, { name: string }> = { normal: { name: 'ふつう' }, large: { name: '大きい' } }
+const MOTIONS = { normal: { name: 'ふつう' }, reduce: { name: 'へらす' } }
+let textSize: TextSize = 'normal'
+let motion: 'normal' | 'reduce' = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'reduce' : 'normal'
+let motionSaved = false
+try {
+  if (localStorage.getItem('pulsar-text') === 'large') textSize = 'large'
+  const m = localStorage.getItem('pulsar-motion')
+  if (m === 'normal' || m === 'reduce') {
+    motion = m
+    motionSaved = true
+  }
+} catch {
+  /* noop */
+}
+let motionK = 1
+function applyText() {
+  document.documentElement.dataset.text = textSize
+}
+function applyMotion() {
+  motionK = motion === 'reduce' ? 0.3 : 1
+  document.documentElement.dataset.motion = motion
+  world.reducedMotion = motion === 'reduce'
+}
+function syncChipGroup(el: HTMLElement, current: string) {
+  el.querySelectorAll<HTMLElement>('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.id === current)))
+}
+function syncQualityChips() {
+  const el = document.getElementById('set-quality')
+  if (el) syncChipGroup(el, qualityPref)
+}
 
 // ---------------- 時間帯 ----------------
 let currentMood = ''
@@ -173,6 +269,7 @@ function rebuildPlace() {
 function applyMood(name: keyof typeof MOODS) {
   if (name === currentMood) return
   currentMood = name
+  world.setDayPart(name)
   const m: Mood = MOODS[name]
   sun.color.set(m.sun)
   sun.intensity = m.sunI
@@ -198,6 +295,7 @@ function chips(el: HTMLElement, items: Record<string, { name: string }>, current
     const b = document.createElement('button')
     b.type = 'button'
     b.className = 'chip'
+    b.dataset.id = id
     b.textContent = it.name
     b.setAttribute('aria-pressed', String(current() === id))
     b.addEventListener('click', () => {
@@ -274,14 +372,78 @@ volBtn.addEventListener('click', () => {
   showVol()
   beeper.beep(2600, 0.06)
 })
+/** 入力欄に文字を打っている時は、ゲームのキー（A・B・C・V など）に反応しない */
+const typing = (e: Event) => e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'KeyV' && !e.repeat) viewBtn.click()
+  if (e.code === 'KeyV' && !e.repeat && !typing(e)) viewBtn.click()
 })
+
+// BGM / 効果音の入り切り（きせかえパネルの「おと」。保存は '0' / '1' だけを受けつける）
+const loadFlag = (k: string) => {
+  try {
+    return localStorage.getItem(k) !== '0'
+  } catch {
+    return true
+  }
+}
+beeper.bgmOn = loadFlag('pulsar-bgm')
+beeper.sfxOn = loadFlag('pulsar-sfx')
+function soundChip(id: string, label: string, key: string, get: () => boolean, set: (on: boolean) => void) {
+  const b = document.getElementById(id) as HTMLButtonElement
+  const show = () => {
+    b.textContent = `${label} ${get() ? '入' : '切'}`
+    b.setAttribute('aria-pressed', String(get()))
+  }
+  show()
+  b.addEventListener('click', () => {
+    beeper.unlock()
+    set(!get())
+    save(key, get() ? '1' : '0')
+    show()
+    beeper.beep(get() ? 2600 : 1500, 0.05)
+  })
+}
+soundChip('snd-bgm', 'おんがく', 'pulsar-bgm', () => beeper.bgmOn, (on) => beeper.setBgm(on))
+soundChip('snd-sfx', 'こうかおん', 'pulsar-sfx', () => beeper.sfxOn, (on) => beeper.setSfx(on))
+// 最初の操作（タップ・キー）のあとに音を始める（ブラウザの自動再生の制限）
+const wakeAudio = () => {
+  beeper.unlock()
+  if (beeper.running) for (const ev of WAKE_EVENTS) window.removeEventListener(ev, wakeAudio)
+}
+const WAKE_EVENTS = ['pointerup', 'touchend', 'click', 'keydown']
+for (const ev of WAKE_EVENTS) window.addEventListener(ev, wakeAudio, { passive: true })
 
 chips(document.getElementById('chara-list')!, CHARA, () => charaStyle, (id) => {
   charaStyle = id as 'sprite' | 'model'
   save('pulsar-chara', id)
   world.setStyle(charaStyle)
+})
+chips(document.getElementById('set-text')!, TEXT_SIZES, () => textSize, (id) => {
+  textSize = id as TextSize
+  save('pulsar-text', id)
+  applyText()
+})
+chips(document.getElementById('set-motion')!, MOTIONS, () => motion, (id) => {
+  motion = id as 'normal' | 'reduce'
+  motionSaved = true
+  save('pulsar-motion', id)
+  applyMotion()
+})
+chips(document.getElementById('set-quality')!, QUALITY_PREFS, () => qualityPref, (id) => setQualityPref(id as QualityPref))
+applyText()
+applyMotion()
+// OS の「視覚効果を減らす」を後から変えた時（自分で選んでいなければ）についていく
+matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', (e) => {
+  if (motionSaved) return
+  motion = e.matches ? 'reduce' : 'normal'
+  applyMotion()
+  syncChipGroup(document.getElementById('set-motion')!, motion)
+})
+const tips = initTips()
+document.getElementById('tips-open')?.addEventListener('click', () => {
+  dressPanel.hidden = true
+  dressBtn.setAttribute('aria-expanded', 'false')
+  tips.show()
 })
 dressBtn.addEventListener('click', () => {
   dressPanel.hidden = !dressPanel.hidden
@@ -350,6 +512,43 @@ $<HTMLInputElement>('data-file').addEventListener('change', async (e) => {
   const f = (e.target as HTMLInputElement).files?.[0]
   if (f) applyImport(await f.text())
 })
+// ---------------- iPhone のウィジェット（Scriptable）----------------
+// いまの景色と仲間を「PULSARW1:」のコードにしてコピー → Scriptable のスクリプト PULSAR が読みこんでウィジェットに描く
+const widgetMsg = $<HTMLParagraphElement>('widget-msg')
+const copyText = (text: string) =>
+  navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject(new Error('no clipboard'))
+$('widget-send').addEventListener('click', () => {
+  let code: string
+  try {
+    code = widgetCode(world.widgetData(renderer))
+  } catch {
+    widgetMsg.textContent = 'うまく写せませんでした。もういちど押してください'
+    return
+  }
+  copyText(code)
+    .then(() => {
+      widgetMsg.textContent = 'コピーしました。Scriptable をひらくと、ウィジェットが新しくなります'
+      $('widget-open').hidden = false
+    })
+    .catch(() => {
+      dataCode.value = code
+      showData('export')
+      dataCode.select()
+      widgetMsg.textContent = 'コピーできませんでした。上のコードを長押しでコピーしてください'
+    })
+})
+$('widget-script').addEventListener('click', () => {
+  const text = fetch(`${import.meta.env.BASE_URL}scriptable/PULSAR.js`).then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
+  // Safari は「押した直後」にしかコピーできないので、読みこみ中の中身を ClipboardItem に約束として渡す
+  const copy =
+    typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write
+      ? navigator.clipboard.write([new ClipboardItem({ 'text/plain': text.then((t) => new Blob([t], { type: 'text/plain' })) })])
+      : text.then(copyText)
+  copy
+    .then(() => (widgetMsg.textContent = 'スクリプトをコピーしました。Scriptable の「＋」で新しいスクリプトを作って貼りつけ、名前を PULSAR にしてください'))
+    .catch(() => (widgetMsg.textContent = 'コピーできませんでした。オンラインの時にもういちど押してください'))
+})
+
 // やり直しは 2 回押しで確定（うっかり防止）
 let resetArmed = 0
 const resetBtn = $<HTMLButtonElement>('data-reset')
@@ -381,12 +580,6 @@ const roadPanel = document.getElementById('road-panel') as HTMLElement
 const roadOpen = new Set<number>()
 let roadSig = ''
 let roadTimer = 0
-const el = (tag: string, cls?: string, text?: string) => {
-  const e = document.createElement(tag)
-  if (cls) e.className = cls
-  if (text !== undefined) e.textContent = text
-  return e
-}
 function renderRoad(force = false) {
   const info = world.roadInfo()
   const sig = JSON.stringify(info)
@@ -429,7 +622,7 @@ function renderRoad(force = false) {
     const ul = el('ul', 'road-goals')
     for (const g of c.goals) {
       const li = el('li', g.done ? 'ok' : '')
-      li.append(el('span', 'ck', g.done ? '✔' : ''), el('span', 'tx', g.text), el('span', 'ct', g.need > 1 || g.boss ? `${g.val}/${g.need}` : g.done ? 'できた' : ''))
+      li.append(el('span', 'ck', g.done ? '✔' : ''), el('span', 'tx', g.text), el('span', 'ct', g.need > 1 || g.boss ? `${Math.floor(g.val)}/${g.need}` : g.done ? 'できた' : ''))
       if (!g.done && g.need > 1) {
         const pg = el('div', 'pg')
         const fill = el('i')
@@ -467,9 +660,63 @@ document.getElementById('road-boss-btn')!.addEventListener('click', () => {
 // ---------------- ずかん ----------------
 const dexBtn = document.getElementById('dex-btn') as HTMLButtonElement
 const dexPanel = document.getElementById('dex-panel') as HTMLElement
+/** ずかんの「ひみつ」欄：隠しの姿（ヒントが 1 行ずつ増える）とできごと。文字は textContent だけで入れる */
+function renderSecrets() {
+  const info = world.secretInfo()
+  document.getElementById('sec-form-n')!.textContent = `${info.formsFound}/${info.forms.length}`
+  document.getElementById('sec-ev-n')!.textContent = `${info.eventsFound}/${info.events.length}`
+  const forms = document.getElementById('sec-forms')!
+  forms.replaceChildren()
+  for (const f of info.forms) {
+    const row = document.createElement('div')
+    row.className = 'sec-row' + (f.found ? ' found' : '')
+    const cv = document.createElement('canvas')
+    cv.width = 56
+    cv.height = 52
+    const g = cv.getContext('2d')
+    if (g && f.found) {
+      const pic = portraitFor(f.id as SpeciesId)
+      g.imageSmoothingEnabled = false
+      g.drawImage(pic, 0, 0, pic.width, pic.height, 0, 0, 56, 52)
+    } else if (g) {
+      g.fillStyle = 'rgba(243,234,216,.35)'
+      g.font = '28px sans-serif'
+      g.textAlign = 'center'
+      g.fillText('?', 28, 38)
+    }
+    const body = document.createElement('div')
+    const name = document.createElement('b')
+    name.textContent = f.found ? f.name : '？？？'
+    const meta = document.createElement('small')
+    meta.textContent = f.found ? f.kind : `${f.known}/${f.total} ヒント`
+    body.append(name, meta)
+    const ul = document.createElement('ul')
+    const lines = f.found && f.story ? [f.story, ...f.lines] : f.lines
+    for (const l of lines.length ? lines : ['まだ なにも わからない…']) {
+      const li = document.createElement('li')
+      li.textContent = l
+      ul.appendChild(li)
+    }
+    body.appendChild(ul)
+    row.append(cv, body)
+    forms.appendChild(row)
+  }
+  const evs = document.getElementById('sec-events')!
+  evs.replaceChildren()
+  for (const e of info.events) {
+    const row = document.createElement('div')
+    row.className = 'sec-ev' + (e.found ? ' found' : '')
+    const name = document.createElement('b')
+    name.textContent = e.found ? `★ ${e.name}` : '？？？'
+    const text = document.createElement('small')
+    text.textContent = e.text
+    row.append(name, text)
+    evs.appendChild(row)
+  }
+}
 function renderDex() {
   const info = world.dexInfo()
-  document.getElementById('dex-summary')!.textContent = `なかま ${info.owned}/${info.total}　みつけた ${info.seen}/${info.all}　いまは だい${info.gen}せだい（じゅみょう ${Math.round((1 - info.life) * 100)}%）`
+  document.getElementById('dex-summary')!.textContent = `なかま ${info.owned}/${info.total}　みつけた ${info.seen}/${info.all}　★いろちがい ${info.rareOwned}/${info.rareSeen}　いまは だい${info.gen}せだい（じゅみょう ${Math.round((1 - info.life) * 100)}%）`
   const grid = document.getElementById('dex-grid')!
   grid.replaceChildren()
   let fam = ''
@@ -488,9 +735,10 @@ function renderDex() {
     cv.height = 52
     const g = cv.getContext('2d')
     if (g && e.state > 0) {
-      const sh = sheetFor(e.id as SpeciesId)
+      // 1 コマ目だけ焼いた小さな絵（シート全体は作らない）
+      const pic = portraitFor(e.id as SpeciesId)
       g.imageSmoothingEnabled = false
-      g.drawImage(sh.texture.image as CanvasImageSource, 0, 0, sh.cellW, sh.cellH, 0, 0, 56, 52)
+      g.drawImage(pic, 0, 0, pic.width, pic.height, 0, 0, 56, 52)
     } else if (g) {
       g.fillStyle = 'rgba(243,234,216,.35)'
       g.font = '28px sans-serif'
@@ -502,8 +750,25 @@ function renderDex() {
     const sub = document.createElement('small')
     sub.textContent = e.state === 2 ? `なかま ・ ${e.tier ? 'ランク' + e.tier : ''}` : e.state === 1 ? 'みつけた' : ''
     cell.append(cv, name, sub)
+    if (e.rare > 0) {
+      // 色ちがいを みつけた / なかまにした：小さな絵と ★ を右上に
+      const rc = document.createElement('canvas')
+      rc.className = 'rare'
+      rc.width = 28
+      rc.height = 26
+      const rg = rc.getContext('2d')
+      if (rg) {
+        const pic = portraitFor(e.id as SpeciesId, 8)
+        rg.imageSmoothingEnabled = false
+        rg.drawImage(pic, 0, 0, pic.width, pic.height, 0, 0, 28, 26)
+      }
+      rc.title = e.rare === 2 ? '★ いろちがい：なかまにした' : '★ いろちがい：みつけた'
+      cell.classList.add(e.rare === 2 ? 'rare-own' : 'rare-seen')
+      cell.appendChild(rc)
+    }
     grid.appendChild(cell)
   }
+  renderSecrets()
   document.getElementById('dex-lineage')!.textContent = info.lineage.length ? `${info.lineage.join(' → ')} → ${info.pet}（いま）` : `${info.pet}（はじめの だい）`
 }
 dexBtn.addEventListener('click', () => {
@@ -519,6 +784,75 @@ document.getElementById('dex-close')!.addEventListener('click', () => {
   dexPanel.hidden = true
   dexBtn.setAttribute('aria-expanded', 'false')
 })
+
+// ---------------- おねがい（日替わりミッション・季節・バッジ）----------------
+const missionBtn = document.getElementById('mission-btn') as HTMLButtonElement
+const missionPanel = document.getElementById('mission-panel') as HTMLElement
+function el(tag: string, cls?: string, text?: string) {
+  const e = document.createElement(tag)
+  if (cls) e.className = cls
+  if (text !== undefined) e.textContent = text
+  return e
+}
+function renderMissions() {
+  const m = world.missionInfo()
+  const nDone = m.missions.filter((x) => x.done).length
+  missionBtn.textContent = `おねがい ${nDone}/${m.missions.length}`
+  missionBtn.classList.toggle('ready', nDone < m.missions.length)
+  if (missionPanel.hidden) return
+  document.getElementById('mission-summary')!.textContent = `${m.day}　れんぞく ${m.streak}にち　いまは ${m.seasonName}（${m.seasonEvent}）`
+  document.getElementById('mission-list')!.replaceChildren(
+    ...m.missions.map((x) => {
+      const li = el('li', 'mission' + (x.done ? ' done' : ''))
+      li.append(el('span', 'check', '✓'), el('span', 'mtext', x.text), el('span', `mtag d${x.diffIndex}`, `${x.diff} +${x.reward}`))
+      const bar = el('div', 'mbar')
+      const fill = el('i')
+      fill.style.width = `${Math.round((x.value / x.target) * 100)}%`
+      bar.append(fill)
+      li.append(bar, el('span', 'mnum', x.done ? 'たっせい！' : `${Math.floor(x.value)}/${x.target}`))
+      return li
+    }),
+  )
+  document.getElementById('mission-note')!.textContent = m.allDone
+    ? `ぜんぶ たっせい！ ボーナス +${m.allClearBonus} をもらったよ。あしたも あたらしい おねがいが でるよ`
+    : `ぜんぶ たっせいすると ボーナス +${m.allClearBonus}。まいにち つづけると れんぞくボーナス`
+  document.getElementById('season-row')!.replaceChildren(
+    ...m.seasons.map((x) => {
+      const c = el('span', 'chip' + (x.seen ? '' : ' unseen'), x.name)
+      c.setAttribute('aria-pressed', String(x.id === m.season))
+      c.append(el('small', undefined, x.event))
+      return c
+    }),
+  )
+  const got = m.badges.filter((b) => b.got).length
+  document.getElementById('badge-head')!.textContent = `バッジ　${got}/${m.badges.length}`
+  document.getElementById('badge-grid')!.replaceChildren(
+    ...m.badges.map((b) => {
+      const d = el('div', 'badge' + (b.got ? ' got' : ''))
+      d.append(el('span', 'bmark', b.got ? '★' : '？'), el('span', 'bname', b.name), el('span', 'bdesc', b.got ? b.desc : `${b.desc}（+${b.coins}）`))
+      return d
+    }),
+  )
+}
+function closeMissions() {
+  missionPanel.hidden = true
+  missionBtn.setAttribute('aria-expanded', 'false')
+}
+missionBtn.addEventListener('click', () => {
+  missionPanel.hidden = !missionPanel.hidden
+  missionBtn.setAttribute('aria-expanded', String(!missionPanel.hidden))
+  if (!missionPanel.hidden) {
+    dressPanel.hidden = dexPanel.hidden = true
+    dressBtn.setAttribute('aria-expanded', 'false')
+    dexBtn.setAttribute('aria-expanded', 'false')
+  }
+  renderMissions()
+})
+document.getElementById('mission-close')!.addEventListener('click', closeMissions)
+// きせかえ・ずかんを開いたら、おねがいは閉じる
+dressBtn.addEventListener('click', () => !dressPanel.hidden && closeMissions())
+dexBtn.addEventListener('click', () => !dexPanel.hidden && closeMissions())
+setInterval(renderMissions, 1500)
 
 document.getElementById('dress-close')!.addEventListener('click', () => {
   dressPanel.hidden = true
@@ -543,8 +877,59 @@ const SFX: Record<Sfx, () => void> = {
   egg: () => [1568, 1319, 1568, 2093].forEach((f, i) => beeper.beep(f, 0.08, i * 0.1)),
   skill: () => [1200, 1800, 2400, 3200].forEach((f, i) => beeper.beep(f, 0.04, i * 0.035)),
   boom: () => (beeper.beep(400, 0.06), beeper.beep(260, 0.1, 0.05), beeper.beep(1900, 0.04, 0.1)),
+  // 建築のトントン（かなづち）
+  build: () => (beeper.tone(300, 0.07, 0, { type: 'triangle', slideTo: 140, vol: 0.9 }), beeper.noise(0.03, 0, 2200, 7000, 0.35)),
+  // 建物の完成
+  built: () => ([1047, 1319, 1568].forEach((f, i) => beeper.beep(f, 0.06, i * 0.07)), beeper.tone(2093, 0.28, 0.22), beeper.tone(1568, 0.28, 0.22, { type: 'triangle', vol: 0.5 })),
+  // 卵がかえる（ひびわれ + のぼる音）
+  hatch: () => (beeper.noise(0.025, 0, 1500, 6000, 0.5), beeper.noise(0.025, 0.09, 1500, 6000, 0.5), [1319, 1568, 1976, 2637].forEach((f, i) => beeper.beep(f, 0.06, 0.2 + i * 0.07))),
+  // ずかん登録（ちいさな鈴）
+  dex: () => [1976, 2637].forEach((f, i) => beeper.tone(f, 0.18, i * 0.1, { type: 'sine', vol: 0.7 })),
+  // 役割がつく（ぽん、と判を押す）
+  role: () => (beeper.tone(1568, 0.05, 0, { type: 'triangle' }), beeper.tone(1175, 0.09, 0.06, { type: 'triangle' })),
+  // 世代交代（BGM が切れている時は、鈴がゆっくりのぼる。入っている時は短い曲を流す）
+  generation: () => {
+    if (!beeper.music?.jingle('rebirth')) [1047, 1319, 1568, 2093, 2637, 3136].forEach((f, i) => beeper.tone(f, 0.3, i * 0.16, { type: 'sine', vol: 0.6 }))
+  },
+  // 敵軍の予告（サイレン）
+  alarm: () => ([880, 660, 880, 660].forEach((f, i) => beeper.tone(f, 0.13, i * 0.15, { vol: 0.55 })), beeper.noise(0.4, 0, 200, 1200, 0.25)),
+  // ボス登場（低いうなり + 爆発）
+  boss: () => (beeper.tone(140, 0.55, 0, { type: 'sawtooth', slideTo: 50, vol: 0.8 }), beeper.noise(0.35, 0, 100, 900, 0.5), SFX.boom()),
+  // みはりとうの発射
+  tower: () => beeper.tone(2600, 0.07, 0, { slideTo: 900, vol: 0.45 }),
+  // かいたい（くずれる）
+  demolish: () => (beeper.noise(0.22, 0, 150, 1800, 0.55), beeper.tone(320, 0.2, 0, { type: 'triangle', slideTo: 70, vol: 0.8 })),
+  // ショップで買う
+  buy: () => ([1319, 1760, 2349].forEach((f, i) => beeper.beep(f, 0.045, i * 0.05)), beeper.tone(3136, 0.12, 0.16, { type: 'sine', vol: 0.6 })),
+  // 箱庭がひろがる
+  expand: () => (beeper.tone(260, 0.45, 0, { type: 'triangle', slideTo: 1500, vol: 0.8 }), [1568, 2093, 2637, 3136].forEach((f, i) => beeper.beep(f, 0.05, 0.35 + i * 0.05))),
+  // 敵軍をたおした（勝利のファンファーレ。BGM が切れている時は短い効果音）
+  victory: () => {
+    if (!beeper.music?.jingle('fanfare')) SFX.win()
+  },
 }
-world.onSfx = (k) => SFX[k]()
+// 同じ音の最短のあき（ミリ秒）。うるさくならないようにする
+const SFX_GAP: Partial<Record<Sfx, number>> = {
+  hit: 55, crit: 70, train: 90, eat: 120, skill: 90, coin: 60, build: 300, built: 500, hatch: 400, dex: 700, role: 900, generation: 2000, alarm: 4000, boss: 1500,
+  tower: 140, demolish: 180, buy: 150, expand: 1500, victory: 3000, win: 250, lose: 300, evolve: 300, egg: 300, friend: 200, boom: 200, warp: 300,
+}
+/** 大事な音（数が多くても落とさない） */
+const SFX_KEEP = new Set<Sfx>(['victory', 'generation', 'alarm', 'boss', 'expand', 'hatch', 'evolve', 'built'])
+const sfxLast = new Map<Sfx, number>()
+const sfxRecent: number[] = []
+function playSfx(k: Sfx) {
+  // BGM の曲（勝利・世代交代）は、効果音が切れていても鳴らす
+  if (!beeper.sfxOn && k !== 'victory' && k !== 'generation') return
+  const now = performance.now()
+  if (now - (sfxLast.get(k) ?? -1e9) < (SFX_GAP[k] ?? 40)) return
+  // 全体でも 0.5 秒に 8 回まで
+  while (sfxRecent.length && now - sfxRecent[0] > 500) sfxRecent.shift()
+  if (sfxRecent.length >= 8 && !SFX_KEEP.has(k)) return
+  sfxLast.set(k, now)
+  sfxRecent.push(now)
+  SFX[k]()
+}
+world.onSfx = playSfx
 
 // ---------------- 画面に入る（全画面モード） ----------------
 type Mode = 'device' | 'entering' | 'inside' | 'leaving'
@@ -565,14 +950,28 @@ function setMode(m: Mode) {
   qualityBtn.hidden = m === 'inside'
   dressBtn.hidden = m === 'inside'
   dexBtn.hidden = m === 'inside'
-  roadBtn.hidden = m === 'inside'
+  roadBtn.hidden = missionBtn.hidden = m === 'inside'
   enterBtn.hidden = m !== 'device'
   if (m === 'inside') {
-    dressPanel.hidden = dexPanel.hidden = true
+    dressPanel.hidden = dexPanel.hidden = missionPanel.hidden = true
     closeRoad()
   }
   document.getElementById('hint')!.hidden = m === 'inside'
 }
+
+/** Esc：開いているパネルやヒントを閉じて、押したボタンにフォーカスを戻す */
+function closePanels() {
+  const returnTo = !dressPanel.hidden ? dressBtn : !dexPanel.hidden ? dexBtn : null
+  if (!dressPanel.hidden || !dexPanel.hidden) {
+    dressPanel.hidden = dexPanel.hidden = true
+    dressBtn.setAttribute('aria-expanded', 'false')
+    dexBtn.setAttribute('aria-expanded', 'false')
+    returnTo?.focus()
+  }
+  tips.hide()
+}
+let lastInput = performance.now()
+for (const ev of ['pointerdown', 'wheel', 'touchstart'] as const) window.addEventListener(ev, () => (lastInput = performance.now()), { passive: true })
 
 // ---------------- ボタン ----------------
 const tilt = { x: 0, y: 0, vx: 0, vy: 0 }
@@ -603,11 +1002,13 @@ enterBtn.addEventListener('click', () => {
 })
 
 window.addEventListener('keydown', (e) => {
-  if (e.repeat) return
+  lastInput = performance.now()
+  if (e.repeat || typing(e)) return
   const map: Record<string, 'A' | 'B' | 'C'> = { KeyA: 'A', KeyB: 'B', KeyC: 'C', KeyZ: 'A', KeyX: 'B', Digit1: 'A', Digit2: 'B', Digit3: 'C' }
   const k = map[e.code]
   if (k) press(k)
   if (e.code === 'Escape' && mode === 'inside') setMode('leaving')
+  if (e.code === 'Escape' && mode === 'device') closePanels()
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && mode === 'device' && !e.repeat && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement)) {
     beeper.beep(1200, 0.05)
     setMode('entering')
@@ -655,7 +1056,7 @@ function toggleChrome() {
   world.cleanView = !world.cleanView
   document.body.classList.toggle('clean', world.cleanView)
   if (world.cleanView) {
-    dressPanel.hidden = dexPanel.hidden = true
+    dressPanel.hidden = dexPanel.hidden = missionPanel.hidden = true
     closeRoad()
   }
 }
@@ -738,6 +1139,7 @@ canvas.addEventListener(
 )
 const panKeys: Record<string, [number, number]> = { ArrowLeft: [0.04, 0], ArrowRight: [-0.04, 0], ArrowUp: [0, 0.04], ArrowDown: [0, -0.04] }
 window.addEventListener('keydown', (e) => {
+  if (typing(e)) return
   const k = panKeys[e.code]
   if (k) {
     e.preventDefault()
@@ -781,11 +1183,39 @@ setTimeout(() => document.getElementById('hint')?.classList.add('fade'), 7000)
 const timer = new THREE.Timer()
 let elapsed = 0
 let moodCheck = 0
+let musicT = 1
+let frames = 0
+let idleFlip = false
+let catchUp = 0
+let hiddenAt = 0
+// 裏に回ったら描画もシミュレーションも止める。戻ったら、止まっていた分のうち 1 秒ぶんまでを進める
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    hiddenAt = performance.now()
+    world.save()
+    return
+  }
+  catchUp = hiddenAt ? Math.min(1, (performance.now() - hiddenAt) / 1000) : 0
+  hiddenAt = 0
+  fpsWatch.reset(2)
+})
 renderer.setAnimationLoop((t) => {
+  if (document.hidden) return
+  // 長いあいだ操作が無い時は 30fps に落として電池を節約（触るとすぐ戻る）
+  const idle = performance.now() - lastInput > 60000
+  if (idle && (idleFlip = !idleFlip)) return
   timer.update(t)
+  const rawDt = timer.getDelta()
+  if (!idle) fpsWatch.tick(rawDt)
   // 初回フレームは時刻の差がマイナスになることがあるので 0〜1/20 秒に収める
-  const dt = THREE.MathUtils.clamp(timer.getDelta(), 0, 1 / 20)
+  const dt = THREE.MathUtils.clamp(rawDt, 0, 1 / 20)
   elapsed += dt
+  while (catchUp > 0.001) {
+    const step = Math.min(1 / 15, catchUp)
+    world.update(step)
+    catchUp -= step
+  }
+  catchUp = 0
 
   // 本体のふわふわ + ばねで戻る傾き
   const k = 26
@@ -798,12 +1228,14 @@ renderer.setAnimationLoop((t) => {
   tilt.y = THREE.MathUtils.clamp(tilt.y, -0.8, 0.8)
   // 場所ごとの揺れ（電車・歩き）+ ふわふわ
   place?.update(elapsed, dt)
-  const sw = place ? place.sway(elapsed) : { y: 0, rx: 0, rz: 0 }
+  const sw0 = place ? place.sway(elapsed) : { y: 0, rx: 0, rz: 0 }
+  // 「動きをへらす」では、電車や歩きの揺れ・ふわふわを弱める
+  const sw = { y: sw0.y * motionK, rx: sw0.rx * motionK, rz: sw0.rz * motionK }
   // 手に持っている時は、少し手前に傾けて、手のふるえのような小さな揺れを足す
   const heldNow = !!place?.held
-  device.group.position.y = Math.sin(elapsed * 1.1) * 0.05 + sw.y + (heldNow ? 0.22 + Math.sin(elapsed * 2.3) * 0.012 : 0)
+  device.group.position.y = Math.sin(elapsed * 1.1) * 0.05 * motionK + sw.y + (heldNow ? 0.22 + Math.sin(elapsed * 2.3) * 0.012 : 0)
   device.group.rotation.set(
-    (heldNow ? -0.2 : -0.08) + tilt.x + Math.sin(elapsed * 0.7) * 0.015 + sw.rx,
+    (heldNow ? -0.2 : -0.08) + tilt.x + Math.sin(elapsed * 0.7) * 0.015 * motionK + sw.rx,
     tilt.y + Math.sin(elapsed * 0.5) * 0.06,
     Math.sin(elapsed * 0.6) * 0.01 + sw.rz,
   )
@@ -820,6 +1252,13 @@ renderer.setAnimationLoop((t) => {
   ;(lampMesh.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.2 + Math.max(0, Math.sin(elapsed * 3)) * 2
 
   world.update(dt)
+  // BGM：場面を伝えて、少し先の音までスケジュールする
+  musicT += dt
+  if (musicT > 0.2) {
+    musicT = 0
+    beeper.setMusicState({ ...world.musicState(), evening: currentMood === 'evening' })
+  }
+  beeper.update()
   world.render(renderer)
   ;(dust.material as THREE.ShaderMaterial).uniforms.time.value = elapsed
   finish.uniforms.time.value = elapsed
@@ -852,6 +1291,12 @@ renderer.setAnimationLoop((t) => {
   if (mode === 'inside') renderer.render(diveScene, diveCam)
   // 低画質ではボケ/ブルームが無効になり、色調整とビネットだけ残る
   else composer.render()
+
+  // 最初の数フレームを描いたら、スプラッシュをどける。初めての人にはあそびかたを出す
+  if (++frames === 3) {
+    hideSplash()
+    if (!tipsSeen()) setTimeout(() => mode === 'device' && !document.hidden && tips.show(), 1500)
+  }
 })
 
 // テスト用
@@ -862,13 +1307,42 @@ renderer.setAnimationLoop((t) => {
   get device() {
     return device
   },
+  renderer,
+  composer,
   setShape: (id: ShapeId) => ((shapeId = id), setShape(id)),
+  beeper,
+  musicInfo: () => beeper.music?.info() ?? null,
+  describeSong,
+  /** 曲を書き出して音の大きさを確かめる（確認用） */
+  renderMusic: (st: Parameters<typeof describeSong>[0], seconds: number, jingle?: 'fanfare' | 'rebirth') => Music.renderOffline(st, seconds, (c) => createChain(c, 1).bgm, jingle),
   setMood: (m: keyof typeof MOODS) => applyMood(m),
   setPlace: (id: PlaceId) => ((placeId = id), rebuildPlace()),
   setSkin: (id: SkinId) => device.setSkin(id),
+  setQualityPref,
+  fpsWatch,
+  hideTips: () => tips.hide(),
 }
 
 // ---------------- PWA ----------------
 if ('serviceWorker' in navigator && !import.meta.env.VITE_NO_SW) {
-  void import('virtual:pwa-register').then(({ registerSW }) => registerSW({ onRegisterError() {} }))
+  void import('virtual:pwa-register').then(({ registerSW }) => {
+    const updateSW = registerSW({
+      // 新しいバージョンが用意できた：押してもらってから入れ替える（あそんでいる最中に勝手に再読み込みしない）
+      onNeedRefresh: () => showUpdateBar(applyUpdate),
+      onOfflineReady: () => showOfflineReady(),
+      // 開きっぱなしでも、30 分ごと・戻ってきた時に新しいバージョンを探す
+      onRegisteredSW(_url, reg) {
+        if (!reg) return
+        const check = () => navigator.onLine && void reg.update().catch(() => {})
+        setInterval(check, 30 * 60 * 1000)
+        document.addEventListener('visibilitychange', () => !document.hidden && check())
+      },
+      onRegisterError() {},
+    })
+    function applyUpdate() {
+      world.save()
+      void updateSW(true)
+    }
+    ;(window as unknown as { __pulsar: Record<string, unknown> }).__pulsar.showUpdateBar = () => showUpdateBar(applyUpdate)
+  })
 }
