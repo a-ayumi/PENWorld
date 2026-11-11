@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { fxPatch, type FxOpt } from './fx'
 
 /**
  * PS1 風の表現をまとめたモジュール。
@@ -17,8 +18,14 @@ export const OUT = { w: 960, h: 960 }
 /** 頂点スナップの格子（小さいほど揺れが強い） */
 const snap = { value: new THREE.Vector2(SCENE.w / 2, SCENE.h / 2) }
 
-/** 任意の three 標準マテリアルに頂点スナップを足す */
-export function psx<T extends THREE.Material>(m: T): T {
+/**
+ * 任意の three 標準マテリアルに頂点スナップを足す。
+ * `fx` を渡すと風のゆれ・ぬれ・雪の積もりなどの天気の見た目も足す（fx.ts）。
+ * オプションは材質の userData.fx に入るので、コンパイル前なら後から足してもよい（swayify）。
+ */
+export function psx<T extends THREE.Material>(m: T, fx?: FxOpt): T {
+  const o: FxOpt = fx ?? {}
+  m.userData.fx = o
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uSnap = snap
     shader.vertexShader =
@@ -28,8 +35,9 @@ export function psx<T extends THREE.Material>(m: T): T {
         `{ vec4 p = gl_Position; p.xy = floor(p.xy / p.w * uSnap + 0.5) / uSnap * p.w; gl_Position = p; }
         #include <logdepthbuf_vertex>`,
       )
+    if (o.sway || o.ground || o.snow) fxPatch(shader, o)
   }
-  m.customProgramCacheKey = () => 'psx'
+  m.customProgramCacheKey = () => 'psx' + (o.sway ? 'w' : '') + (o.ground ? 'g' : '') + (o.snow ? 's' : '')
   return m
 }
 
@@ -43,7 +51,7 @@ export const snapUniform = snap
 export function makePostMaterial(scene: THREE.Texture, hud: THREE.Texture) {
   return new THREE.ShaderMaterial({
     uniforms: {
-      tScene: { value: scene }, tHud: { value: hud }, glitch: { value: 0 }, flash: { value: 0 }, time: { value: 0 },
+      tScene: { value: scene }, tHud: { value: hud }, glitch: { value: 0 }, flash: { value: 0 }, time: { value: 0 }, heat: { value: 0 },
       res: { value: new THREE.Vector2(SCENE.w, SCENE.h) },
     },
     depthTest: false,
@@ -51,7 +59,7 @@ export function makePostMaterial(scene: THREE.Texture, hud: THREE.Texture) {
     vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
     fragmentShader: /* glsl */ `
       uniform sampler2D tScene; uniform sampler2D tHud;
-      uniform float glitch; uniform float flash; uniform float time; uniform vec2 res;
+      uniform float glitch; uniform float flash; uniform float time; uniform float heat; uniform vec2 res;
       varying vec2 vUv;
       float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
       float bayer4(vec2 p) {
@@ -68,6 +76,12 @@ export function makePostMaterial(scene: THREE.Texture, hud: THREE.Texture) {
           float row = floor(uv.y * res.y / 3.0);
           float n = hash(vec2(row, t));
           uv.x += (n - 0.5) * 0.3 * glitch * step(1.0 - glitch * 0.8, n);
+        }
+        // ひのこ：熱でゆらぐ空気（2px の行ごとに横へずらす。下ほど強い）
+        if (heat > 0.0) {
+          float row = floor(vUv.y * res.y * 0.5);
+          float wob = sin(row * 0.9 + time * 3.1) * 0.6 + sin(row * 0.37 - time * 1.9) * 0.4;
+          uv.x += wob * 0.0042 * heat * mix(0.35, 1.0, 1.0 - vUv.y);
         }
         vec3 c = toSRGB(texture2D(tScene, uv).rgb);
         if (glitch > 0.0) {
