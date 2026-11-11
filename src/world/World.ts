@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { OUT, RES, SCENE, makePostMaterial, psx } from './psx'
+import { DioramaLook } from './diorama'
 import { SpriteAnim, iconSheet } from './sprites'
 import { MonsterModel, hasModel } from './models'
 import { BABY, EGG_COLORS, FAMILY_NAME, LOOK_NAME, NEW_SKILLS, SPECIES, STAGE_EGGS, SpriteMonster, XP_NEED, armyBoss, armyMember, enemyFor, familyOf, lookOf, newSeed, nextForm, portraitFor, variantOf, type Care, type EggKind, type Face, type MonsterView, type Species, type SpeciesId } from './monsters'
@@ -463,6 +464,14 @@ export class World {
   private roleT = 0
   /** 視点：top = 見下ろし / behind = ペットの少し後ろ / eye = ペットの目線 */
   view: 'top' | 'behind' | 'eye' = 'top'
+  /** ピクセル・ジオラマの見た目（見本。URL の ?look=diorama の時だけ。みおろし視点で使う） */
+  private diorama: DioramaLook | null = null
+  private readonly dioLook = new THREE.Vector3()
+  private readonly dioCenter = new THREE.Vector3()
+  /** いま画面を描いているカメラ（タップの当たり判定・頭の上の文字の位置もこれで求める） */
+  private get viewCam(): THREE.Camera {
+    return this.diorama && this.view === 'top' ? this.diorama.cam : this.camera
+  }
   /** ピンチで寄る・引く（1 = ふつう） */
   camZoom = 1
   /** 2 本指ドラッグ：みおろしは前後左右のずらし、うしろ・めせんは向きと高さ */
@@ -485,6 +494,7 @@ export class World {
     this.hudTex.magFilter = THREE.NearestFilter
     this.hudTex.minFilter = THREE.NearestFilter
     this.post = makePostMaterial(this.rtScene.texture, this.hudTex)
+    if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('look') === 'diorama') this.diorama = new DioramaLook(this.hudTex)
     this.postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.post))
     this.scene.add(this.hemi, this.sun)
     this.wfx = new WeatherFx()
@@ -5410,6 +5420,11 @@ export class World {
       this.look.lerp(target, 1 - Math.exp(-dt * 3))
       this.camera.position.copy(this.look).addScaledVector(CAM_OFF, this.camZoom)
       this.camera.lookAt(this.look)
+      if (this.diorama) {
+        // 引くほど、島のまんなかへ寄せる（いちばん引くと島ぜんたいが画面の中央に）
+        const k = THREE.MathUtils.clamp((this.camZoom - 1) / 0.7, 0, 1)
+        this.diorama.aim(this.dioLook.copy(this.look).lerp(this.dioCenter.set(0, 0.4, 0), k), this.camZoom)
+      }
       jolt()
       return
     }
@@ -6223,7 +6238,7 @@ export class World {
 
   /** 3D の点を HUD の座標へ（使い捨ての Vector3 を作らない） */
   private projectXYZ(x: number, y: number, z: number) {
-    const p = this.pv.set(x, y, z).project(this.camera)
+    const p = this.pv.set(x, y, z).project(this.viewCam)
     return { x: Math.round((p.x + 1) * 0.5 * RES.w), y: Math.round((1 - p.y) * 0.5 * RES.h), on: p.z < 1 }
   }
 
@@ -6614,6 +6629,14 @@ export class World {
 
   // ================= 描画 =================
   render(renderer: THREE.WebGLRenderer) {
+    if (this.diorama && this.view === 'top') {
+      const s = this.stage
+      this.diorama.render(renderer, this.scene, this.sun, this.hemi, {
+        dt: 1 / 30, time: this.time, focus: this.look, span: Math.max(12, 11 * this.camZoom), shadows: true, shadowRes: this.high ? 1024 : 512,
+        sky: this.dioSky(s), night: this.night, haze: s.fog, flash: this.flash,
+      }, this.rtOut)
+      return
+    }
     const prev = renderer.getRenderTarget()
     renderer.setRenderTarget(this.rtScene)
     // 目線モードでは自分の体は映さない
@@ -6629,6 +6652,14 @@ export class World {
     renderer.setRenderTarget(this.rtOut)
     renderer.render(this.postScene, this.postCam)
     renderer.setRenderTarget(prev)
+  }
+
+  /** ジオラマの空の色：くもり・あめは灰色へ、ひのこは赤へ */
+  private dioSky(s: Stage): [string, string] {
+    const g = new THREE.Color('#8d96ab')
+    const e = new THREE.Color('#c8583a')
+    const f = (c: string) => new THREE.Color(c).lerp(g, this.wx.grey * 0.8).lerp(e, this.wx.ember * 0.5).getHexString()
+    return ['#' + f(s.sky[0]), '#' + f(s.sky[1])]
   }
 
   /** BGM が曲を選ぶための場面（night: 夜の度合い / army: 0 なし・1 予告・2 交戦 / villageLv: 0〜3） */

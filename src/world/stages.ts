@@ -95,6 +95,7 @@ function base(kind: 'grass' | 'sand' | 'snow') {
 /** 箱庭の下に広がるデジタル空間（格子 + 漂うキューブ） */
 function voidSpace(color: string) {
   const g = new THREE.Group()
+  g.userData.backdrop = true
   const grid = new THREE.GridHelper(160, 80, color, color)
   grid.position.y = -9
   const gm = grid.material as THREE.LineBasicMaterial
@@ -189,6 +190,8 @@ function skyDome(colors: [string, string, string], aurora: number) {
       }`,
   })
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(70, 16, 12), mat)
+  // ピクセル・ジオラマの見た目では、空は仕上げで描くので隠す（diorama.ts）
+  mesh.userData.backdrop = true
   return { mesh, mat }
 }
 

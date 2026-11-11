@@ -24,6 +24,7 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - `src/world/families.ts` — 系統（きかい・りゅう・ねこ・いぬ・とり・みず・モンスター）の仲間 39 種のデータ。名前・ステータスの元・技・見た目の指定 `Look`、進化の枝分かれ `EVOLVE`、たまごの色 `EGG_COLORS`、ステージごとの出やすさ `STAGE_EGGS`。見た目は `monsters.ts` の `critter()` が Look から描く
 - `src/world/models.ts` — モンスターの 3D モデル版（きせかえの「キャラの表現」でポリゴンを選んだ時に使う）。既定は 2.5D のドット絵（`SpriteMonster`）。3D が無い種族はドット絵で表示（`hasModel`）
 - `src/world/structures.ts` — 家のほかの建物 13 種（はたけ・いど・みはりとう・ゆりかごごや・へい・おしろ・はし・ふんすい・ふうしゃ・とうだい・いちば・あそびば・いしのとりで）の定義 `STRUCTS`（必要資材・HP・当たり判定・村の点数）と 3D モデル、建設中の足場 `buildScaffold`、高さの表 `STRUCT_H`、ステージごとの建物の色 `STYLES`（水の色 `water` も）
+- `src/world/diorama.ts` — 計画 A「ピクセル・ジオラマ」の見た目（見本。`?look=diorama` の時だけ、みおろし視点で使う）：平行投影 30°・45° のカメラ（1 ピクセルの格子に合わせる）・左上からの長い影・仕上げ（奥行きの輪郭・ふちの光・空・かすみ・色の調整・減色ディザ）。材質のトゥーン 3 段は `psx.ts` の `toonU`（0 の間は PS1 風のまま）。空のドームとデジタル空間は `userData.backdrop` で隠す。PS1 風の最終版は `archive/ps1-style` ブランチ
 - `src/world/psx.ts` — PS1 風の表現（頂点スナップ・ディザ・15bit カラー・グリッチ）
 - `src/world/structures.ts` — 家のほかの建物 7 種（はたけ・いど・みはりとう・ゆりかごごや・へい・おしろ・はし）の定義 `STRUCTS`（必要資材・HP・当たり判定・村の点数）と 3D モデル、ステージごとの建物の色 `STYLES`
 - `src/world/psx.ts` — PS1 風の表現（頂点スナップ・ディザ・15bit カラー・グリッチ・ひのこの熱ゆらぎ）
