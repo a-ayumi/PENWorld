@@ -113,6 +113,14 @@
         </div>
       </div>
       <p id="data-msg" aria-live="polite"></p>
+      <h3>ウィジェット（iPhone）</h3>
+      <p class="widget-note">アプリ「Scriptable」を使うと、ホーム画面のウィジェットで箱庭をながめられます。はじめに「スクリプトをコピー」して Scriptable の新しいスクリプトに貼りつけ、名前を PULSAR にします。そのあと「ウィジェットに送る」を押すたびに、いま見ている景色と仲間がウィジェットに届きます。</p>
+      <div class="chips">
+        <button type="button" class="chip" id="widget-send">ウィジェットに送る</button>
+        <a class="chip" id="widget-open" href="scriptable:///run/PULSAR?import=1" hidden>Scriptable をひらく</a>
+        <button type="button" class="chip" id="widget-script">スクリプトをコピー</button>
+      </div>
+      <p id="widget-msg" aria-live="polite"></p>
     </section>
     <div id="pad" hidden>
       <button id="pad-exit" class="pad-exit" aria-label="本体にもどる">本体にもどる</button>

@@ -1516,7 +1516,15 @@ export function portraitFor(id: SpeciesId, vk = 0): HTMLCanvasElement {
   const key = `${id}:${vk}`
   let c = portraits.get(key)
   if (!c) {
-    c = cache.get(key) ? (cache.get(key)!.texture.image as HTMLCanvasElement) : pixelSprite(68, 64, (g) => paintFrame(g, id, POSES[0], 0, vk), '#1a1530', { shade: true })
+    const sh = cache.get(key)
+    if (sh) {
+      // 焼いてあるシートがあれば、その 1 コマ目だけを切りだす（シートをそのまま返すと全コマが並んだ絵になる）
+      const atlas = sh.texture.image as HTMLCanvasElement
+      c = document.createElement('canvas')
+      c.width = sh.cellW
+      c.height = sh.cellH
+      c.getContext('2d')!.drawImage(atlas, 0, 0, sh.cellW, sh.cellH, 0, 0, sh.cellW, sh.cellH)
+    } else c = pixelSprite(68, 64, (g) => paintFrame(g, id, POSES[0], 0, vk), '#1a1530', { shade: true })
     portraits.set(key, c)
   }
   return c
