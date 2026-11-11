@@ -2,7 +2,7 @@
  * データの書き出し・読み込み（端末をまたいだ引っこし・バックアップ用）と、消されにくくする設定。
  * 保存先は localStorage のまま。書き出しは「PULSAR1:」で始まる文字のコード（中身は JSON を base64 にしたもの）。
  */
-const KEYS = ['pulsar-save-v1', 'pulsar-place', 'pulsar-skin', 'pulsar-chara', 'pulsar-view', 'pulsar-vol', 'pulsar-quality']
+const KEYS = ['pulsar-save-v1', 'pulsar-place', 'pulsar-skin', 'pulsar-shape', 'pulsar-chara', 'pulsar-view', 'pulsar-vol', 'pulsar-quality', 'pulsar-text', 'pulsar-motion', 'pulsar-hint']
 const PREFIX = 'PULSAR1:'
 /** 読み込むコードの上限（セーブは数十 KB。巨大な入力でブラウザを固めない） */
 const MAX_CODE = 2_000_000
@@ -27,6 +27,11 @@ export function exportCode(): string {
     }
   }
   return PREFIX + toB64(JSON.stringify({ v: 1, at: Date.now(), data }))
+}
+
+/** iPhone のウィジェット（Scriptable）へ渡すコード。セーブとはちがい、景色の絵と顔ぶれだけ */
+export function widgetCode(data: object): string {
+  return 'PULSARW1:' + toB64(JSON.stringify(data))
 }
 
 /** 読み込み。成功したら true（ゲームのデータが入っていないコードは受け付けない） */

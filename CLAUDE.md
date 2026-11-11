@@ -3,6 +3,7 @@
 Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本体の液晶に、PS1 風の 2.5D 箱庭が映り、モンスターが自分で暮らす（歩く・食べる・眠る・遊ぶ・戦う・家を建てる・仲間になる・たまごを産む・それぞれ勝手に進化する）。天気（はれ・くもり・あめ・ゆき・ひのこ）も移り変わる。
 人は直接操作せず「環境」を用意して見守る（ショップで食べ物・置き物を買う、きせかえで本体と場所を選ぶ）。
 作成技法の解説は `docs/TECHNIQUES.md`、作業手順はスキル `.claude/skills/retro-diorama-threejs/` を参照。
+**これからの計画・未マージの PR・作業の手順は `docs/PLAN.md`**（新しいセッションは最初に読む）。
 
 ## コマンド
 - `npm run dev` — 開発サーバー（`--host` 付き）
@@ -12,15 +13,21 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 
 ## 構成
 - `src/main.ts` — レンダラー、ライト、ポストエフェクト、ボタン操作、ループ
-- `src/device.ts` — 本体の 3D モデルと、きせかえ用の柄 `SKINS`（7 種）
+- `src/device.ts` — 本体の 3D モデルと、きせかえ用の柄 `SKINS`（7 種）と かたち `SHAPES`（たまご / くま / おはな = かわいい系、ロボ / メカ = きかい系）
 - `src/places.ts` — 本体の後ろの「人間側」の場所 6 種（机・電車・通学路・教室・バーガーショップ・公園）。実在の店や施設は描かない
+- `src/world/items.ts` — 置き物 13 種（なえ・ボール・たき火・おまもり・だいくどうぐ・まもりのさく・おはか・ベンチ・ランタン・ぬいぐるみ・おうえんばた・はなだん・ミニすべりだい）の説明 `ITEM_INFO`・上限 `ITEM_SPEC`・モデル `buildItem()`・見た目のアニメ `tickItem()`。効果は World.ts（`think()` / `updateItems()`）
+- `src/world/shop.ts` — ショップの商品 `SHOP`（カテゴリ別・安い順）・タブ式の画面 `drawShop()`・タップ判定 `shopTap()`・9×9 のアイコン
 - `src/world/World.ts` — 箱庭本体：生き物の AI・バトル・食べ物・置き物・仲間・たまご・進化・コイン/ショップ・セーブ・HUD・描画パイプライン
+- `src/world/stages2.ts` — 追加ステージ 2 種（ほむらのかざん / こだいのいせき）。`STAGES2` を `stages.ts` の `STAGES` の後ろにつなぐ。共通の道具（`terrain` / `skyDome` / `placer` / `dens` など）は `stages.ts` から export したものを使う。かざんの溶岩は `water: true, lava: true` の障害物（浮く種族だけ越えられる。はしも架けられる）、いせきは `Stage.shadows`（夜のヤミカゲの数）と `Stage.fogRange`（霧の近さ）で雰囲気を出す。ステージ番号で引く表は `WEATHER_W` / `STAGE_EGGS` / `STYLES` / `villageName()`（ステージを足したら 4 つとも足す）
 - `src/world/stages.ts` — ステージ 5 種（はじまりの森 / ガラスの砂丘 / さんごの入り江 / わたゆきの原 / こおりの回路峰）。水場は `water: true` の障害物（浮く種族だけ入れる）
 - `src/world/monsters.ts` — 進化分岐 `BRANCH`（ちから/まもり/こころ、4 段階）、必要経験値 `XP_NEED`、モンスター 14 種（仲間になれる 10 種：メブ / ピコリ / ゴロタ / モフル / ギアル / ヒレル / フワリ / ガルドラ / シオリュウ / ホシクジラ、敵 4 種：ノイズ / トゲバグ / ヤミカゲ（夜だけ）/ ゴウガン（家をこわす））
 - `src/world/families.ts` — 系統（きかい・りゅう・ねこ・いぬ・とり・みず・モンスター）の仲間 39 種のデータ。名前・ステータスの元・技・見た目の指定 `Look`、進化の枝分かれ `EVOLVE`、たまごの色 `EGG_COLORS`、ステージごとの出やすさ `STAGE_EGGS`。見た目は `monsters.ts` の `critter()` が Look から描く
 - `src/world/models.ts` — モンスターの 3D モデル版（きせかえの「キャラの表現」でポリゴンを選んだ時に使う）。既定は 2.5D のドット絵（`SpriteMonster`）。3D が無い種族はドット絵で表示（`hasModel`）
 - `src/world/structures.ts` — 家のほかの建物 13 種（はたけ・いど・みはりとう・ゆりかごごや・へい・おしろ・はし・ふんすい・ふうしゃ・とうだい・いちば・あそびば・いしのとりで）の定義 `STRUCTS`（必要資材・HP・当たり判定・村の点数）と 3D モデル、建設中の足場 `buildScaffold`、高さの表 `STRUCT_H`、ステージごとの建物の色 `STYLES`（水の色 `water` も）
 - `src/world/psx.ts` — PS1 風の表現（頂点スナップ・ディザ・15bit カラー・グリッチ）
+- `src/world/structures.ts` — 家のほかの建物 7 種（はたけ・いど・みはりとう・ゆりかごごや・へい・おしろ・はし）の定義 `STRUCTS`（必要資材・HP・当たり判定・村の点数）と 3D モデル、ステージごとの建物の色 `STYLES`
+- `src/world/psx.ts` — PS1 風の表現（頂点スナップ・ディザ・15bit カラー・グリッチ・ひのこの熱ゆらぎ）
+- `src/world/fx.ts` / `fxprops.ts` — 風・ぬれ・雪・雲の影・水面・雨雪火の粉の粒子（上の「地形と天気の見た目」）
 - `src/world/sprites.ts` / `textures.ts` — ドット絵スプライト生成、手続きテクスチャ
 - `src/scene.ts` — 時間帯の雰囲気（MOODS）、机の木目、背景の玉ボケ、ほこり粒子、仕上げシェーダー
 - `src/beep.ts` — 圧電ブザー風の効果音
@@ -39,6 +46,7 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - 技は種族ごとに `SKILLS`（shot / burst / dash / rain / heal / wave）。`useSkill` で出し、技名はメッセージ欄に出す。バトル中に「バトル」アイコン = おうえん（次の攻撃で技）
 - `main` に push すると `.github/workflows/pages.yml` が GitHub Pages に公開する
 - ボタンは A（アイコン選択）/ B（決定・何も選んでいなければステータス）/ C（キャンセル専用）。キー A/B/C・Z/X・1/2/3 でも押せる。**画面に入る・出るは C ではなく外側**：下の「▶ 画面に入る」ボタン / Enter / 画面の中の「本体にもどる」/ Esc
+- **本体のかたち**：`buildDevice(screenTexture, shape)` が かたちごとに 外形・耳や角・ボタンの形・飾りを作る。液晶（正方形）・ボタン・ロゴの位置は全かたち共通なので、カメラの枠や当たり判定は変わらない。かたちを足す時は `SHAPES` と `shapeSpec()` と飾りの分岐を足し、`main.ts` の `setShape()` が作り直して今の柄をつけ直す。保存キーは `pulsar-shape`
 - **背景の場所**（`places.ts`）：机の上は立てかけ、ほかは「手に持って（すわって）遊んでいる景色」。`PlaceInst.held` の場所は、本体を少し手前に傾けて小さく揺らし、机や床の面（`desk.visible = false`）の代わりに `lapBand()`（ひざ・つくえ・トレー・足もとの絵 + 下へ続く同色の面）を置く。手は描かない。新しい場所を足す時は `HELD` と `lapBand` に足す
 - 本体ビューは「液晶 + ボタン」が画面いっぱいになる距離（`resize()` の needW/needH）。本体の縁や背景ははみ出してよい
 - 画質「低」ではボケとブルームを切る（スマホの既定）。新しい重い効果は必ず `applyQuality()` で切り替え可能にする
@@ -56,9 +64,20 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - **役割分担**：`Creature.role`（だいく / はたけがかり / みはり）を `assignRoles()` が 15 秒ごとに、性格 `bias` と村に足りない物（はたけ・みはりとう・おしろ）で決める。だいくは建築の確率が高く現場を優先、はたけがかりは `tend` 状態で畑の実りを早め、みはりは持ち場（みはりとう・おしろ）を見まわり 7 マス先の敵まで追う。頭の上に色つきの点
 - **世代交代**：ペットの `stats.petAge`（あそんだ秒）が `LIFESPAN`（3 時間）に達すると `retirePet()` → おはか（`memorial`）→ `rebirth()` で同じ系統の赤ちゃんとして生まれ変わる（育ちの傾向は 3 割引きつぎ、代をかさねるほど強く、25% で突然変異）。`stats.gen` / `lineage` を保存。テストは `world.ageUp(分)`
 - **かいたく**：箱庭の広さは `LAND_SIZES = [20, 26, 32]`（`stages.ts` の `setLandSize()`）。ショップの「かいたく ①②」で `expandLand()`（ステージを作り直し、家・建物・置き物・たまごは残す）。小物の数は `dens()` で面積に比例。広さは全ステージ共通で `land` を保存
+- **ショップと置き物**：買えるか・理由は `shopCheck()`（色分けと同じ元）。買うと置き物は上から落ちてはずみ、コインが吸いこまれる（`placeItem` / `buyFx`）。置き物を足す時は `items.ts` の `ItemKind` / `ITEM_SPEC` / `ITEM_INFO` / モデル / `tickItem` と `shop.ts` の `SHOP`・アイコンを足し、効果を World.ts に書く。セーブは `isItemKind` と上限で検査。光源は画質「低」で作らない（`World.setQuality`）
+- **見た目の個体差と色ちがい**：`Creature.seed`（もよう・色のゆらぎ。`lookOf(seed)` で 0〜7 に量子化）と `Creature.rare`（色ちがい 約 3%、ふしぎなたまごは 8%）。スプライトは `sheetFor(id, variantOf(seed, rare))` で種族 × 16 種を生成時に 1 回だけ焼いてキャッシュ（もよう・色相ずらしは `decorate()` が描き終えた絵の「からだの色」の所にだけ重ねる。新しい種族を足したら `OLD_GEOM` / `FOE_GEOM` か `critter()` の Geom を返すだけで効く）。名前の前に ★、HUD に小さな ★、ずかんは `dexRare`（別記録・後方互換）。セーブは `seed` / `rare` / 卵の `lucky` / `dexRare`
+- **表情**：Pose の `eye` / `mouth` / `mark` で 12〜21 コマ（hungry / sleepy / glad / angry / worry）。`faceOf()` が止まっている時の状態から選ぶ。**進化**は `c.evo`（白いシルエット → ふくらむ → 新しい姿、約 1.8 秒。見えない・3D モデルはすぐ切りかえ）。**敵の亜種 6 種とボス 3 種**は `monsters.ts` の `enemyFor()`（ステージの敵に混ぜる）/ `armyMember()` / `armyBoss()`（敵軍の編成。3 回に 1 回ボス、HP バーは `drawBossBar()`）
 - ペットの行動結果は `delta()` で増減を付けてメッセージに出す（ごはん・ねむり・トレーニング・あそび・家づくり）
 - **セキュリティ**（公開リポジトリ）：秘密・鍵・個人情報をコミットしない／外部通信を増やさない（CSP の `connect-src 'self'`、許可元は `vite.config.ts` の `CSP`）／セーブや読み込んだコードは信用せず `isSpecies()` / `num()` で検査／`innerHTML` に外部データを入れない。方針は `SECURITY.md`
 - 天気は `setWeather()`、出やすさはステージごとの `WEATHER_W`
+- **地形と天気の見た目**（`world/fx.ts` + `fxprops.ts`）：天気の強さは `World.wx`（0〜1・なめらかに変わる）、シェーダー共通の値は `fxU`（`updateWeather` が毎フレーム入れる。ステージの `update` は不要）。木は `swayify(t)`（頂点に風の重みを焼く）、草と花は `grass()`、水面は `waterSurface()`、浮き物は `floaters()`。材質へは `psx(m, { sway, ground, snow })`。ぬれ・水たまり・波紋・雲の影・雪の積もり・にじ（雨あがり）・もや（朝）・熱のゆらぎ（ひのこ）・月と星の移動
+- **画質「低」**は `World.setQuality()`（main.ts の `applyQuality` から）：`fxU.uHigh = 0` で風のゆれ・雲の影・水たまり・波紋・水面のきらめきを切り、粒と草を減らし、もやと熱のゆらぎを切る。雪の積もり・ぬれの暗さは低でも出る（軽いため）。新しい効果もこの形で足す
+- 朝のもやは `World.setDayPart(mood)`（main.ts の `applyMood` から）。新ステージの木・草・水は `docs/TECHNIQUES.md` の「天気と風と水」の 1〜2 行の呼び出しだけで天気に反応する
 - セーブは localStorage の `pulsar-save-v1`（10 秒ごと + 画面を離れた時）。項目を増やしたら `save()` と `load()` の両方を直す
+- **iPhone のウィジェット**（Scriptable）：せってい →「ウィジェットに送る」で `World.widgetData()`（生き物を消した いまの景色 480×480 JPEG に PS1 風の仕上げ・立たせる場所 `spots`・顔ぶれとドット絵）を `PULSARW1:` コードにしてコピー。スクリプトは `public/scriptable/PULSAR.js`（Scriptable の API だけ。ネットにはつながない。コードは信用せず `clean()` で検査）。ウィジェットは 15 分ごとに時刻から居場所・ねる/おきる・ほたるを決めなおす。データの形を変えたら両方を直す
 - データの書き出し・読み込み・やり直しは `src/backup.ts`（コードは `PULSAR1:` + base64 の JSON）。設定のキーを増やしたら `KEYS` にも足す。読み込み・やり直しの前は `world.saveLocked = true` にして上書きを防ぐ。起動時に `navigator.storage.persist()` を頼む
+- **仕上げ（軽さ・オフライン・設定）**：画質は 高 / 低 / 自動（`pulsar-quality`。自動は平均 FPS が低い状態が続いたら 高 → 低 → ピクセル比を下げる。手動で選んだ時は勝手に変えない。自動テスト中 `navigator.webdriver` は `?autoq=1` が無いと自動調整しない）。`document.hidden` の間は描画もシミュレーションも止め、戻ったら止まっていた分のうち 1 秒ぶんまでを進める。60 秒操作が無いと 30fps に落とす。`obstacles()` は 1 フレームに 1 回だけ組み立てる（`obsFrame`）、HUD は 30 回/秒まで（`hudNow` でボタン・タップ直後は即描画）
+- **せってい**（きせかえパネル内）：文字の大きさ `pulsar-text`（`html[data-text]`、CSS は `calc(Npx * var(--ts))`）、うごき `pulsar-motion`（既定は `prefers-reduced-motion`。`World.reducedMotion` が画面ゆれ・フラッシュ・ヒットストップ・ぷにぷにを弱める。ゆれやフラッシュを足す時は係数を掛ける）、画質。ほかの設定は `#settings-extra` に足す。キーを増やしたら `backup.ts` の `KEYS` にも
+- **起動と失敗時の表示**（`src/shell.ts` / `boot.ts`）：スプラッシュ（`#splash`、index.html にインライン CSS）、WebGL が使えない / コンテキストロスト時の案内（`#gl-msg`）、新バージョンのバー（`#update-bar`、`registerType: 'prompt'` で「こうしん」を押すまで入れ替えない）、初回だけの遊び方（`#tips`、`pulsar-hint`）。HTML の文字は `textContent` で入れる。Google Fonts は `runtimeCaching` で一度見たらオフラインでも使える（読めない時は代替フォント）。入力欄に打っている間はゲームのキーを無視する（`typing()`）
 - テストは `window.__pulsar.press('A')` / `.state()` / `.setMood('night')`、箱庭は `.world.run(i)` と `.world.update(1/30)` の早送りで確認する
+- **ひみつ**（`src/world/secrets.ts`）：隠しの姿 12 種（`SECRET_FORMS`、成熟期が条件 3 つ = 時間帯×場所×育ちをそろえて進化すると、ふつうの完成期のかわりに出る。ペットは必ず、ほかの子は 8 割）。判定は `pickSecret()` → `secretForm()`（`gainXp` の進化先決定の前）。食べた物は `eatenOf`（WeakMap）に数える。ヒントは `updateSecrets()`（1 秒ごと）が条件ごとに記録、ずかんの「ひみつの すがた」に 1 行ずつ出る。ひみつのできごと 11 個は `SECRET_EVENTS`（条件を `dwell` 秒みたし続けると 1 度だけ）。セーブは `secrets`（読み込み時に ID を表と照合）
