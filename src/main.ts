@@ -698,6 +698,75 @@ document.getElementById('dex-close')!.addEventListener('click', () => {
   dexBtn.setAttribute('aria-expanded', 'false')
 })
 
+// ---------------- おねがい（日替わりミッション・季節・バッジ）----------------
+const missionBtn = document.getElementById('mission-btn') as HTMLButtonElement
+const missionPanel = document.getElementById('mission-panel') as HTMLElement
+function el(tag: string, cls?: string, text?: string) {
+  const e = document.createElement(tag)
+  if (cls) e.className = cls
+  if (text !== undefined) e.textContent = text
+  return e
+}
+function renderMissions() {
+  const m = world.missionInfo()
+  const nDone = m.missions.filter((x) => x.done).length
+  missionBtn.textContent = `おねがい ${nDone}/${m.missions.length}`
+  missionBtn.classList.toggle('ready', nDone < m.missions.length)
+  if (missionPanel.hidden) return
+  document.getElementById('mission-summary')!.textContent = `${m.day}　れんぞく ${m.streak}にち　いまは ${m.seasonName}（${m.seasonEvent}）`
+  document.getElementById('mission-list')!.replaceChildren(
+    ...m.missions.map((x) => {
+      const li = el('li', 'mission' + (x.done ? ' done' : ''))
+      li.append(el('span', 'check', '✓'), el('span', 'mtext', x.text), el('span', `mtag d${x.diffIndex}`, `${x.diff} +${x.reward}`))
+      const bar = el('div', 'mbar')
+      const fill = el('i')
+      fill.style.width = `${Math.round((x.value / x.target) * 100)}%`
+      bar.append(fill)
+      li.append(bar, el('span', 'mnum', x.done ? 'たっせい！' : `${Math.floor(x.value)}/${x.target}`))
+      return li
+    }),
+  )
+  document.getElementById('mission-note')!.textContent = m.allDone
+    ? `ぜんぶ たっせい！ ボーナス +${m.allClearBonus} をもらったよ。あしたも あたらしい おねがいが でるよ`
+    : `ぜんぶ たっせいすると ボーナス +${m.allClearBonus}。まいにち つづけると れんぞくボーナス`
+  document.getElementById('season-row')!.replaceChildren(
+    ...m.seasons.map((x) => {
+      const c = el('span', 'chip' + (x.seen ? '' : ' unseen'), x.name)
+      c.setAttribute('aria-pressed', String(x.id === m.season))
+      c.append(el('small', undefined, x.event))
+      return c
+    }),
+  )
+  const got = m.badges.filter((b) => b.got).length
+  document.getElementById('badge-head')!.textContent = `バッジ　${got}/${m.badges.length}`
+  document.getElementById('badge-grid')!.replaceChildren(
+    ...m.badges.map((b) => {
+      const d = el('div', 'badge' + (b.got ? ' got' : ''))
+      d.append(el('span', 'bmark', b.got ? '★' : '？'), el('span', 'bname', b.name), el('span', 'bdesc', b.got ? b.desc : `${b.desc}（+${b.coins}）`))
+      return d
+    }),
+  )
+}
+function closeMissions() {
+  missionPanel.hidden = true
+  missionBtn.setAttribute('aria-expanded', 'false')
+}
+missionBtn.addEventListener('click', () => {
+  missionPanel.hidden = !missionPanel.hidden
+  missionBtn.setAttribute('aria-expanded', String(!missionPanel.hidden))
+  if (!missionPanel.hidden) {
+    dressPanel.hidden = dexPanel.hidden = true
+    dressBtn.setAttribute('aria-expanded', 'false')
+    dexBtn.setAttribute('aria-expanded', 'false')
+  }
+  renderMissions()
+})
+document.getElementById('mission-close')!.addEventListener('click', closeMissions)
+// きせかえ・ずかんを開いたら、おねがいは閉じる
+dressBtn.addEventListener('click', () => !dressPanel.hidden && closeMissions())
+dexBtn.addEventListener('click', () => !dexPanel.hidden && closeMissions())
+setInterval(renderMissions, 1500)
+
 document.getElementById('dress-close')!.addEventListener('click', () => {
   dressPanel.hidden = true
   dressBtn.setAttribute('aria-expanded', 'false')
@@ -794,8 +863,9 @@ function setMode(m: Mode) {
   qualityBtn.hidden = m === 'inside'
   dressBtn.hidden = m === 'inside'
   dexBtn.hidden = m === 'inside'
+  missionBtn.hidden = m === 'inside'
   enterBtn.hidden = m !== 'device'
-  if (m === 'inside') dressPanel.hidden = dexPanel.hidden = true
+  if (m === 'inside') dressPanel.hidden = dexPanel.hidden = missionPanel.hidden = true
   document.getElementById('hint')!.hidden = m === 'inside'
 }
 
@@ -895,7 +965,7 @@ function tapScreen(e: PointerEvent): boolean {
 function toggleChrome() {
   world.cleanView = !world.cleanView
   document.body.classList.toggle('clean', world.cleanView)
-  if (world.cleanView) dressPanel.hidden = dexPanel.hidden = true
+  if (world.cleanView) dressPanel.hidden = dexPanel.hidden = missionPanel.hidden = true
 }
 
 // ---------------- 指の操作 ----------------

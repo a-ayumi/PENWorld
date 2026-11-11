@@ -110,6 +110,43 @@ body.clean #toolbar, body.clean #dress, body.clean #dress-panel, body.clean #dex
 #enter-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 body.clean #enter-btn { display: none !important; }
 
+/* おねがい（日替わりミッション・季節・バッジ）：ずかんと同じ見た目 */
+#mission-btn { position: fixed; top: calc(env(safe-area-inset-top) + 96px); left: calc(env(safe-area-inset-left) + 12px);
+  border: 0; border-radius: 999px; padding: 8px 14px; font-size: 12px; font-weight: 700; color: var(--ink);
+  background: var(--chip); backdrop-filter: blur(6px); cursor: pointer; }
+#mission-btn.ready { background: #f2b134; color: #3a2a00; }
+#mission-panel { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; max-height: 72%; overflow: auto;
+  padding: 14px max(16px, env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 18px) max(16px, env(safe-area-inset-left));
+  background: rgba(29, 26, 23, 0.86); backdrop-filter: blur(10px); border-radius: 18px 18px 0 0; color: var(--ink); }
+#mission-panel[hidden] { display: none; }
+#mission-panel h2 { margin: 0; font-size: 16px; }
+#mission-panel h3 { margin: 14px 0 8px; font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: .06em; }
+#mission-close { border: 0; border-radius: 999px; padding: 6px 12px; background: rgba(255,255,255,.12); color: var(--ink); cursor: pointer; }
+#mission-btn:focus-visible, #mission-close:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+#mission-summary { margin: 10px 0 0; font-size: 13px; line-height: 1.6; }
+#mission-note { margin: 8px 0 0; font-size: 12px; color: var(--muted); min-height: 1em; }
+#mission-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.mission { display: grid; grid-template-columns: 28px 1fr auto; gap: 2px 10px; align-items: center; padding: 10px; border-radius: 12px; background: rgba(255,255,255,.06); }
+.mission.done { background: rgba(242,177,52,.16); }
+.mission .check { grid-row: 1 / 3; width: 26px; height: 26px; border-radius: 50%; border: 2px solid rgba(243,234,216,.4); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 800; color: transparent; }
+.mission.done .check { background: #f2b134; border-color: #f2b134; color: #3a2a00; }
+.mission .mtext { font-size: 13px; line-height: 1.4; }
+.mission .mtag { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; color: #1d1a17; justify-self: end; }
+.mission .mtag.d0 { background: #8fe0a0; } .mission .mtag.d1 { background: #f2b134; } .mission .mtag.d2 { background: #ff9ecb; }
+.mission .mbar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.14); overflow: hidden; }
+.mission .mbar i { display: block; height: 100%; background: #7cf29b; border-radius: 3px; }
+.mission.done .mbar i { background: #f2b134; }
+.mission .mnum { font-size: 11px; color: var(--muted); justify-self: end; white-space: nowrap; }
+#season-row .chip small { opacity: .7; font-size: 10px; margin-left: 4px; }
+#season-row .chip.unseen { opacity: .5; }
+#badge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.badge { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 4px; border-radius: 10px; background: rgba(255,255,255,.06); text-align: center; color: var(--muted); }
+.badge .bmark { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 17px; background: rgba(255,255,255,.1); }
+.badge.got { background: rgba(242,177,52,.14); color: var(--ink); }
+.badge.got .bmark { background: radial-gradient(circle at 35% 30%, #ffe08a, #f2b134 60%, #c98a14); color: #3a2a00; }
+.badge .bname { font-size: 11px; font-weight: 700; line-height: 1.3; }
+.badge .bdesc { font-size: 9px; opacity: .75; line-height: 1.35; }
+body.clean #mission-btn, body.clean #mission-panel { display: none !important; }
 /* 文字の大きさ（せってい）：HTML 側の文字だけ。液晶の中の文字は変わらない */
 html[data-text="large"] { --ts: 1.3; }
 html[data-text="large"] #hint { white-space: normal; text-align: center; width: max-content; max-width: 92vw; }

@@ -9,11 +9,11 @@ import { Tex, rng } from './textures'
  */
 export type ItemKind =
   | 'sapling' | 'ball' | 'fire' | 'charm' | 'tools' | 'fence' | 'memorial'
-  | 'bench' | 'lantern' | 'plush' | 'banner' | 'flowerbed' | 'slide'
+  | 'bench' | 'lantern' | 'plush' | 'banner' | 'flowerbed' | 'slide' | 'snowman'
 
 export const ITEM_KINDS: ItemKind[] = [
   'sapling', 'ball', 'fire', 'charm', 'tools', 'fence', 'memorial',
-  'bench', 'lantern', 'plush', 'banner', 'flowerbed', 'slide',
+  'bench', 'lantern', 'plush', 'banner', 'flowerbed', 'slide', 'snowman',
 ]
 /** セーブデータ・読み込んだ値は信用しない */
 export const isItemKind = (v: unknown): v is ItemKind => typeof v === 'string' && (ITEM_KINDS as string[]).includes(v)
@@ -43,6 +43,7 @@ export const ITEM_SPEC: Record<ItemKind, ItemSpec> = {
   banner: { max: 2, r: 0.2, pickH: 1.8, turn: false },
   flowerbed: { max: 3, r: 0.45, pickH: 0.6, turn: true },
   slide: { max: 1, r: 0, pickH: 1.0, turn: true },
+  snowman: { max: 2, r: 0.35, pickH: 1.0, turn: true },
 }
 
 /** タップで出る説明（\n で行をわける。1 行は 24 文字くらいまで） */
@@ -60,6 +61,7 @@ export const ITEM_INFO: Record<ItemKind, { name: string; desc: string }> = {
   banner: { name: 'おうえんばた', desc: 'ちかくで たたかう なかまの\nこうげきが 2わり つよくなる' },
   flowerbed: { name: 'はなだん', desc: 'たべものが みのるのが はやくなる\nひるは ちょうちょが あつまる' },
   slide: { name: 'ミニすべりだい', desc: 'のぼって すべって あそぶ\nあそぶと こころと けいけんが そだつ' },
+  snowman: { name: 'ゆきだるま', desc: 'ゆきまつりの かざり\nふゆの あいだ だけ かえる' },
 }
 
 // ------------------------------------------------------------------ 材質まわり
@@ -189,7 +191,27 @@ export function buildItem(kind: ItemKind, o: ItemBuild): THREE.Group {
     case 'banner': return banner(k, g)
     case 'flowerbed': return flowerbed(k, g)
     case 'slide': return slide(k, g)
+    case 'snowman': return snowman(k, g)
   }
+}
+
+/** ゆきだるま：大小 2 つの雪玉 + にんじんの鼻 + マフラー + 小枝のうで（ふゆの品） */
+function snowman(k: Kit, g: THREE.Group) {
+  k.ball(0.34, '#f4f8ff', 0, 0.3, 0, undefined, 9)
+  k.ball(0.23, '#f4f8ff', 0, 0.78, 0, undefined, 9)
+  const nose = k.cone(0.04, 0.16, '#ff8a2a', 0, 0.78, 0.26, 5)
+  nose.rotation.x = Math.PI / 2
+  const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.05, 5, 10), k.lam('#e84a5f'))
+  scarf.rotation.x = Math.PI / 2
+  scarf.position.y = 0.58
+  g.add(scarf)
+  k.box(0.08, 0.22, 0.04, '#e84a5f', 0.12, 0.46, 0.17)
+  for (const dx of [-0.08, 0.08]) k.ball(0.03, '#10122a', dx, 0.84, 0.21, undefined, 4)
+  for (const sx of [-1, 1]) {
+    const arm = k.cyl(0.015, 0.02, 0.36, '#6b4a2f', sx * 0.42, 0.42, 0, 4)
+    arm.rotation.z = sx * 1.0
+  }
+  return g
 }
 
 /** なえ：めばえ → わかぎ → みのる木（成長で見た目が変わる） */

@@ -186,6 +186,7 @@ const ICONS: Record<string, string[]> = {
   lighthouse: ['yy.r.yy..', '...rrr...', '...yYy...', '...www...', '...rrr...', '...www...', '..rrrrr..', '..wwwww..', '.sssssss.'],
   market: ['rwrwrwrwr', 'rwrwrwrwr', '.b.....b.', '.b.....b.', '.b.y.o.b.', 'BBBBBBBBB', 'BbBbBbBbB', 'BBBBBBBBB', '.b.....b.'],
   fort: ['s.s...s.s', 'sss...sss', 'sSs.r.sSs', 'sss.r.sss', 'sssssssss', 'sSsSsSsSs', 'ssss.ssss', 'sSss.ssSs', 'sssssssss'],
+  snowman: ['...www...', '..wkwkw..', '..wwoww..', '...www...', '.rrrrrrr.', 'b.wwwww.b', '.bwwwwwb.', '.wwwwwww.', '..wwwww..'],
   land: ['yy.....yy', 'y.......y', '.........', '...ggg...', '...gGg...', '...ggg...', '.........', 'y.......y', 'yy.....yy'],
 }
 
