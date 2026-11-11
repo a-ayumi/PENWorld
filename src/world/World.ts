@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { OUT, RES, SCENE, makePostMaterial, psx } from './psx'
 import { SpriteAnim, iconSheet } from './sprites'
 import { MonsterModel, hasModel } from './models'
-import { BABY, EGG_COLORS, FAMILY_NAME, LOOK_NAME, NEW_SKILLS, SPECIES, STAGE_EGGS, SpriteMonster, XP_NEED, armyBoss, armyMember, enemyFor, familyOf, lookOf, newSeed, nextForm, variantOf, type Care, type EggKind, type Face, type MonsterView, type Species, type SpeciesId } from './monsters'
+import { BABY, EGG_COLORS, FAMILY_NAME, LOOK_NAME, NEW_SKILLS, SPECIES, STAGE_EGGS, SpriteMonster, XP_NEED, armyBoss, armyMember, enemyFor, familyOf, lookOf, newSeed, nextForm, portraitFor, variantOf, type Care, type EggKind, type Face, type MonsterView, type Species, type SpeciesId } from './monsters'
 import { Tex } from './textures'
 import { fxU } from './fx'
 import { WeatherFx, fxLod } from './fxprops'
@@ -5226,6 +5226,117 @@ export class World {
     renderer.setRenderTarget(this.rtOut)
     renderer.render(this.postScene, this.postCam)
     renderer.setRenderTarget(prev)
+  }
+
+  /**
+   * iPhone のウィジェット（Scriptable）用のデータ。生き物を消した「いまの景色」（PS1 風の仕上げつき）と、
+   * 生き物を立たせられる場所（画面上の位置と、1 マスの高さが画面の何割か）、顔ぶれとドット絵。
+   * 箱庭の動きはウィジェット側が時刻から作るので、ここは今のようすを写すだけ。
+   */
+  widgetData(renderer: THREE.WebGLRenderer) {
+    const S = SCENE.w
+    // 生き物・飛んでいる効果・ちょうちょ などのスプライトを一時的に消す（たまごは残す）
+    const keep = new Set<THREE.Object3D>(this.eggs.map((e) => e.anim.sprite))
+    const hidden: THREE.Object3D[] = []
+    const hide = (o: THREE.Object3D | null | undefined) => {
+      if (o && o.visible) {
+        o.visible = false
+        hidden.push(o)
+      }
+    }
+    for (const o of this.scene.children) if ((o as THREE.Sprite).isSprite && !keep.has(o)) hide(o)
+    for (const c of this.creatures) {
+      hide(c.anim.sprite)
+      hide(c.shadow)
+      hide(c.carryMesh)
+    }
+    const rt = new THREE.WebGLRenderTarget(S, S)
+    const prev = renderer.getRenderTarget()
+    const px = new Uint8Array(S * S * 4)
+    try {
+      renderer.setRenderTarget(rt)
+      renderer.render(this.scene, this.camera)
+      renderer.readRenderTargetPixels(rt, 0, 0, S, S, px)
+    } finally {
+      renderer.setRenderTarget(prev)
+      rt.dispose()
+      for (const o of hidden) o.visible = true
+    }
+    // 仕上げ（psx.ts の makePostMaterial と同じ：sRGB にして 4×4 のディザ → 15bit 色）。上下を反転
+    const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
+    const cv = document.createElement('canvas')
+    cv.width = cv.height = S
+    const g = cv.getContext('2d')!
+    const img = g.createImageData(S, S)
+    for (let y = 0; y < S; y++)
+      for (let x = 0; x < S; x++) {
+        const i = ((S - 1 - y) * S + x) * 4
+        const o = (y * S + x) * 4
+        const d = (BAYER[(x & 3) + ((S - 1 - y) & 3) * 4] / 16 - 0.5) / 22
+        for (let k = 0; k < 3; k++) {
+          const c = Math.pow(px[i + k] / 255, 1 / 2.2) + d
+          img.data[o + k] = Math.round(Math.round(Math.min(1, Math.max(0, c)) * 31) / 31 * 255)
+        }
+        img.data[o + 3] = 255
+      }
+    g.putImageData(img, 0, 0)
+
+    // 立たせる場所：いまいる生き物の足もと + 見ている所のまわりの空いた所
+    const v = new THREE.Vector3()
+    const spots: { u: number; v: number; k: number }[] = []
+    const addSpot = (x: number, z: number) => {
+      const y = this.stage.heightAt(x, z)
+      v.set(x, y, z).project(this.camera)
+      if (v.z > 1 || Math.abs(v.x) > 0.92 || v.y < -0.95 || v.y > 0.75) return
+      const u = (v.x + 1) / 2
+      const vv = (1 - v.y) / 2
+      v.set(x, y + 1, z).project(this.camera)
+      const k = (1 - v.y) / 2
+      const unit = vv - k
+      if (unit <= 0.005 || unit > 0.6) return
+      spots.push({ u: +u.toFixed(4), v: +vv.toFixed(4), k: +unit.toFixed(4) })
+    }
+    for (const c of this.creatures) if (c.state !== 'dead' && !c.inside) addSpot(c.x, c.z)
+    for (let i = 0; i < 40 && spots.length < 24; i++) {
+      const p = this.freePos(0, this.look.x, this.look.z, 6)
+      addSpot(p.x, p.z)
+    }
+
+    // 顔ぶれ：ペット → 仲間 → 野生（多すぎると重いので 10 匹まで）
+    const order = { pet: 0, friend: 1, wild: 2 }
+    const list = this.creatures
+      .filter((c) => c.state !== 'dead' && c.state !== 'faint')
+      .sort((a, b) => order[a.team] - order[b.team])
+      .slice(0, 10)
+    const sprites: Record<string, string> = {}
+    const who = list.map((c) => {
+      const key = `${c.sp.id}:${this.variant(c)}`
+      if (!sprites[key]) sprites[key] = portraitFor(c.sp.id, this.variant(c)).toDataURL('image/png')
+      return {
+        name: this.nm(c),
+        sprite: key,
+        team: c.team,
+        foe: c.team === 'wild' && c.sp.temper === 'wild',
+        night: c.sp.habit === 'night',
+        float: !!c.sp.float,
+        h: +this.size(c).toFixed(2),
+      }
+    })
+    return {
+      v: 1,
+      at: Date.now(),
+      url: location.origin + location.pathname,
+      stage: this.stage.name,
+      village: this.vLv > 0 ? this.villageName() : '',
+      weather: this.weather,
+      night: +this.night.toFixed(2),
+      gen: this.stats.gen,
+      houses: this.houses.filter((h) => h.stage === this.stageIndex).length,
+      image: cv.toDataURL('image/jpeg', 0.86),
+      spots,
+      who,
+      sprites,
+    }
   }
 
   debug() {

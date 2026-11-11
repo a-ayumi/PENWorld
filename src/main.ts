@@ -13,7 +13,7 @@ import { FinishShader, MOODS, dustParticles, moodForHour, type Mood } from './sc
 import { PLACES, buildPlace, type PlaceId, type PlaceInst } from './places'
 import { SHAPES, SKINS, type ShapeId, type SkinId } from './device'
 import { Beeper, VOLUME_NAMES } from './beep'
-import { exportCode, importCode, requestPersist } from './backup'
+import { exportCode, importCode, requestPersist, widgetCode } from './backup'
 import { portraitFor, type SpeciesId } from './world/monsters'
 import { hideSplash, initTips, NO_WEBGL, showFatal, showOfflineReady, showUpdateBar, tipsSeen, watchContextLoss } from './shell'
 
@@ -473,6 +473,43 @@ $<HTMLInputElement>('data-file').addEventListener('change', async (e) => {
   const f = (e.target as HTMLInputElement).files?.[0]
   if (f) applyImport(await f.text())
 })
+// ---------------- iPhone のウィジェット（Scriptable）----------------
+// いまの景色と仲間を「PULSARW1:」のコードにしてコピー → Scriptable のスクリプト PULSAR が読みこんでウィジェットに描く
+const widgetMsg = $<HTMLParagraphElement>('widget-msg')
+const copyText = (text: string) =>
+  navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject(new Error('no clipboard'))
+$('widget-send').addEventListener('click', () => {
+  let code: string
+  try {
+    code = widgetCode(world.widgetData(renderer))
+  } catch {
+    widgetMsg.textContent = 'うまく写せませんでした。もういちど押してください'
+    return
+  }
+  copyText(code)
+    .then(() => {
+      widgetMsg.textContent = 'コピーしました。Scriptable をひらくと、ウィジェットが新しくなります'
+      $('widget-open').hidden = false
+    })
+    .catch(() => {
+      dataCode.value = code
+      showData('export')
+      dataCode.select()
+      widgetMsg.textContent = 'コピーできませんでした。上のコードを長押しでコピーしてください'
+    })
+})
+$('widget-script').addEventListener('click', () => {
+  const text = fetch(`${import.meta.env.BASE_URL}scriptable/PULSAR.js`).then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
+  // Safari は「押した直後」にしかコピーできないので、読みこみ中の中身を ClipboardItem に約束として渡す
+  const copy =
+    typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write
+      ? navigator.clipboard.write([new ClipboardItem({ 'text/plain': text.then((t) => new Blob([t], { type: 'text/plain' })) })])
+      : text.then(copyText)
+  copy
+    .then(() => (widgetMsg.textContent = 'スクリプトをコピーしました。Scriptable の「＋」で新しいスクリプトを作って貼りつけ、名前を PULSAR にしてください'))
+    .catch(() => (widgetMsg.textContent = 'コピーできませんでした。オンラインの時にもういちど押してください'))
+})
+
 // やり直しは 2 回押しで確定（うっかり防止）
 let resetArmed = 0
 const resetBtn = $<HTMLButtonElement>('data-reset')

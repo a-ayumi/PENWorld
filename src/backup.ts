@@ -29,6 +29,11 @@ export function exportCode(): string {
   return PREFIX + toB64(JSON.stringify({ v: 1, at: Date.now(), data }))
 }
 
+/** iPhone のウィジェット（Scriptable）へ渡すコード。セーブとはちがい、景色の絵と顔ぶれだけ */
+export function widgetCode(data: object): string {
+  return 'PULSARW1:' + toB64(JSON.stringify(data))
+}
+
 /** 読み込み。成功したら true（ゲームのデータが入っていないコードは受け付けない） */
 export function importCode(text: string): { ok: boolean; reason?: string } {
   if (text.length > MAX_CODE * 1.4) return { ok: false, reason: 'コードが大きすぎます' }

@@ -258,3 +258,11 @@ seek → eat → happy        sleep → 回復して idle
 - **オフライン**：本体（js/css/html/svg/png）は precache。Google Fonts は precache できないので `runtimeCaching`（CSS は StaleWhileRevalidate、字体は CacheFirst）で、一度見た後はオフラインでも使える。一度も見ていない時は `FONT` / `font-family` の代替フォント。確認は Playwright の `context.setOffline(true)` + リロード。
 - **やさしい失敗**：`new WebGLRenderer` を try/catch、`webglcontextlost` で `preventDefault()` して案内を出し `webglcontextrestored` で消す。CSP で inline script が使えないので、起動の見張りは別エントリ `boot.ts`。
 - **動きをへらす**：`prefers-reduced-motion` を既定にして、`World.reducedMotion` 一つで ゆれ・フラッシュ・ヒットストップ・ぷにぷに の係数を変える（係数を掛ける 1 行ずつの差分）。
+
+## iPhone のウィジェット（Scriptable、`World.widgetData()` + `public/scriptable/PULSAR.js`）
+- **ウィジェットでは WebGL も常時の動きも使えない**（数十 MB の上限、更新は 15 分ほどごと）。そこで箱庭は「背景の 1 枚絵 + 上に置くドット絵」に分ける。PWA 側で生き物・効果・ちょうちょ のスプライトを一時的に隠して 1 回だけ描き、`readRenderTargetPixels` で読む。仕上げシェーダーと同じ計算（sRGB 化 → 4×4 ディザ → 15bit 色）を JS でかけてから JPEG にする。
+- **立たせる場所は画面座標で渡す**：生き物の足もとと、空いた地面の点をカメラで `project()` して `u, v`（0〜1）と「1 マスの高さが画面の何割か」`k` を出す。ウィジェットは切りぬき（`cover` + 寄り）と同じ変換で点を移し、`身長 × k` の大きさで奥から順に描くので、遠近がそろう。
+- **動いて見せる**：15 分の枠番号を種にした乱数で、居場所とようす（ねる・たべる・いえづくり…）を決めなおす。時刻で 朝・昼・夕・夜 の色をかぶせ、夜は ほたる。送った時にすでに夜なら暗くしすぎない（`night` を引く）。
+- **ドット絵は 1 コマ目**：`portraitFor()` はシートがあればその 1 コマ目を切りだす（シート全体を返すと全コマが並んだ絵になる。ずかんも同じ不具合だったので直した）。
+- **受け渡しはクリップボード**：`PULSARW1:` + base64 の JSON（約 130 KB）。「Scriptable をひらく」は `scriptable:///run/PULSAR?import=1`。スクリプトは中身を信用せず型と範囲を検査（画像は `data:image/png|jpeg;base64` だけ、URL は https だけ）。Safari のコピーは押した直後しか通らないので、読みこみ待ちの中身は `ClipboardItem` に Promise で渡す。
+- **確認**：Scriptable の `DrawContext` / `ListWidget` などを canvas で真似た小さなページで、スクリプトをそのまま動かしてスクリーンショットを撮る。
