@@ -4,6 +4,7 @@ import { SpriteAnim, iconSheet } from './sprites'
 import { MonsterModel, hasModel } from './models'
 import { BABY, EGG_COLORS, FAMILY_NAME, LOOK_NAME, NEW_SKILLS, SPECIES, STAGE_EGGS, SpriteMonster, XP_NEED, armyBoss, armyMember, enemyFor, familyOf, lookOf, newSeed, nextForm, portraitFor, variantOf, type Care, type EggKind, type Face, type MonsterView, type Species, type SpeciesId } from './monsters'
 import { Tex } from './textures'
+import type { Facts } from '../journal'
 import { fxU } from './fx'
 import { WeatherFx, fxLod } from './fxprops'
 import { HALF, LAND_SIZES, SIZE, STAGES, setLandSize, type Stage } from './stages'
@@ -468,6 +469,9 @@ export class World {
   private camYaw = 0
   private petLast = new THREE.Vector2()
   onSfx: (s: Sfx) => void = () => {}
+  /** にっき用：say() の文と、セーブした時を知らせる（journal.ts） */
+  onNote: ((text: string) => void) | null = null
+  onSave: (() => void) | null = null
 
   constructor(style: 'sprite' | 'model' = 'sprite') {
     this.style = style
@@ -4452,6 +4456,7 @@ export class World {
   }
 
   private say(text: string) {
+    this.onNote?.(text)
     this.messages.push(text)
     if (this.messages.length > 4) this.messages.shift()
     if (this.messages.length === 1) this.msgT = 2.8
@@ -5896,6 +5901,7 @@ export class World {
     } catch {
       /* noop */
     }
+    this.onSave?.()
   }
 
   private load(): boolean {
@@ -5997,6 +6003,102 @@ export class World {
     } catch {
       return false
     }
+  }
+
+  // ================= るすばん（にっき・おかえりレポート）=================
+  /** いまの様子。日記の材料と、おかえりレポートの「前後の差」に使う */
+  journalFacts(): Facts {
+    const friends = this.creatures.filter((c) => c.team === 'friend')
+    const care = (['power', 'guard', 'spirit'] as Care[]).sort((a, b) => this.care[b] - this.care[a])[0]
+    return {
+      coins: this.coins, gen: this.stats.gen, pet: this.pet.sp.name, family: familyOf(this.pet.sp.id), care, weather: this.weather,
+      houses: this.houses.filter((h) => h.level >= 3).length, structs: this.structs.filter((b) => this.structDone(b) && b.kind !== 'wall').length,
+      children: this.stats.children, friends: friends.length, friendNames: [...new Set(friends.map((c) => c.sp.name))].slice(0, 4),
+      dex: Object.values(this.dex).filter((v) => v === 2).length, vName: this.villageName(), vLv: this.vLv, lineage: this.stats.lineage.slice(-3),
+    }
+  }
+
+  /**
+   * 留守のあいだを軽く早送りする。実時間ぶんは回さず、dt=0.5 の粗い刻みを最大 1500 回（= 12 分半）だけ進め、
+   * 残りは数式で圧縮する（コイン・資材・たまご・成長・経験値・建築）。敵軍と世代交代は起こさない。
+   * `run(ms)` を毎フレーム呼ぶと、時間予算のぶんだけ進めて、終わったら true を返す。
+   */
+  beginAway(sec: number, onStep?: (frac: number) => void) {
+    const total = Math.max(0, Math.min(sec, 8 * 3600))
+    const DT = 0.5
+    const steps = Math.min(1500, Math.floor(total / DT))
+    const rem = total - steps * DT
+    const sfx = this.onSfx
+    const petAge = this.stats.petAge
+    const armyCd = this.armyCd
+    this.onSfx = () => {}
+    this.armyCd = 1e9
+    // 早送りのあいだに寿命が来て世代交代しないように、年齢だけ手前に留める
+    this.stats.petAge = Math.min(petAge, LIFESPAN - 1000)
+    let i = 0
+    let stage = 0
+    const job = {
+      steps,
+      get frac() {
+        return steps ? i / steps : 1
+      },
+      run: (ms: number) => {
+        const t0 = performance.now()
+        if (stage === 0) {
+          while (i < steps && performance.now() - t0 < ms) {
+            onStep?.(i / steps)
+            this.update(DT)
+            i++
+          }
+          if (i < steps) return false
+          stage = 1
+        }
+        onStep?.(1)
+        this.compressAway(rem)
+        this.stats.petAge = petAge
+        this.armyCd = Math.max(armyCd, 60)
+        this.onSfx = sfx
+        this.messages.length = 0
+        this.msgT = 0
+        return true
+      },
+    }
+    return job
+  }
+
+  /** 早送りで回しきれなかった時間ぶんを、数式で進める */
+  private compressAway(rem: number) {
+    const allies = this.creatures.filter((c) => this.ally(c) && this.alive(c))
+    const friends = allies.filter((c) => c.team === 'friend')
+    if (rem > 0) {
+      // コイン：見守り収入の 3 割、300 まで
+      const ticks = Math.floor(rem / 20)
+      this.coins += Math.min(300, Math.floor(ticks * (1 + Math.floor(friends.length / 2) + this.vLv) * 0.3))
+      // 資材の補充
+      for (let i = 0, n = Math.min(8, Math.floor(rem / 30)); i < n; i++) this.spawnResource()
+      // たまご・こどもの成長
+      for (const e of this.eggs) e.t = e.t - rem <= 0 ? 0.05 : e.t - rem
+      for (const c of this.creatures) if (c.grow > 0) c.grow = Math.min(1, c.grow + rem / 150)
+      // 経験値（1 人 1 回。進化するのは多くて 1 段階）
+      const xp = Math.min(60, Math.floor(rem / 30) * 2)
+      if (xp > 0) for (const c of allies) if (c.grow === 0 && c.sp.tier > 0) this.gainXp(c, xp)
+      // 建築：家と建物を時間に比例して進める（かんせいの演出と文は ふだんの建て方と同じ）
+      const k = Math.min(6, Math.floor(rem / 150))
+      for (const h of this.houses) {
+        const by = h.owner && this.alive(h.owner) ? h.owner : this.pet
+        if (h.stage === this.stageIndex && h.level < 4 && h.owner) for (let j = 0; j < k && h.level < 4; j++) this.addMaterial(h, by)
+      }
+      for (const b of this.structs)
+        if (b.stage === this.stageIndex && b.kind !== 'wall' && !this.structDone(b)) for (let j = 0; j < k && !this.structDone(b); j++) this.addStructMaterial(b, this.alive(this.pet) ? this.pet : allies[0] ?? this.pet)
+    }
+    // ぐっすり休めたことにする
+    for (const c of allies) {
+      c.hunger = Math.max(c.hunger, 45)
+      c.energy = Math.max(c.energy, 60)
+      c.hp = Math.max(c.hp, c.maxHp * 0.8)
+    }
+    this.stats.mood = Math.max(this.stats.mood, 60)
+    for (let i = 0; i < 6; i++) this.update(0.5)
   }
 
   /** もくひょうの進みを読む。保存が無い（古いセーブ）なら、これまでの実績から章をさかのぼって進める */

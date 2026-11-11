@@ -17,6 +17,7 @@ import { Music, describeSong } from './music'
 import { exportCode, importCode, requestPersist, widgetCode } from './backup'
 import { portraitFor, type SpeciesId } from './world/monsters'
 import { hideSplash, initTips, NO_WEBGL, showFatal, showOfflineReady, showUpdateBar, tipsSeen, watchContextLoss } from './shell'
+import { initJournal } from './journalui'
 
 // ---------------- レンダラー ----------------
 const canvas = document.getElementById('scene') as HTMLCanvasElement
@@ -91,6 +92,8 @@ try {
   /* noop */
 }
 const world = new World(charaStyle)
+// にっき・おかえりレポート（journalui.ts）。留守の早送り中は world.update を止める
+const journalUI = initJournal(world)
 // 本体のかたち（かわいい系・きかい系）。保存してあるものがあれば それで始める
 let shapeId: ShapeId = (() => {
   try {
@@ -557,6 +560,7 @@ resetBtn.addEventListener('click', () => {
     world.saveLocked = true
     try {
       localStorage.removeItem('pulsar-save-v1')
+      localStorage.removeItem('pulsar-journal-v1')
     } catch {
       /* noop */
     }
@@ -1251,7 +1255,7 @@ renderer.setAnimationLoop((t) => {
   const lampMesh = device.group.getObjectByName('lamp') as THREE.Mesh
   ;(lampMesh.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.2 + Math.max(0, Math.sin(elapsed * 3)) * 2
 
-  world.update(dt)
+  if (!journalUI.busy) world.update(dt)
   // BGM：場面を伝えて、少し先の音までスケジュールする
   musicT += dt
   if (musicT > 0.2) {
