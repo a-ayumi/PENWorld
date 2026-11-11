@@ -72,6 +72,12 @@ export const SHOP: ShopItem[] = [
   { id: 'bp-cradle', cat: 'plan', icon: 'cradle', name: 'せっけいず：ゆりかご', price: 60, desc: 'たまごが できやすくなる。\nたまごを 3つまで おける', plan: 'cradle' },
   { id: 'bp-tower', cat: 'plan', icon: 'tower', name: 'せっけいず：みはりとう', price: 70, desc: 'ちかくの てきを みつけて うちおとす。\nみはり役が まわりを見まわる', plan: 'tower' },
   { id: 'bp-castle', cat: 'plan', icon: 'castle', name: 'せっけいず：おしろ', price: 160, desc: 'へいに かこまれた おしろ。\nちかくで かいふくし、村の にぎわいも UP', plan: 'castle' },
+  { id: 'bp-playground', cat: 'plan', icon: 'playground', name: 'せっけいず：あそびば', price: 80, desc: 'こどもが はやく そだつ。\nおせわがかりが こどもと あそぶ', plan: 'playground' },
+  { id: 'bp-fountain', cat: 'plan', icon: 'fountain', name: 'せっけいず：ふんすい', price: 90, desc: 'ちかくの みんなが かいふくする。\nおまつりの ひろばに なる', plan: 'fountain' },
+  { id: 'bp-windmill', cat: 'plan', icon: 'windmill', name: 'せっけいず：ふうしゃ', price: 100, desc: 'しざいが ときどき うまれる', plan: 'windmill' },
+  { id: 'bp-lighthouse', cat: 'plan', icon: 'lighthouse', name: 'せっけいず：とうだい', price: 120, desc: 'よる ひかる・てきぐんを はやく しらせる。\nみずべだと もっと つよい', plan: 'lighthouse' },
+  { id: 'bp-market', cat: 'plan', icon: 'market', name: 'せっけいず：いちば', price: 130, desc: 'むらレベル 1 から。しゅうにゅう UP、\nうりこが みせに たつ', plan: 'market' },
+  { id: 'bp-fort', cat: 'plan', icon: 'fort', name: 'せっけいず：とりで', price: 150, desc: 'ちかくの なかまの こうげきが UP', plan: 'fort' },
 
   { id: 'land1', cat: 'land', icon: 'land', name: 'かいたく ①', price: 250, desc: 'はこにわが 20 → 26 に ひろがる。\n家や たてもの・置き物は そのまま', land: 1 },
   { id: 'land2', cat: 'land', icon: 'land', name: 'かいたく ②', price: 500, desc: 'はこにわが 26 → 32 に ひろがる。\nおおきな むらを つくれる', land: 2 },
@@ -174,6 +180,12 @@ const ICONS: Record<string, string[]> = {
   cradle: ['....w....', '...www...', '..wwpww..', '.........', '.bbbbbbb.', 'bBBBBBBBb', '.bBBBBBb.', '..bbbbb..', '.b.....b.'],
   tower: ['...rrr...', '..rrrrr..', '..sssss..', '..sSsSs..', '...sss...', '...sSs...', '...sss...', '..sSsSs..', '.sssssss.'],
   castle: ['s.s.s.s.s', 'sssssssss', 'sSsSsSsSs', 'ssss.ssss', 'sSss.ssSs', 'ssss.ssss', 'sSssbssSs', 'ssssbssss', 'sssssssss'],
+  playground: ['.........', 'o.......o', 'oo.....eo', 'o.o...e.o', 'o..o.e..o', 'o...e...o', 'o..e....o', 'b.......b', 'ggggggggg'],
+  fountain: ['....e....', '...e.e...', '..e.c.e..', '....c....', '...sss...', '.sssssss.', 'sCCCCCCCs', 'sSSSSSSSs', '.sssssss.'],
+  windmill: ['w...w...w', '.w..w..w.', '..w.w.w..', '...wbw...', 'wwwbbbwww', '...BBB...', '...BbB...', '..BBBBB..', '..BBbBB..'],
+  lighthouse: ['yy.r.yy..', '...rrr...', '...yYy...', '...www...', '...rrr...', '...www...', '..rrrrr..', '..wwwww..', '.sssssss.'],
+  market: ['rwrwrwrwr', 'rwrwrwrwr', '.b.....b.', '.b.....b.', '.b.y.o.b.', 'BBBBBBBBB', 'BbBbBbBbB', 'BBBBBBBBB', '.b.....b.'],
+  fort: ['s.s...s.s', 'sss...sss', 'sSs.r.sSs', 'sss.r.sss', 'sssssssss', 'sSsSsSsSs', 'ssss.ssss', 'sSss.ssSs', 'sssssssss'],
   land: ['yy.....yy', 'y.......y', '.........', '...ggg...', '...gGg...', '...ggg...', '.........', 'y.......y', 'yy.....yy'],
 }
 

@@ -28,7 +28,7 @@ export interface SecretCtx {
   gen: number
   coins: number
   mood: number
-  role: 'free' | 'builder' | 'farmer' | 'guard'
+  role: 'free' | 'builder' | 'farmer' | 'guard' | 'carer' | 'seller'
   top: SecretCare
   eaten: Record<string, number>
   /** 自分の家の段階（なければ 0） */
