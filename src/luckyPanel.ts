@@ -629,7 +629,7 @@ export function initLuckyUI(o: LuckyUIOpts) {
         r.mode = 'stop'
       }
       const step = (nowMs: number) => {
-        const dt = Math.min(0.05, (nowMs - last) / 1000)
+        const dt = Math.min(0.25, (nowMs - last) / 1000) // おそい端末でも、リールが時間どおりに止まるように（0.05 だと 2fps で 10 倍おそい）
         last = nowMs
         const T = tm()
         const el0 = (nowMs - startT) / 1000
