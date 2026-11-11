@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { OUT, RES, SCENE, makePostMaterial, psx } from './psx'
 import { SpriteAnim, iconSheet } from './sprites'
 import { MonsterModel, hasModel } from './models'
-import { BABY, EGG_COLORS, FAMILY_NAME, LOOK_NAME, NEW_SKILLS, SPECIES, STAGE_EGGS, SpriteMonster, XP_NEED, armyBoss, armyMember, enemyFor, familyOf, lookOf, newSeed, nextForm, portraitFor, variantOf, type Care, type EggKind, type Face, type MonsterView, type Species, type SpeciesId } from './monsters'
+import { BABY, EGG_COLORS, FAMILY_NAME, LOOK_NAME, NEW_SKILLS, SPECIES, STAGE_EGGS, SpriteMonster, XP_NEED, armyBoss, armyMember, enemyFor, familyOf, lookOf, newSeed, frameFor, nextForm, variantOf, type Care, type EggKind, type Face, type MonsterView, type Species, type SpeciesId } from './monsters'
 import { Tex } from './textures'
 import { fxU } from './fx'
 import { WeatherFx, fxLod } from './fxprops'
@@ -5107,20 +5107,32 @@ export class World {
       .filter((c) => c.state !== 'dead' && c.state !== 'faint')
       .sort((a, b) => order[a.team] - order[b.team])
       .slice(0, 10)
+    // ポーズ（POSES の番号）。ペットは表情ぜんぶ、仲間は暮らしのポーズ、敵は 3 つ
+    const PET_POSES = { idle: 0, walk: 2, jump: 6, eat: 7, sleep: 9, hungry: 12, sleepy: 14, glad: 16, worry: 20 }
+    const FRIEND_POSES = { idle: 0, walk: 2, jump: 6, eat: 7, sleep: 9 }
+    const FOE_POSES = { idle: 0, walk: 2, angry: 18 }
     const sprites: Record<string, string> = {}
     const who = list.map((c) => {
-      const key = `${c.sp.id}:${this.variant(c)}`
-      if (!sprites[key]) sprites[key] = portraitFor(c.sp.id, this.variant(c)).toDataURL('image/png')
+      const vk = this.variant(c)
+      const foe = c.team === 'wild' && c.sp.temper === 'wild'
+      const poses: Record<string, string> = {}
+      for (const [name, i] of Object.entries(c === this.pet ? PET_POSES : foe ? FOE_POSES : FRIEND_POSES)) {
+        const key = `${c.sp.id}:${vk}:${i}`
+        if (!sprites[key]) sprites[key] = frameFor(c.sp.id, vk, i).toDataURL('image/png')
+        poses[name] = key
+      }
       return {
         name: this.nm(c),
-        sprite: key,
+        sprite: poses.idle,
+        poses,
         team: c.team,
-        foe: c.team === 'wild' && c.sp.temper === 'wild',
+        foe,
         night: c.sp.habit === 'night',
         float: !!c.sp.float,
         h: +this.size(c).toFixed(2),
       }
     })
+    const pet = this.pet
     return {
       v: 1,
       at: Date.now(),
@@ -5135,6 +5147,8 @@ export class World {
       spots,
       who,
       sprites,
+      // ウィジェットの中で おなか・げんき・きげん を時間とともに動かす元
+      pet: { hunger: Math.round(pet.hunger), energy: Math.round(pet.energy), mood: Math.round(this.stats.mood) },
     }
   }
 

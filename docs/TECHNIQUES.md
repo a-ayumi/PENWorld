@@ -261,3 +261,5 @@ seek → eat → happy        sleep → 回復して idle
 - **ドット絵は 1 コマ目**：`portraitFor()` はシートがあればその 1 コマ目を切りだす（シート全体を返すと全コマが並んだ絵になる。ずかんも同じ不具合だったので直した）。
 - **受け渡しはクリップボード**：`PULSARW1:` + base64 の JSON（約 130 KB）。「Scriptable をひらく」は `scriptable:///run/PULSAR?import=1`。スクリプトは中身を信用せず型と範囲を検査（画像は `data:image/png|jpeg;base64` だけ、URL は https だけ）。Safari のコピーは押した直後しか通らないので、読みこみ待ちの中身は `ClipboardItem` に Promise で渡す。
 - **確認**：Scriptable の `DrawContext` / `ListWidget` などを canvas で真似た小さなページで、スクリプトをそのまま動かしてスクリーンショットを撮る。
+- **うごきの代わりに「くらし」**：iOS のウィジェットは GIF もアニメも出せない（毎回 1 枚の静止画）。そこで「時間がたつと絵が変わる」で飼っている感じを出す。ウィジェット側に おなか・げんき・きげん を持ち、`tick()` が 15 分ずつ昼（おなか −8/時・げんき −6/時）と夜（ねて げんき +14/時）で進める。ペットの絵は お世話の直後 → 夜 → おなか → げんき → きげん の順で表情のコマ（`hungry` / `sleepy` / `worry` / `glad` / `jump` / `eat` / `sleep`）を選ぶ。ジャンプは絵を持ち上げて影を小さくするだけで「はねている」に見える。
+- **ウィジェットのボタン**：中・大は `ListWidget` の上に `addStack()` の小さな札を置き、`url` に `scriptable:///run/<Script.name()>?act=feed` を入れる（小は url が 1 つしか持てない）。押すと Scriptable が一瞬ひらいて お世話をし、くらしのファイルを書きかえる。ホーム画面の絵は次の更新で変わる。

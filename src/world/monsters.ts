@@ -1510,6 +1510,16 @@ export function sheetFor(id: SpeciesId, vk = 0): Sheet {
   return s
 }
 
+/** ウィジェット用：シートの i コマ目（POSES の番号）を 1 枚の絵に切りだす */
+export function frameFor(id: SpeciesId, vk: number, i: number): HTMLCanvasElement {
+  const sh = sheetFor(id, vk)
+  const c = document.createElement('canvas')
+  c.width = sh.cellW
+  c.height = sh.cellH
+  c.getContext('2d')!.drawImage(sh.texture.image as HTMLCanvasElement, i * sh.cellW, 0, sh.cellW, sh.cellH, 0, 0, sh.cellW, sh.cellH)
+  return c
+}
+
 const portraits = new Map<string, HTMLCanvasElement>()
 /** ずかん用：1 コマ目だけ焼いた小さな絵（シート全体を作らない） */
 export function portraitFor(id: SpeciesId, vk = 0): HTMLCanvasElement {
