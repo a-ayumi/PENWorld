@@ -9,6 +9,8 @@ import { WeatherFx, fxLod } from './fxprops'
 import { HALF, LAND_SIZES, SIZE, STAGES, setLandSize, type Stage } from './stages'
 import { EAT_KEYS, EVENT_IDS, SECRET_EVENTS, SECRET_FORMS, hintLines, hintMask, isSecretId, secretById, secretForm, type EventCtx, type EventFx, type SecretCtx, type SecretEvent } from './secrets'
 import { STRUCTS, buildStructModel, isStructKind, styleOf, type StructKind } from './structures'
+import { ITEM_INFO, ITEM_SPEC, buildItem, disposeItem, isItemKind, slidePath, tickItem, type ItemKind } from './items'
+import { SHOP, catIndexes, catOf, drawShop as drawShopWindow, shopTap, type ShopCheck, type ShopItem } from './shop'
 
 /**
  * 箱庭の世界。モンスターが自分で考えて暮らす（歩く・食べる・眠る・遊ぶ・戦う・仲間になる・たまごを産む）。
@@ -105,6 +107,8 @@ for (const [id, sk] of Object.entries(NEW_SKILLS)) SKILLS[id] = sk
 interface Shot { sprite: THREE.Sprite; from: THREE.Vector3; src: Creature; dst: Creature; t: number; dur: number; dmg: number; skill: Skill; arc: number }
 interface Ring { mesh: THREE.Mesh; t: number; dur: number; size: number }
 interface Later { t: number; run: () => void }
+/** 買った時に吸いこまれていくコイン */
+interface Suck { anim: SpriteAnim; from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number; bs: number }
 type ResKind = 'wood' | 'stone'
 interface Res { kind: ResKind; x: number; z: number; mesh: THREE.Mesh; taken: Creature | null }
 interface House {
@@ -122,14 +126,26 @@ interface Army { phase: 'warn' | 'on'; t: number; left: Creature[]; n: number; c
 type Weather = 'sun' | 'cloud' | 'rain' | 'snow' | 'ember'
 type FoodKind = 'stage' | 'meat' | 'sweet' | 'nut'
 interface Food { mesh: THREE.Group; x: number; z: number; y: number; vy: number; landed: boolean; taken: Creature | null; bite: number; kind: FoodKind }
-type ItemKind = 'sapling' | 'ball' | 'fire' | 'charm' | 'tools' | 'fence' | 'memorial'
 /** 村での役割（だいく・はたけがかり・みはり） */
 type Role = 'free' | 'builder' | 'farmer' | 'guard'
 const ROLE_NAME: Record<Role, string> = { free: 'じゆう', builder: 'だいく', farmer: 'はたけがかり', guard: 'みはり' }
 const ROLE_COLOR: Record<Role, string> = { free: '#ffffff', builder: '#ffb84d', farmer: '#7cf29b', guard: '#6fd6ff' }
 /** ペットの じゅみょう（あそんでいる時間・秒） */
 const LIFESPAN = 3 * 3600
-interface Item { kind: ItemKind; stage: number; x: number; z: number; grow: number; vx: number; vz: number; mesh: THREE.Group | null; light?: THREE.PointLight }
+interface Item {
+  kind: ItemKind; stage: number; x: number; z: number; grow: number; vx: number; vz: number; mesh: THREE.Group | null
+  /** 置いた向き（ラジアン） */
+  rot: number
+  /** 買った直後の「上から落ちてくる」動き：高さと速さ / 着地のつぶれ / 落ちる間の影 */
+  fall?: number
+  fvy?: number
+  sq: number
+  fshadow?: THREE.Mesh
+  /** なえの成長段階（めばえ・わかぎ・木） */
+  st?: number
+  /** 効果の周期タイマー */
+  tick: number
+}
 /** lucky = ふしぎなたまご（色ちがいがうまれやすい） */
 interface Egg { x: number; z: number; t: number; anim: SpriteAnim; shadow: THREE.Mesh; parents: SpeciesId[]; kind: EggKind; wild: boolean; lucky: boolean }
 interface Popup { pos: THREE.Vector3; text: string; color: string; t: number; big?: boolean }
@@ -147,15 +163,6 @@ const STRUCT_DESC: Record<StructKind, string> = {
   wall: 'てきの しんぐんを ふせぐ',
   castle: 'へいに かこまれた おしろ。ちかくで かいふく',
   bridge: 'みずうみを あるいて わたれる',
-}
-const ITEM_INFO: Record<string, { name: string; desc: string }> = {
-  sapling: { name: 'なえ・き', desc: 'そだつと みのなる木に。たべものが ふえる' },
-  ball: { name: 'ボール', desc: 'みんなが かってに けって あそぶ' },
-  fire: { name: 'たき火', desc: 'よる あつまって ねむる。たまごが できやすい' },
-  charm: { name: 'おまもり', desc: 'ノイズが あらわれにくくなる' },
-  tools: { name: 'だいくどうぐ', desc: 'ちかくの 家づくりが 2ばい。家が なおる' },
-  fence: { name: 'まもりのさく', desc: 'ちかくの 家の ダメージが はんぶん' },
-  memorial: { name: 'おはか', desc: 'まえの だいの ペットを しのぶ ほしの かざり' },
 }
 interface Fx { sprite: THREE.Sprite; vx: number; vy: number; vz: number; life: number; max: number; grav: number }
 
@@ -180,39 +187,9 @@ const FOODS: Record<Exclude<FoodKind, 'stage'>, { name: string; color: string; l
 }
 const CARE_NAME: Record<Care, string> = { power: 'ちから', guard: 'まもり', spirit: 'こころ' }
 
-interface ShopItem { id: string; name: string; price: number; desc: string; egg?: EggKind | 'random'; food?: Exclude<FoodKind, 'stage'>; item?: ItemKind; max?: number; kit?: boolean; plan?: StructKind; land?: 1 | 2 }
 /** セーブデータ・読み込んだコードは信用しない：種族は自前のキーだけ、数値は範囲に収める */
 const isSpecies = (v: unknown): v is SpeciesId => typeof v === 'string' && Object.prototype.hasOwnProperty.call(SPECIES, v)
 const num = (v: unknown, min: number, max: number, def = min) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : def)
-
-const SHOP: ShopItem[] = [
-  { id: 'meat', name: 'スタミナにく', price: 30, desc: 'ちからの けいこうが そだつ', food: 'meat' },
-  { id: 'sweet', name: 'あまいみ', price: 20, desc: 'きげん UP・こころが そだつ', food: 'sweet' },
-  { id: 'nut', name: 'かたいナッツ', price: 25, desc: 'まもりの けいこうが そだつ', food: 'nut' },
-  { id: 'sapling', name: 'なえ', price: 40, desc: 'うえると みのなる木に そだつ', item: 'sapling', max: 4 },
-  { id: 'ball', name: 'ボール', price: 30, desc: 'みんなが かってに あそぶ', item: 'ball', max: 1 },
-  { id: 'fire', name: 'たき火', price: 50, desc: 'よる あつまって ねむる・たまごが できやすい', item: 'fire', max: 1 },
-  { id: 'charm', name: 'おまもり', price: 60, desc: 'ノイズが あらわれにくくなる', item: 'charm', max: 1 },
-  { id: 'kit', name: 'ざいもくセット', price: 35, desc: '木3つと 石2つを まとめて おく（家づくり用）', kit: true },
-  { id: 'tools', name: 'だいくどうぐ', price: 60, desc: 'ちかくで たてると しざいが 2ばい・家が なおる', item: 'tools', max: 1 },
-  { id: 'fence', name: 'まもりのさく', price: 45, desc: 'ちかくの 家の ダメージが はんぶんに', item: 'fence', max: 2 },
-  { id: 'egg-random', name: 'ふしぎなたまご', price: 70, desc: 'なにが うまれるか わからない', egg: 'random' },
-  { id: 'egg-machine', name: 'きかいのたまご', price: 110, desc: 'ネジルが うまれる（ロボの系統）', egg: 'machine' },
-  { id: 'egg-dragon', name: 'りゅうのたまご', price: 140, desc: 'リュウコが うまれる（りゅうの系統）', egg: 'dragon' },
-  { id: 'egg-cat', name: 'ねこのたまご', price: 100, desc: 'ミミコが うまれる（ねこの系統）', egg: 'cat' },
-  { id: 'egg-dog', name: 'いぬのたまご', price: 100, desc: 'ワンコが うまれる（いぬの系統）', egg: 'dog' },
-  { id: 'egg-bird', name: 'とりのたまご', price: 90, desc: 'ピヨが うまれる（とりの系統）', egg: 'bird' },
-  { id: 'egg-water', name: 'みずのたまご', price: 100, desc: 'シズクが うまれる（みずの系統）', egg: 'water' },
-  { id: 'egg-monster', name: 'モンスターのたまご', price: 120, desc: 'ガブコが うまれる（おばけの系統）', egg: 'monster' },
-  { id: 'land1', name: 'かいたく ①', price: 250, desc: 'はこにわが 20 → 26 に ひろがる', land: 1 },
-  { id: 'land2', name: 'かいたく ②', price: 500, desc: 'はこにわが 26 → 32 に ひろがる', land: 2 },
-  { id: 'bp-farm', name: 'せっけいず：はたけ', price: 40, desc: 'たべものが じわじわ みのる', plan: 'farm' },
-  { id: 'bp-well', name: 'せっけいず：いど', price: 35, desc: 'ちかくで たいりょくが かいふくする', plan: 'well' },
-  { id: 'bp-cradle', name: 'せっけいず：ゆりかご', price: 60, desc: 'たまごが できやすくなる', plan: 'cradle' },
-  { id: 'bp-bridge', name: 'せっけいず：はし', price: 45, desc: 'みずうみを あるいて わたれる', plan: 'bridge' },
-  { id: 'bp-tower', name: 'せっけいず：みはりとう', price: 70, desc: 'てきを みつけて うちおとす', plan: 'tower' },
-  { id: 'bp-castle', name: 'せっけいず：おしろ', price: 160, desc: 'へいに かこまれた おしろ', plan: 'castle' },
-]
 
 const FX_SHEETS = () => ({
   heart: iconSheet(['.##.##.', '#######', '#######', '.#####.', '..###..', '...#...'], { '#': '#ff4d7a' }),
@@ -237,8 +214,6 @@ const FONT = '"DotGothic16", "Hiragino Sans", "Noto Sans JP", "Yu Gothic", Meiry
 const SAVE_KEY = 'pulsar-save-v1'
 const HOUSE_STEPS = [0, 2, 5, 8, 12]
 const MAX_STRUCTS = 26
-/** ショップは 9 行ずつ見せてスクロールする */
-const SHOP_ROWS = 9
 const MAX_HOUSES = 6
 const MAX_RES = 12
 const houseLevel = (mats: number) => (mats >= 12 ? 4 : mats >= 8 ? 3 : mats >= 5 ? 2 : mats >= 2 ? 1 : 0)
@@ -301,6 +276,14 @@ export class World {
   pet!: Creature
   private foods: Food[] = []
   private items: Item[] = []
+  /** 画質「低」：置き物の光源を作らない */
+  private lowQ = false
+  private sucks: Suck[] = []
+  /** 遊んでいるおもちゃ / すべりだいを すべっている進み具合（0〜1） */
+  private playAt = new WeakMap<Creature, Item>()
+  private rideT = new WeakMap<Creature, number>()
+  /** 買った直後に コインの横へ出す「-30」 */
+  private coinPop = { t: 0, n: 0 }
   private eggs: Egg[] = []
   private popups: Popup[] = []
   private fx: Fx[] = []
@@ -443,6 +426,11 @@ export class World {
     for (const r of this.rings) this.scene.remove(r.mesh)
     this.shots = []
     this.rings = []
+    for (const sk of this.sucks) {
+      this.scene.remove(sk.anim.sprite)
+      sk.anim.dispose()
+    }
+    this.sucks = []
     this.later = []
     for (const h of this.houses) this.unmountHouse(h)
     for (const st of this.structs) this.unmountStruct(st)
@@ -516,12 +504,20 @@ export class World {
 
   private updateAmbient(dt: number) {
     const calm = this.weather === 'sun' || this.weather === 'cloud'
+    const beds = this.items.filter((it) => it.stage === this.stageIndex && it.kind === 'flowerbed' && it.mesh)
     for (const a of this.ambient) {
       const show = a.kind === 'bf' ? this.night < 0.4 && calm : a.kind === 'ff' ? this.night > 0.5 && this.weather !== 'rain' : this.weather !== 'ember'
       a.s.sprite.visible = show
       if (!show) continue
       a.cx += Math.sin(this.time * 0.13 + a.ph) * dt * 0.4
       a.cz += Math.cos(this.time * 0.11 + a.ph) * dt * 0.4
+      // はなだんの ちかくへ ちょうちょが あつまる
+      if (a.kind === 'bf' && beds.length) {
+        const bed = beds[Math.floor(a.ph) % beds.length]
+        a.cx += (bed.x - a.cx) * dt * 0.35
+        a.cz += (bed.z - a.cz) * dt * 0.35
+        a.r = Math.min(a.r, 0.9)
+      }
       a.cx = THREE.MathUtils.clamp(a.cx, -HALF, HALF)
       a.cz = THREE.MathUtils.clamp(a.cz, -HALF, HALF)
       const t = this.time * a.sp + a.ph
@@ -749,8 +745,8 @@ export class World {
     this.obsKey = key
     this.obsTick = this.obsFrame
     const extra = this.items
-      .filter((it) => it.stage === this.stageIndex && (it.kind === 'fire' || it.kind === 'charm' || it.kind === 'tools' || it.kind === 'fence' || it.kind === 'memorial' || (it.kind === 'sapling' && it.grow >= 1)))
-      .map((it) => ({ x: it.x, z: it.z, r: it.kind === 'sapling' ? 0.35 : it.kind === 'fence' ? 0.55 : it.kind === 'tools' ? 0.45 : 0.3, water: false }))
+      .filter((it) => it.stage === this.stageIndex && ITEM_SPEC[it.kind].r > 0 && (it.kind !== 'sapling' || it.grow >= 1))
+      .map((it) => ({ x: it.x, z: it.z, r: ITEM_SPEC[it.kind].r, water: false }))
     const homes = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 1).map((h) => ({ x: h.x, z: h.z, r: 0.85, water: false }))
     const bridged = (o: { x: number; z: number; water?: boolean }) =>
       !!o.water && this.structs.some((b) => b.kind === 'bridge' && b.stage === this.stageIndex && b.mats >= STRUCTS.bridge.need && Math.hypot(b.x - o.x, b.z - o.z) < 0.6)
@@ -899,10 +895,33 @@ export class World {
         c.tz = fire.z + Math.sin(a) * (0.9 + Math.random() * 0.6)
         return this.setState(c, 'rest', 8)
       }
+      // ベンチがあればそこで休む（げんきが はやく もどる）
+      const bench = wild ? null : this.nearestItem('bench', c.x, c.z, 14)
+      if (bench) return this.restAtBench(c, bench)
       return this.setState(c, 'sleep', 6 + Math.random() * 6)
     }
-    const ball = this.item('ball')
-    if (ball && !wild && c.energy > 40 && Math.random() < 0.25 && Math.hypot(ball.x - c.x, ball.z - c.z) < 8) return this.setState(c, 'play', 6)
+    // すこし疲れたら、ベンチで ひと休み
+    if (!wild && c.energy < 45 && Math.random() < 0.35) {
+      const bench = this.nearestItem('bench', c.x, c.z, 10)
+      if (bench) return this.restAtBench(c, bench)
+    }
+    // おもちゃ（ボール・すべりだい・ぬいぐるみ）で遊ぶ
+    const toy = wild ? null : this.playToy(c)
+    if (toy && c.energy > 40 && Math.random() < toy.p) {
+      this.playAt.set(c, toy.it)
+      this.rideT.delete(c)
+      return this.setState(c, 'play', toy.it.kind === 'slide' ? 9 : 6)
+    }
+    // よるは ランタンのまわりに あつまる
+    if (!wild && this.night > 0.5 && Math.random() < 0.4) {
+      const lamp = this.nearestItem('lantern', c.x, c.z, 14)
+      if (lamp) {
+        const a = Math.random() * Math.PI * 2
+        c.tx = lamp.x + Math.cos(a) * (0.8 + Math.random() * 0.9)
+        c.tz = lamp.z + Math.sin(a) * (0.8 + Math.random() * 0.9)
+        return this.setState(c, 'wander', 5)
+      }
+    }
     // はたけがかり：はたけの世話をして、みのりを早める
     if (c.role === 'farmer' && c.energy > 25 && Math.random() < 0.5) {
       const farm = this.structs.find((b) => b.stage === this.stageIndex && b.kind === 'farm' && this.structDone(b))
@@ -981,6 +1000,15 @@ export class World {
     else this.setState(c, 'happy', 1.2)
   }
 
+  /** ベンチのまえで ひと休み（着いたら 眠る。ベンチの近くだと回復が はやい） */
+  private restAtBench(c: Creature, bench: Item) {
+    const p = this.itemLocal(bench, (Math.random() - 0.5) * 0.9, 0.78)
+    c.tx = p.x
+    c.tz = p.z
+    c.inside = false
+    return this.setState(c, 'rest', 8)
+  }
+
   private nearest(c: Creature, pred: (o: Creature) => boolean, range: number) {
     let best: Creature | null = null
     let bd = range
@@ -1028,7 +1056,7 @@ export class World {
     const crit = Math.random() < 0.12
     // まもりの傾向が強いペットは少し硬い
     const guard = b.sp.tier > 0 ? 1 - Math.min(0.3, this.careOf(b).guard * 0.01) : 1
-    const dmg = Math.max(1, Math.round(a.atk * (0.75 + Math.random() * 0.5) * (crit ? 1.8 : 1) * guard))
+    const dmg = Math.max(1, Math.round(a.atk * (0.75 + Math.random() * 0.5) * (crit ? 1.8 : 1) * guard * this.bannerBoost(a)))
     b.hp -= dmg
     b.hurt = 0.28
     const dx = b.x - a.x
@@ -1116,7 +1144,7 @@ export class World {
       this.say(`${c.team === 'wild' ? 'てきの ' : ''}${c.sp.name}の ${sk.name}！`)
       this.onSfx('skill')
     } else if (near) this.say(`やせいの ${c.sp.name}の ${sk.name}！`)
-    const dmg = Math.max(2, Math.round(c.atk * sk.mult * (0.9 + Math.random() * 0.2)))
+    const dmg = Math.max(2, Math.round(c.atk * sk.mult * (0.9 + Math.random() * 0.2) * this.bannerBoost(c)))
     const at = (x: number, z: number, y = 0.5) => new THREE.Vector3(x, this.stage.heightAt(x, z) + y, z)
     switch (sk.kind) {
       case 'shot': {
@@ -1455,7 +1483,7 @@ export class World {
 
   dropFood(x?: number, z?: number, from = 2.5, kind: FoodKind = 'stage') {
     if (x === undefined || z === undefined) {
-      const spots = [...this.stage.foodSpots, ...this.items.filter((it) => it.stage === this.stageIndex && it.kind === 'sapling' && it.grow >= 1)]
+      const spots = [...this.stage.foodSpots, ...this.items.filter((it) => it.stage === this.stageIndex && ((it.kind === 'sapling' && it.grow >= 1) || it.kind === 'flowerbed'))]
       const s = spots[Math.floor(Math.random() * spots.length)] ?? { x: 0, z: 0 }
       const a = Math.random() * Math.PI * 2
       x = s.x + Math.cos(a) * (0.7 + Math.random() * 0.6)
@@ -1499,175 +1527,259 @@ export class World {
   }
 
   private mountItem(it: Item) {
-    const g = new THREE.Group()
-    if (it.kind === 'sapling') {
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 1, 6), this.lam('#6d4c41'))
-      trunk.position.y = 0.5
-      const leaf = new THREE.Mesh(new THREE.IcosahedronGeometry(0.75, 0), this.lam('#5cc25a'))
-      leaf.position.y = 1.4
-      g.add(trunk, leaf)
-      const fc = this.stage.food.color
-      for (let k = 0; k < 3; k++) {
-        const fr = new THREE.Mesh(new THREE.IcosahedronGeometry(0.1, 0), this.lam(fc))
-        fr.position.set(Math.cos(k * 2.1) * 0.62, 1.3 + k * 0.12, Math.sin(k * 2.1) * 0.62)
-        fr.name = 'fruit'
-        g.add(fr)
-      }
-    } else if (it.kind === 'ball') {
-      const a = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2), this.lam('#ff5e5e'))
-      const b = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 4, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), this.lam('#ffffff'))
-      g.add(a, b)
-    } else if (it.kind === 'fire') {
-      const log = this.lam('#7a4e2d')
-      for (const r of [0.6, -0.6]) {
-        const l = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.7, 5), log)
-        l.rotation.set(Math.PI / 2, r, 0)
-        l.position.y = 0.08
-        g.add(l)
-      }
-      for (const [c, s, y] of [['#ff6b2a', 0.24, 0.3], ['#ffd23f', 0.15, 0.36]] as const) {
-        const fl = new THREE.Mesh(new THREE.ConeGeometry(s, 0.5, 5), new THREE.MeshBasicMaterial({ color: c }))
-        fl.position.y = y
-        fl.name = 'flame'
-        g.add(fl)
-      }
-      it.light = new THREE.PointLight('#ff9a4a', 0, 6, 1.5)
-      it.light.position.y = 0.6
-      g.add(it.light)
-    } else if (it.kind === 'tools') {
-      // だいくどうぐ：作業台 + かなづち + のこぎり
-      const wood = this.lam('#a0703f', { map: Tex.bark() })
-      const top = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.08, 0.5), wood)
-      top.position.y = 0.42
-      g.add(top)
-      for (const [x, z] of [[-0.33, -0.18], [0.33, -0.18], [-0.33, 0.18], [0.33, 0.18]]) {
-        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.4, 0.07), wood)
-        leg.position.set(x, 0.2, z)
-        g.add(leg)
-      }
-      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.36, 6), this.lam('#6d4c41'))
-      handle.rotation.z = Math.PI / 2
-      handle.position.set(-0.08, 0.5, 0.05)
-      const head = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.16), this.lam('#9aa1ab'))
-      head.position.set(0.1, 0.5, 0.05)
-      const saw = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.015, 0.12), this.lam('#c9ced6'))
-      saw.position.set(0.15, 0.47, -0.15)
-      saw.rotation.y = 0.4
-      g.add(handle, head, saw)
-      g.name = 'tools'
-    } else if (it.kind === 'fence') {
-      // まもりのさく：くいを丸く並べて横木でつなぐ
-      const wood = this.lam('#8a5a34', { map: Tex.bark() })
-      for (let i = 0; i < 7; i++) {
-        const a = -0.9 + (i / 6) * 1.8
-        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.55, 6), wood)
-        post.position.set(Math.sin(a) * 0.55, 0.27, Math.cos(a) * 0.55 - 0.3)
-        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.12, 6), wood)
-        tip.position.set(post.position.x, 0.6, post.position.z)
-        g.add(post, tip)
-      }
-      for (const y of [0.18, 0.4]) {
-        const rail = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.025, 4, 16, 1.8), wood)
-        rail.rotation.set(Math.PI / 2, 0, Math.PI / 2 - 0.9)
-        rail.position.set(0, y, -0.3)
-        g.add(rail)
-      }
-    } else if (it.kind === 'memorial') {
-      // おはか：丸い石と、ほしのかざり、まわりの花
-      const stone = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 0.7, 7), this.lam('#c9ced6', { map: Tex.rock() }))
-      stone.position.y = 0.35
-      const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), new THREE.MeshBasicMaterial({ color: '#ffe27a' }))
-      star.position.y = 1.0
-      star.name = 'gem'
-      g.add(stone, star)
-      for (const [dx, dz, col] of [[-0.4, 0.2, '#ff8fb1'], [0.4, 0.25, '#ffffff'], [0, 0.45, '#ffd23f']] as const) {
-        const f = new THREE.Mesh(new THREE.SphereGeometry(0.07, 5, 4), new THREE.MeshBasicMaterial({ color: col }))
-        f.position.set(dx, 0.08, dz)
-        g.add(f)
-      }
-    } else {
-      const stone = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.6, 0.3), this.lam('#9aa1ab'))
-      stone.position.y = 0.3
-      const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), new THREE.MeshBasicMaterial({ color: '#5ef2ff' }))
-      gem.position.y = 0.95
-      gem.name = 'gem'
-      g.add(stone, gem)
-    }
-    g.position.set(it.x, this.stage.heightAt(it.x, it.z), it.z)
+    const g = buildItem(it.kind, { low: this.lowQ, fruit: this.stage.food.color })
+    g.position.set(it.x, this.stage.heightAt(it.x, it.z) + (it.fall ?? 0), it.z)
+    g.rotation.y = it.rot
     this.scene.add(g)
     it.mesh = g
+    it.st = undefined
   }
 
   private unmountItem(it: Item) {
+    if (it.fshadow) {
+      this.scene.remove(it.fshadow)
+      it.fshadow = undefined
+    }
     if (!it.mesh) return
     this.scene.remove(it.mesh)
-    it.mesh.traverse((o) => {
-      const m = o as THREE.Mesh
-      m.geometry?.dispose()
-      ;(m.material as THREE.Material | undefined)?.dispose?.()
-    })
+    disposeItem(it.mesh)
     it.mesh = null
-    it.light = undefined
   }
 
-  private placeItem(kind: ItemKind) {
+  /** 画質：「低」では置き物の光源（たき火・ランタン）を作らない。作り直すので今の箱庭だけ入れ替える */
+  private setItemQuality(q: 'high' | 'low') {
+    const low = q === 'low'
+    if (low === this.lowQ) return
+    this.lowQ = low
+    for (const it of this.items)
+      if (it.stage === this.stageIndex && it.mesh) {
+        this.unmountItem(it)
+        this.mountItem(it)
+      }
+  }
+
+  /** 買った置き物を、見ている所のまわりに「上から落として」置く */
+  private placeItem(kind: ItemKind): Item {
     const p = this.freePos(1.2, this.look.x, this.look.z, 3)
-    const it: Item = { kind, stage: this.stageIndex, x: p.x, z: p.z, grow: kind === 'sapling' ? 0 : 1, vx: 0, vz: 0, mesh: null }
+    const it: Item = {
+      kind, stage: this.stageIndex, x: p.x, z: p.z, grow: kind === 'sapling' ? 0 : 1, vx: 0, vz: 0, mesh: null,
+      rot: ITEM_SPEC[kind].turn ? (Math.random() - 0.5) * 1.1 : 0, fall: 4.4, fvy: 0, sq: 0, tick: 0,
+    }
     this.items.push(it)
     this.mountItem(it)
-    this.burst(it.x, this.stage.heightAt(it.x, it.z) + 0.4, it.z, 'spark', 8, 2)
+    const sh = new THREE.Mesh(this.shadowGeo, this.shadowMat)
+    sh.position.set(it.x, this.stage.heightAt(it.x, it.z) + 0.03, it.z)
+    sh.scale.setScalar(0.3)
+    this.scene.add(sh)
+    it.fshadow = sh
+    return it
+  }
+
+  /** 置き物の ローカル座標（右 lx・手前 lz）を、箱庭の座標に直す */
+  private itemLocal(it: Item, lx: number, lz: number) {
+    const c = Math.cos(it.rot)
+    const s = Math.sin(it.rot)
+    return { x: it.x + lx * c + lz * s, z: it.z - lx * s + lz * c }
+  }
+
+  /** その種類の置き物のうち、いちばん近い物（落ちてくる途中のものは数えない） */
+  private nearestItem(kind: ItemKind, x: number, z: number, range = 99) {
+    let best: Item | null = null
+    let bd = range
+    for (const it of this.items) {
+      if (it.kind !== kind || it.stage !== this.stageIndex || !it.mesh || it.fall !== undefined) continue
+      const d = Math.hypot(it.x - x, it.z - z)
+      if (d < bd) {
+        bd = d
+        best = it
+      }
+    }
+    return best
+  }
+
+  /** あそべる おもちゃ（ボール・すべりだい・ぬいぐるみ）のうち、近くて その子に合う物 */
+  private playToy(c: Creature): { it: Item; p: number } | null {
+    const kid = c.grow > 0
+    let best: { it: Item; p: number } | null = null
+    let bd = 99
+    for (const it of this.items) {
+      if (it.stage !== this.stageIndex || !it.mesh || it.fall !== undefined) continue
+      let p = 0
+      let range = 8
+      if (it.kind === 'ball') p = 0.25
+      else if (it.kind === 'slide') {
+        p = kid ? 0.4 : 0.22
+        range = 10
+      } else if (it.kind === 'plush') {
+        p = kid ? 0.55 : 0.06
+        range = 10
+      } else continue
+      const d = Math.hypot(it.x - c.x, it.z - c.z)
+      if (d < range && d < bd) {
+        bd = d
+        best = { it, p }
+      }
+    }
+    return best
+  }
+
+  /** 戦っている なかまの こうげき補正：おうえんばたの近くなら 2 わり UP */
+  private bannerBoost(c: Creature) {
+    return this.ally(c) && this.nearItem('banner', c.x, c.z, 4.5) ? 1.2 : 1
+  }
+
+  /** 買った時の演出：コインが 吸いこまれていく */
+  private buyFx(x: number, z: number, h = 0.5) {
+    const to = new THREE.Vector3(x, this.stage.heightAt(x, z) + h, z)
+    const n = this.lowQ ? 4 : 7
+    for (let i = 0; i < n; i++) {
+      const a = new SpriteAnim(this.fxSheets.coin, 0.3)
+      a.sprite.center.set(0.5, 0.5)
+      const ang = (i / n) * Math.PI * 2 + Math.random()
+      const from = new THREE.Vector3(to.x + Math.cos(ang) * 2.2, to.y + 1.4 + Math.random() * 1.2, to.z + Math.sin(ang) * 2.2)
+      a.sprite.position.copy(from)
+      a.sprite.visible = false
+      this.scene.add(a.sprite)
+      this.sucks.push({ anim: a, from, to, t: -i * 0.05, dur: 0.55, bs: a.sprite.scale.x })
+    }
+  }
+
+  private updateSucks(dt: number) {
+    for (const s of [...this.sucks]) {
+      s.t += dt
+      if (s.t < 0) continue
+      const k = Math.min(1, s.t / s.dur)
+      const e = k * k * (1.4 - 0.4 * k)
+      const sp = s.anim.sprite
+      sp.visible = true
+      const rx = s.from.x - s.to.x
+      const rz = s.from.z - s.to.z
+      const ang = e * 2.4
+      const f = 1 - e
+      sp.position.set(
+        s.to.x + (rx * Math.cos(ang) - rz * Math.sin(ang)) * f,
+        s.from.y + (s.to.y - s.from.y) * e + Math.sin(e * Math.PI) * 0.35,
+        s.to.z + (rx * Math.sin(ang) + rz * Math.cos(ang)) * f,
+      )
+      sp.scale.setScalar(s.bs * (1 - e * 0.55))
+      if (k >= 1) {
+        this.scene.remove(sp)
+        s.anim.dispose()
+        this.sucks.splice(this.sucks.indexOf(s), 1)
+        if (Math.random() < 0.7) this.burst(s.to.x, s.to.y, s.to.z, 'spark', 1, 1)
+      }
+    }
+  }
+
+  /** 買った置き物が落ちてくる：はずんで、つぶれて、火花 */
+  private dropStep(it: Item, dt: number, gy: number) {
+    it.fvy = (it.fvy ?? 0) - 16 * dt
+    it.fall = (it.fall ?? 0) + it.fvy * dt
+    if (it.fall > 0) {
+      if (it.fshadow) {
+        it.fshadow.position.set(it.x, gy + 0.03, it.z)
+        it.fshadow.scale.setScalar(Math.max(0.25, 0.9 - it.fall * 0.14))
+      }
+      return
+    }
+    it.fall = 0
+    const v = -it.fvy
+    it.sq = Math.min(1, v / 8)
+    const big = v > 8
+    this.burst(it.x, gy + 0.2, it.z, 'spark', big ? 8 : 3, big ? 2.4 : 1.4)
+    if (big) {
+      this.ring(it.x, it.z, '#fff6c8', 1.8, 0.5)
+      this.onSfx('hit')
+    }
+    if (v > 2.4) it.fvy = v * 0.36
+    else {
+      it.fall = undefined
+      it.fvy = 0
+      if (it.fshadow) {
+        this.scene.remove(it.fshadow)
+        it.fshadow = undefined
+      }
+    }
   }
 
   private updateItems(dt: number) {
+    const wind = this.weather === 'rain' || this.weather === 'ember' ? 1.7 : this.weather === 'snow' ? 1.25 : 1
     for (const it of this.items) {
       if (it.stage !== this.stageIndex || !it.mesh) continue
-      if (it.kind === 'sapling') {
-        if (it.grow < 1) {
-          it.grow = Math.min(1, it.grow + dt / 60)
-          if (it.grow >= 1) {
-            this.say('なえが そだって 木に なった！ みが なるよ')
-            this.dropFood(it.x + 0.8, it.z)
+      const gy = this.stage.heightAt(it.x, it.z)
+      if (it.fall !== undefined) this.dropStep(it, dt, gy)
+      let busy = false
+      switch (it.kind) {
+        case 'sapling': {
+          if (it.grow < 1) it.grow = Math.min(1, it.grow + dt / 60)
+          const st = it.grow < 0.34 ? 0 : it.grow < 1 ? 1 : 2
+          if (it.st === undefined) it.st = st
+          else if (st !== it.st) {
+            it.st = st
+            this.burst(it.x, gy + 0.9, it.z, 'spark', 5, 1.6)
+            if (st === 1) this.say('なえが ぐんぐん のびて わかぎに なった')
+            else {
+              this.say('なえが そだって 木に なった！ みが なるよ')
+              this.dropFood(it.x + 0.8, it.z)
+            }
           }
+          break
         }
-        it.mesh.scale.setScalar(0.25 + 0.75 * it.grow)
-        it.mesh.rotation.z = Math.sin(this.time * 1.5 + it.x * 2) * 0.03 * it.grow
-        it.mesh.children.forEach((o) => o.name === 'fruit' && (o.visible = it.grow >= 1))
-      } else if (it.kind === 'ball') {
-        it.x += it.vx * dt
-        it.z += it.vz * dt
-        const k = Math.exp(-dt * 1.6)
-        it.vx *= k
-        it.vz *= k
-        for (const o of this.stage.obstacles) {
-          const dx = it.x - o.x
-          const dz = it.z - o.z
-          const d = Math.hypot(dx, dz)
-          if (d < o.r + 0.2 && d > 0) {
-            it.x = o.x + (dx / d) * (o.r + 0.2)
-            it.z = o.z + (dz / d) * (o.r + 0.2)
-            const dot = (it.vx * dx + it.vz * dz) / d
-            it.vx -= (2 * dot * dx) / d
-            it.vz -= (2 * dot * dz) / d
+        case 'ball': {
+          it.x += it.vx * dt
+          it.z += it.vz * dt
+          const k = Math.exp(-dt * 1.6)
+          it.vx *= k
+          it.vz *= k
+          for (const o of this.stage.obstacles) {
+            const dx = it.x - o.x
+            const dz = it.z - o.z
+            const d = Math.hypot(dx, dz)
+            if (d < o.r + 0.2 && d > 0) {
+              it.x = o.x + (dx / d) * (o.r + 0.2)
+              it.z = o.z + (dz / d) * (o.r + 0.2)
+              const dot = (it.vx * dx + it.vz * dz) / d
+              it.vx -= (2 * dot * dx) / d
+              it.vz -= (2 * dot * dz) / d
+            }
           }
+          if (Math.abs(it.x) > HALF) it.vx *= -1
+          if (Math.abs(it.z) > HALF) it.vz *= -1
+          it.x = THREE.MathUtils.clamp(it.x, -HALF, HALF)
+          it.z = THREE.MathUtils.clamp(it.z, -HALF, HALF)
+          break
         }
-        if (Math.abs(it.x) > HALF) it.vx *= -1
-        if (Math.abs(it.z) > HALF) it.vz *= -1
-        it.x = THREE.MathUtils.clamp(it.x, -HALF, HALF)
-        it.z = THREE.MathUtils.clamp(it.z, -HALF, HALF)
-        it.mesh.position.set(it.x, this.stage.heightAt(it.x, it.z) + 0.2, it.z)
-        it.mesh.rotation.x += it.vz * dt * 4
-        it.mesh.rotation.z -= it.vx * dt * 4
-      } else if (it.kind === 'fire') {
-        const f = 0.85 + Math.sin(this.time * 17) * 0.1 + Math.sin(this.time * 7.3) * 0.08
-        it.mesh.children.forEach((o) => o.name === 'flame' && o.scale.set(f, f * (1.1 + Math.sin(this.time * 11) * 0.1), f))
-        if (it.light) it.light.intensity = (0.6 + this.night * 3) * f
-      } else {
-        const gem = it.mesh.getObjectByName('gem')
-        if (gem) {
-          gem.rotation.y += dt * 1.5
-          gem.position.y = 0.95 + Math.sin(this.time * 2) * 0.06
+        case 'lantern': {
+          // よる、そばに集まった子の こころが育つ
+          if (this.night > 0.4 && it.fall === undefined) {
+            it.tick += dt
+            if (it.tick > 3) {
+              it.tick = 0
+              for (const c of this.creatures) {
+                if (!this.ally(c) || !this.alive(c) || c.state === 'fight' || c.inside || Math.hypot(c.x - it.x, c.z - it.z) > 2.6) continue
+                this.addCare(c, 'spirit', 0.25)
+                if (c === this.pet) this.stats.mood = Math.min(100, this.stats.mood + 0.8)
+                if (Math.random() < 0.3) this.burst(c.x, this.ground(c) + this.size(c) + 0.2, c.z, 'heart', 1, 0.8)
+              }
+            }
+          }
+          break
         }
+        case 'tools':
+          busy = this.creatures.some((c) => c.state === 'work' && Math.hypot(c.x - it.x, c.z - it.z) < 3.4)
+          break
+        case 'plush':
+          busy = this.creatures.some((c) => c.state === 'play' && this.playAt.get(c) === it)
+          break
+        default:
+          break
       }
+      it.mesh.position.set(it.x, gy + (it.fall ?? 0), it.z)
+      if (it.sq > 0) {
+        it.sq = Math.max(0, it.sq - dt * 3.2)
+        it.mesh.scale.set(1 + it.sq * 0.22, 1 - it.sq * 0.3, 1 + it.sq * 0.22)
+      }
+      tickItem(it.kind, it.mesh, { t: this.time, dt, night: this.night, wind, grow: it.grow, vx: it.vx, vz: it.vz, busy, day: this.night < 0.4 })
     }
   }
 
@@ -2261,7 +2373,7 @@ export class World {
       const hgt = { castle: 3.2, tower: 2.5, cradle: 1.5, well: 1.4, farm: 0.8, wall: 0.9, bridge: 0.4 }[b.kind]
       test(b.x, b.z, hgt, { type: 'struct', ref: b, armed: false }, 12)
     }
-    for (const it of this.items) if (it.stage === here && it.mesh) test(it.x, it.z, it.kind === 'sapling' ? 0.5 + it.grow : 0.8, { type: 'item', ref: it, armed: false }, 11)
+    for (const it of this.items) if (it.stage === here && it.mesh) test(it.x, it.z, it.kind === 'sapling' ? 0.5 + it.grow : ITEM_SPEC[it.kind].pickH, { type: 'item', ref: it, armed: false }, 11)
     for (const e of this.eggs) test(e.x, e.z, 0.6, { type: 'egg', ref: e, armed: false }, 10)
     for (const r of this.resources) test(r.x, r.z, 0.25, { type: 'res', ref: r, armed: false }, 8)
     for (const f of this.foods) test(f.x, f.z, 0.3, { type: 'food', ref: f, armed: false }, 8)
@@ -2286,6 +2398,7 @@ export class World {
       case 'creature': return { x: r.x, z: r.z, h: this.size(r) + r.jy + 0.4 }
       case 'house': return { x: r.x, z: r.z, h: r.level >= 4 ? 2.6 : r.level >= 3 ? 2.1 : 1.4 }
       case 'struct': return { x: r.x, z: r.z, h: { castle: 3.6, tower: 2.9, cradle: 1.8, well: 1.7, farm: 1.2, wall: 1.2, bridge: 0.9 }[r.kind as StructKind] }
+      case 'item': return { x: r.x, z: r.z, h: (r.kind === 'sapling' ? 1.0 + r.grow * 1.3 : ITEM_SPEC[r.kind as ItemKind].pickH) + 0.4 + (r.fall ?? 0) }
       default: return { x: r.x, z: r.z, h: 1.2 }
     }
   }
@@ -2330,8 +2443,11 @@ export class World {
       case 'item': {
         const it: Item = p.ref
         const info = ITEM_INFO[it.kind] ?? { name: it.kind, desc: '' }
-        lines.push(info.desc)
-        if (it.kind === 'sapling') bars.push(['せいちょう', it.grow, '#7cf29b'])
+        lines.push(...info.desc.split('\n'))
+        if (it.kind === 'sapling') {
+          lines.push(`いま：${['めばえ', 'わかぎ', 'みのる木'][it.st ?? 0]}`)
+          bars.push(['せいちょう', it.grow, '#7cf29b'])
+        }
         return { title: info.name, sub: 'おきもの', lines, bars, del: 'かたづける' }
       }
       case 'egg': {
@@ -2714,7 +2830,7 @@ export class World {
       this.unmountItem(old)
       this.items.splice(this.items.indexOf(old), 1)
     }
-    const it: Item = { kind: 'memorial', stage: this.stageIndex, x: x + 0.9, z, grow: 1, vx: 0, vz: 0, mesh: null }
+    const it: Item = { kind: 'memorial', stage: this.stageIndex, x: x + 0.9, z, grow: 1, vx: 0, vz: 0, mesh: null, rot: 0, sq: 0, tick: 0 }
     this.items.push(it)
     this.mountItem(it)
   }
@@ -2927,6 +3043,7 @@ export class World {
     fxU.uHigh.value = this.high ? 1 : 0
     this.wfx.setQuality(this.high)
     fxLod(this.stage.group, this.high)
+    this.setItemQuality(q)
   }
 
   private updateWeather(dt: number) {
@@ -3108,40 +3225,64 @@ export class World {
     return true
   }
 
-  private buy(s: ShopItem) {
-    if (this.coins < s.price) {
-      this.say('コインが たりない…')
-      return this.onSfx('cancel')
+  /** 買えるか と、買えない理由（ショップの色分けと「かえない」メッセージの元） */
+  private shopCheck(s: ShopItem): ShopCheck {
+    let have: number | undefined
+    let max: number | undefined
+    const no = (tone: ShopCheck['tone'], why: string): ShopCheck => ({ ok: false, tone, why, have, max })
+    if (s.land) {
+      if (this.land >= s.land) return no('done', 'この かいたくは もう すんでいる')
+      if (this.land < s.land - 1) return no('lock', 'さきに かいたく ① を しよう')
     }
-    if (s.item && this.items.filter((it) => it.kind === s.item && it.stage === this.stageIndex).length >= (s.max ?? 1)) {
-      this.say('この箱庭には もう おけない')
+    if (s.item) {
+      max = ITEM_SPEC[s.item].max
+      have = this.items.filter((it) => it.kind === s.item && it.stage === this.stageIndex).length
+      if (have >= max) return no('full', `この箱庭には もう おけない（${have}/${max}）`)
+    }
+    if (s.egg) {
+      max = 3
+      have = this.eggs.length
+      if (have >= max) return no('full', `たまごは いっぱい（${have}/${max}）`)
+    }
+    if (s.plan) {
+      const here = this.structs.filter((b) => b.stage === this.stageIndex)
+      have = here.filter((b) => b.kind === s.plan).length
+      max = s.plan === 'castle' ? 1 : s.plan === 'wall' ? undefined : 3
+      if (here.length >= MAX_STRUCTS) return no('full', 'もう たてる ばしょが ない')
+      if (max !== undefined && have >= max) return no('full', s.plan === 'castle' ? 'おしろは ひとつだけ' : `${STRUCTS[s.plan].name}は これいじょう いらない（${have}/${max}）`)
+      if (s.plan === 'bridge' && !this.stage.obstacles.some((o) => o.water && !here.some((b) => b.kind === 'bridge' && Math.hypot(b.x - o.x, b.z - o.z) < 0.6)))
+        return no('lock', 'この箱庭には わたる みずうみが ない')
+    }
+    if (this.coins < s.price) return no('coin', `コインが たりない（あと ${s.price - this.coins}）`)
+    return { ok: true, tone: 'ok', why: '', have, max }
+  }
+
+  private pay(s: ShopItem) {
+    this.coins -= s.price
+    this.coinPop = { t: 1.4, n: s.price }
+    this.onSfx('coin')
+  }
+
+  private buy(s: ShopItem) {
+    const ck = this.shopCheck(s)
+    if (!ck.ok) {
+      this.say(ck.why)
       return this.onSfx('cancel')
     }
     if (s.land) {
-      if (this.land >= s.land) {
-        this.say('その かいたくは もう すんでいる')
-        return this.onSfx('cancel')
-      }
-      if (this.land < s.land - 1) {
-        this.say('さきに かいたく ① を しよう')
-        return this.onSfx('cancel')
-      }
-      this.coins -= s.price
-      this.onSfx('coin')
+      this.pay(s)
       this.expandLand(s.land)
       this.shopOpen = false
       return
     }
     if (s.egg) {
-      if (this.eggs.length >= 3) {
-        this.say('たまごは これいじょう おけない')
-        return this.onSfx('cancel')
-      }
       const kind: EggKind = s.egg === 'random' ? (['machine', 'dragon', 'cat', 'dog', 'bird', 'water', 'monster'] as EggKind[])[Math.floor(Math.random() * 7)] : s.egg
-      this.coins -= s.price
-      this.onSfx('coin')
+      this.pay(s)
       const pt = this.pet
-      this.layEgg(pt.x + pt.anim.facing * 1.1, pt.z + 0.4, [], 40, kind, false, s.egg === 'random')
+      const ex = pt.x + pt.anim.facing * 1.1
+      const ez = pt.z + 0.4
+      this.layEgg(ex, ez, [], 40, kind, false, s.egg === 'random')
+      this.buyFx(ex, ez, 0.4)
       this.say(s.egg === 'random' ? 'ふしぎなたまごを おいた！' : `${FAMILY_NAME[kind]}のたまごを おいた！`)
       this.shopOpen = false
       return
@@ -3150,20 +3291,20 @@ export class World {
       // せっけいず：見ている所のまわりに建設現場ができる（みんなが資材を運んで建てる）
       const site = this.planStruct(s.plan)
       if (!site) return this.onSfx('cancel')
-      this.coins -= s.price
-      this.onSfx('coin')
+      this.pay(s)
+      this.buyFx(site.x, site.z, 0.8)
       this.say(`${STRUCTS[s.plan].name}の せっけいず！ みんなが たてはじめる`)
       this.shopOpen = false
       return
     }
-    this.coins -= s.price
-    this.onSfx('coin')
+    this.pay(s)
     if (s.kit) {
       // 木 3 つと石 2 つを、見ている所のまわりに置く
       for (let i = 0; i < 5; i++) {
         const a = (i / 5) * Math.PI * 2
         this.spawnResource(this.look.x + Math.cos(a) * 1.2, this.look.z + Math.sin(a) * 1.2, i < 3 ? 'wood' : 'stone', true)
       }
+      this.buyFx(this.look.x, this.look.z, 0.5)
       this.burst(this.look.x, this.stage.heightAt(this.look.x, this.look.z) + 0.5, this.look.z, 'spark', 8, 2)
       this.say('ざいもくセットを おいた（木3・石2）')
     } else if (s.food) {
@@ -3175,9 +3316,11 @@ export class World {
         p.food = f
         this.setState(p, 'seek', 10)
       }
+      this.buyFx(f.x, f.z, 0.3)
       this.say(`${s.name}を おいた`)
     } else if (s.item) {
-      this.placeItem(s.item)
+      const it = this.placeItem(s.item)
+      this.buyFx(it.x, it.z, 0.6)
       this.say(`${s.name}を 箱庭に おいた`)
     }
     this.shopOpen = false
@@ -3288,7 +3431,8 @@ export class World {
     // たべものが落ちる / 実る（植えた木が多いほどよく落ちる）
     this.foodT += dt * (this.weather === 'rain' ? 1.8 : 1)
     const trees = this.items.filter((it) => it.stage === this.stageIndex && it.kind === 'sapling' && it.grow >= 1).length
-    if (this.foodT > 7 / (1 + trees * 0.3) && this.foods.length < 5 + trees) {
+    const beds = this.items.filter((it) => it.stage === this.stageIndex && it.kind === 'flowerbed').length
+    if (this.foodT > 7 / (1 + trees * 0.3 + beds * 0.2) && this.foods.length < 5 + trees + beds) {
       this.foodT = 0
       this.dropFood()
     }
@@ -3340,7 +3484,9 @@ export class World {
     this.updateAge(dt)
     this.updateArmy(dt)
     this.updateItems(dt)
+    this.updateSucks(dt)
     this.updateAmbient(dt)
+    this.coinPop.t = Math.max(0, this.coinPop.t - dt)
     this.updateEggs(dt)
     this.tryBreed(dt)
     this.updateFx(dt)
@@ -3412,7 +3558,7 @@ export class World {
 
     // こどもの成長
     if (c.grow > 0) {
-      c.grow = Math.min(1, c.grow + dt / 150)
+      c.grow = Math.min(1, c.grow + (dt / 150) * (this.nearItem('plush', c.x, c.z, 2.4) ? 1.8 : 1))
       c.anim.setHeight(this.size(c))
       if (c.grow >= 1) {
         c.grow = 0
@@ -3584,8 +3730,11 @@ export class World {
       }
       case 'sleep':
         anim = 'sleep'
-        c.energy = Math.min(100, c.energy + dt * 9)
-        c.hp = Math.min(c.maxHp, c.hp + dt * 2)
+        // ベンチのそばなら げんきが 2 ばい はやく もどる（ペットは きげんも UP）
+        const onBench = !c.inside && this.nearItem('bench', c.x, c.z, 1.5)
+        c.energy = Math.min(100, c.energy + dt * (onBench ? 20 : 9))
+        c.hp = Math.min(c.maxHp, c.hp + dt * (onBench ? 3.5 : 2))
+        if (onBench && c === this.pet) this.stats.mood = Math.min(100, this.stats.mood + dt * 0.5)
         c.fx -= dt
         if (c.fx <= 0) {
           c.fx = 1.3
@@ -3607,8 +3756,10 @@ export class World {
         }
         break
       case 'play': {
-        const ball = this.item('ball')
-        if (!ball || c.t <= 0) {
+        const toy = this.playAt.get(c)
+        if (!toy || !this.items.includes(toy) || !toy.mesh || (c.t <= 0 && this.rideT.get(c) === undefined)) {
+          this.playAt.delete(c)
+          this.rideT.delete(c)
           this.setState(c, 'happy', 1)
           this.addCare(c, 'spirit', 1)
           this.gainXp(c, 1)
@@ -3620,18 +3771,60 @@ export class World {
           break
         }
         anim = 'walk'
-        if (this.moveTo(c, ball.x, ball.z, sp.speed * 1.3, dt) < 0.55 && c.cd <= 0) {
-          // ボールをける
-          const dx = ball.x - c.x
-          const dz = ball.z - c.z
-          const d = Math.hypot(dx, dz) || 1
-          const power = 3 + Math.random() * 2.5
-          ball.vx = (dx / d) * power + (Math.random() - 0.5) * 1.5
-          ball.vz = (dz / d) * power + (Math.random() - 0.5) * 1.5
-          c.cd = 0.8
-          c.vy = 2.5
-          c.energy = Math.max(0, c.energy - 2)
-          if (Math.random() < 0.3) this.burst(ball.x, this.stage.heightAt(ball.x, ball.z) + 0.3, ball.z, 'spark', 2, 1)
+        if (toy.kind === 'ball') {
+          if (this.moveTo(c, toy.x, toy.z, sp.speed * 1.3, dt) < 0.55 && c.cd <= 0) {
+            // ボールをける
+            const dx = toy.x - c.x
+            const dz = toy.z - c.z
+            const d = Math.hypot(dx, dz) || 1
+            const power = 3 + Math.random() * 2.5
+            toy.vx = (dx / d) * power + (Math.random() - 0.5) * 1.5
+            toy.vz = (dz / d) * power + (Math.random() - 0.5) * 1.5
+            c.cd = 0.8
+            c.vy = 2.5
+            c.energy = Math.max(0, c.energy - 2)
+            if (Math.random() < 0.3) this.burst(toy.x, this.stage.heightAt(toy.x, toy.z) + 0.3, toy.z, 'spark', 2, 1)
+          }
+        } else if (toy.kind === 'slide') {
+          // はしごの下へ行く → のぼる → 台の上から すべりおりる
+          const u0 = this.rideT.get(c)
+          if (u0 === undefined) {
+            const foot = this.itemLocal(toy, 0, -1.1)
+            if (this.moveTo(c, foot.x, foot.z, sp.speed * 1.2, dt) < 0.3) this.rideT.set(c, 0)
+          } else {
+            const u = u0 + dt / 1.6
+            if (u >= 1) {
+              this.rideT.delete(c)
+              c.vy = 2.6
+              c.cd = 0.3
+              this.addCare(c, 'spirit', 0.4)
+              this.burst(c.x, this.ground(c) + 0.5, c.z, Math.random() < 0.5 ? 'heart' : 'spark', 3, 1.5)
+              this.setState(c, 'play', Math.max(c.t, 0.5))
+            } else {
+              this.rideT.set(c, u)
+              const pt = slidePath(u)
+              const w = this.itemLocal(toy, pt.lx, pt.lz)
+              c.x = w.x
+              c.z = w.z
+              c.jy = pt.h
+              c.vy = 0
+              c.anim.facing = u < 0.42 ? 1 : c.anim.facing
+              anim = u < 0.42 ? 'walk' : 'happy'
+            }
+          }
+        } else {
+          // ぬいぐるみ：まわりで ぴょんぴょん はねて だっこ
+          const around = this.itemLocal(toy, Math.sin(c.phase * 3) * 0.55, 0.7)
+          if (this.moveTo(c, around.x, around.z, sp.speed, dt, true) < 0.35) {
+            anim = c.jy > 0 ? 'happy' : 'idle'
+            c.anim.facing = toy.x > c.x ? 1 : -1
+            if (c.cd <= 0) {
+              c.vy = 2.3
+              c.cd = 1.1
+              if (Math.random() < 0.5) this.burst(c.x, this.ground(c) + this.size(c) + 0.2, c.z, 'heart', 1, 1)
+              if (c.grow > 0) this.addCare(c, 'spirit', 0.2)
+            }
+          }
         }
         break
       }
@@ -4090,22 +4283,22 @@ export class World {
     const x = u * RES.w
     const y = (1 - v) * RES.h
     if (this.shopOpen) {
-      const wx = 24
-      const wy = 28
-      const ww = RES.w - 48
-      if (x < wx || x > wx + ww || y < wy || y > wy + 26 + SHOP_ROWS * 14 + 30) {
+      const hit = shopTap(x, y, this.shopCursor)
+      if (hit.type === 'outside') {
         this.shopOpen = false
         this.onSfx('cancel')
-        return true
-      }
-      const row = Math.floor((y - (wy + 24)) / 14) + this.shopTop()
-      if (row >= this.shopTop() && row < Math.min(SHOP.length, this.shopTop() + SHOP_ROWS)) {
-        if (row === this.shopCursor) this.buy(SHOP[row])
-        else {
-          this.shopCursor = row
+      } else if (hit.type === 'tab') {
+        if (catOf(this.shopCursor) !== hit.cat) {
+          this.shopCursor = catIndexes(hit.cat)[0]
           this.onSfx('select')
         }
-      }
+      } else if (hit.type === 'row') {
+        if (hit.index === this.shopCursor) this.buy(SHOP[hit.index])
+        else {
+          this.shopCursor = hit.index
+          this.onSfx('select')
+        }
+      } else if (hit.type === 'buy') this.buy(SHOP[this.shopCursor])
       return true
     }
     if (this.showStatus) {
@@ -4562,7 +4755,7 @@ export class World {
       friends: friends.map(c2),
       houses: this.houses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, ownerSp: h.ownerSp, owner: ownerKey(h), mats: h.mats, hp: Math.round(h.hp) })),
       structs: this.structs.map((b) => ({ kind: b.kind, stage: b.stage, x: b.x, z: b.z, rot: b.rot, len: b.len, mats: b.mats, hp: Math.round(b.hp) })),
-      items: this.items.map((it) => ({ kind: it.kind, stage: it.stage, x: it.x, z: it.z, grow: it.grow })),
+      items: this.items.map((it) => ({ kind: it.kind, stage: it.stage, x: it.x, z: it.z, grow: it.grow, rot: it.rot })),
       eggs: this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild, lucky: e.lucky })),
       secrets: this.saveSecrets(friends),
     }
@@ -4602,7 +4795,22 @@ export class World {
         for (const [k, v] of Object.entries(d.dexRare)) if (isSpecies(k) && (v === 1 || v === 2)) this.dexRare[k] = v
       this.dexClaimed = Math.round(num(d.dexClaimed, 0, 6, 0))
       this.nightTarget = this.night = d.night ?? 0
-      this.items = (d.items ?? []).map((it: Item) => ({ ...it, vx: 0, vz: 0, mesh: null }))
+      // 置き物：種類・数・場所を検査してから使う（ステージごとの上限つき）
+      type SavedItem = { kind: unknown; stage: unknown; x: unknown; z: unknown; grow: unknown; rot: unknown }
+      const itemCount = new Map<string, number>()
+      this.items = []
+      for (const it of ((Array.isArray(d.items) ? d.items : []) as SavedItem[]).slice(0, 80)) {
+        if (!it || !isItemKind(it.kind)) continue
+        const stage = Math.round(num(it.stage, 0, STAGES.length - 1))
+        const key = `${it.kind}@${stage}`
+        const n = (itemCount.get(key) ?? 0) + 1
+        if (n > ITEM_SPEC[it.kind].max) continue
+        itemCount.set(key, n)
+        this.items.push({
+          kind: it.kind, stage, x: num(it.x, -HALF, HALF, 0), z: num(it.z, -HALF, HALF, 0), grow: num(it.grow, 0, 1, 1),
+          rot: num(it.rot, -7, 7, 0), vx: 0, vz: 0, mesh: null, sq: 0, tick: 0,
+        })
+      }
       type SavedHouse = { stage: number; x: number; z: number; ownerSp: SpeciesId; owner: string; mats: number; hp: number }
       const savedHouses = ((Array.isArray(d.houses) ? d.houses : []) as SavedHouse[]).filter((h) => h && typeof h.owner === 'string').slice(0, 40)
       this.houses = savedHouses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, owner: null, ownerSp: isSpecies(h.ownerSp) ? h.ownerSp : 'mebu', mats: num(h.mats, 0, 12), hp: num(h.hp, 0, 100), mesh: null, shake: 0, level: houseLevel(h.mats), alerted: 0 }))
@@ -4816,6 +5024,14 @@ export class World {
     g.arc(RES.w - cw + 4, 34, 4, 0, Math.PI * 2)
     g.fill()
     this.text(coinText, RES.w - 8, 29, '#ffe9a8', 10, 'right')
+    if (this.coinPop.t > 0) {
+      // 買った分が ふわっと 引かれる
+      const k = 1 - this.coinPop.t / 1.4
+      g.save()
+      g.globalAlpha = Math.min(1, this.coinPop.t * 2.5)
+      this.text(`-${this.coinPop.n}`, RES.w - 8, Math.round(43 + k * 8), '#ff9a9a', 10, 'right')
+      g.restore()
+    }
     // 天気
     const wt = WEATHER_NAME[this.weather]
     const ww = Math.ceil(g.measureText(wt).width) + 12
@@ -4977,35 +5193,20 @@ export class World {
     this.text(`なかま ${friends}  こども ${this.stats.children}  いえ ${homeText}`, x + 12, y + 142, '#ffe9a8', 9)
   }
 
-  private shopTop() {
-    return Math.max(0, Math.min(SHOP.length - SHOP_ROWS, this.shopCursor - 4))
-  }
-
   private drawShop() {
-    const x = 24
-    const y = 28
-    const w = RES.w - 48
-    const h = 26 + SHOP_ROWS * 14 + 30
-    this.win(x, y, w, h)
-    this.text('ショップ', x + 10, y + 7, '#ffffff', 12)
-    this.text(`コイン ${this.coins}`, x + w - 10, y + 8, '#ffe9a8', 10, 'right')
-    const top = this.shopTop()
-    if (top > 0) this.text('▲', x + w - 10, y + 20, '#9fd8ff', 8, 'right')
-    if (top + SHOP_ROWS < SHOP.length) this.text('▼', x + w - 10, y + 26 + SHOP_ROWS * 14 - 2, '#9fd8ff', 8, 'right')
-    SHOP.slice(top, top + SHOP_ROWS).forEach((s, k) => {
-      const i = top + k
-      const ry = y + 26 + k * 14
-      const on = i === this.shopCursor
-      if (on) {
-        this.hudCtx.fillStyle = 'rgba(255,210,63,0.25)'
-        this.hudCtx.fillRect(x + 6, ry - 2, w - 12, 13)
-      }
-      const can = this.coins >= s.price
-      this.text(`${on ? '▶' : ' '} ${s.name}`, x + 10, ry, can ? '#ffffff' : '#8a93b8', 10)
-      this.text(`${s.price}`, x + w - 12, ry, can ? '#ffe9a8' : '#8a93b8', 10, 'right')
-    })
-    this.text(SHOP[this.shopCursor].desc, x + 10, y + h - 28, '#9fd8ff', 9)
-    this.text('A えらぶ  B かう  C とじる', x + w - 10, y + h - 15, '#c8d0f0', 8, 'right')
+    const g = this.hudCtx
+    drawShopWindow(
+      {
+        g,
+        text: (t, x, y, color, size, align) => this.text(t, x, y, color, size, align),
+        win: (x, y, w, h) => this.win(x, y, w, h),
+        measure: (t, size) => {
+          g.font = `${size}px ${FONT}`
+          return g.measureText(t).width
+        },
+      },
+      { coins: this.coins, cursor: this.shopCursor, time: this.time, check: (it) => this.shopCheck(it) },
+    )
   }
 
   // ================= 描画 =================
