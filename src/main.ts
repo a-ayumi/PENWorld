@@ -448,7 +448,10 @@ document.getElementById('tips-open')?.addEventListener('click', () => {
 dressBtn.addEventListener('click', () => {
   dressPanel.hidden = !dressPanel.hidden
   dressBtn.setAttribute('aria-expanded', String(!dressPanel.hidden))
-  if (!dressPanel.hidden) dexPanel.hidden = true
+  if (!dressPanel.hidden) {
+    dexPanel.hidden = true
+    closeRoad()
+  }
 })
 // ---------------- データ（書き出し・読み込み・やり直し）----------------
 void requestPersist()
@@ -571,6 +574,89 @@ resetBtn.addEventListener('click', () => {
   }, 4000)
 })
 
+// ---------------- もくひょう（章立ての長い目標）----------------
+const roadBtn = document.getElementById('road-btn') as HTMLButtonElement
+const roadPanel = document.getElementById('road-panel') as HTMLElement
+const roadOpen = new Set<number>()
+let roadSig = ''
+let roadTimer = 0
+function renderRoad(force = false) {
+  const info = world.roadInfo()
+  const sig = JSON.stringify(info)
+  if (!force && sig === roadSig) return
+  roadSig = sig
+  document.getElementById('road-title')!.replaceChildren('しょうごう「', el('b', '', info.title), `」　だい${Math.min(info.cleared + 1, info.total)}しょう（${info.cleared}/${info.total} クリア）`)
+  const bar = document.getElementById('road-bar')!
+  bar.setAttribute('aria-valuenow', String(info.cleared))
+  ;(bar.firstElementChild as HTMLElement).style.width = `${(info.cleared / info.total) * 100}%`
+  const boss = document.getElementById('road-boss')!
+  boss.hidden = !info.boss
+  if (info.boss) {
+    const b = document.getElementById('road-boss-btn') as HTMLButtonElement
+    b.textContent = info.boss.label
+    b.disabled = !info.boss.can
+    document.getElementById('road-boss-note')!.textContent = info.boss.note
+  }
+  const list = document.getElementById('road-list')!
+  list.replaceChildren()
+  for (const [i, c] of info.chapters.entries()) {
+    const head = (): HTMLElement[] => [el('span', 'no', `だい${c.no}しょう`), el('span', 'nm', c.name), el('span', 'tag', c.state === 'done' ? 'クリア' : c.state === 'now' ? 'いま' : 'まだ')]
+    if (c.state === 'next') {
+      const box = el('div', 'road-ch next')
+      const sum = el('div', 'road-sum')
+      sum.append(...head())
+      const body = el('div', 'road-body')
+      body.append(el('p', 'road-reward', `ごほうび：${c.reward}`))
+      box.append(sum, body)
+      list.append(box)
+      continue
+    }
+    const box = document.createElement('details')
+    box.className = `road-ch ${c.state}`
+    box.open = c.state === 'now' || roadOpen.has(i)
+    box.addEventListener('toggle', () => (box.open ? roadOpen.add(i) : roadOpen.delete(i)))
+    const sum = document.createElement('summary')
+    sum.append(...head())
+    const body = el('div', 'road-body')
+    body.append(el('p', 'road-story', c.intro.join('\n')))
+    const ul = el('ul', 'road-goals')
+    for (const g of c.goals) {
+      const li = el('li', g.done ? 'ok' : '')
+      li.append(el('span', 'ck', g.done ? '✔' : ''), el('span', 'tx', g.text), el('span', 'ct', g.need > 1 || g.boss ? `${Math.floor(g.val)}/${g.need}` : g.done ? 'できた' : ''))
+      if (!g.done && g.need > 1) {
+        const pg = el('div', 'pg')
+        const fill = el('i')
+        fill.style.width = `${Math.round((g.val / g.need) * 100)}%`
+        pg.append(fill)
+        li.append(pg)
+      }
+      ul.append(li)
+    }
+    body.append(ul)
+    if (c.state === 'done') body.append(el('p', 'road-story', c.outro.join('\n')))
+    body.append(el('p', 'road-reward', `ごほうび：${c.reward}`))
+    box.append(sum, body)
+    list.append(box)
+  }
+}
+function closeRoad() {
+  roadPanel.hidden = true
+  roadBtn.setAttribute('aria-expanded', 'false')
+  window.clearInterval(roadTimer)
+}
+roadBtn.addEventListener('click', () => {
+  if (!roadPanel.hidden) return closeRoad()
+  roadPanel.hidden = false
+  roadBtn.setAttribute('aria-expanded', 'true')
+  dressPanel.hidden = dexPanel.hidden = true
+  renderRoad(true)
+  roadTimer = window.setInterval(() => renderRoad(), 1000)
+})
+document.getElementById('road-close')!.addEventListener('click', closeRoad)
+document.getElementById('road-boss-btn')!.addEventListener('click', () => {
+  if (world.challengeBoss()) renderRoad(true)
+})
+
 // ---------------- ずかん ----------------
 const dexBtn = document.getElementById('dex-btn') as HTMLButtonElement
 const dexPanel = document.getElementById('dex-panel') as HTMLElement
@@ -690,6 +776,7 @@ dexBtn.addEventListener('click', () => {
   dexBtn.setAttribute('aria-expanded', String(!dexPanel.hidden))
   if (!dexPanel.hidden) {
     dressPanel.hidden = true
+    closeRoad()
     renderDex()
   }
 })
@@ -863,9 +950,12 @@ function setMode(m: Mode) {
   qualityBtn.hidden = m === 'inside'
   dressBtn.hidden = m === 'inside'
   dexBtn.hidden = m === 'inside'
-  missionBtn.hidden = m === 'inside'
+  roadBtn.hidden = missionBtn.hidden = m === 'inside'
   enterBtn.hidden = m !== 'device'
-  if (m === 'inside') dressPanel.hidden = dexPanel.hidden = missionPanel.hidden = true
+  if (m === 'inside') {
+    dressPanel.hidden = dexPanel.hidden = missionPanel.hidden = true
+    closeRoad()
+  }
   document.getElementById('hint')!.hidden = m === 'inside'
 }
 
@@ -965,7 +1055,10 @@ function tapScreen(e: PointerEvent): boolean {
 function toggleChrome() {
   world.cleanView = !world.cleanView
   document.body.classList.toggle('clean', world.cleanView)
-  if (world.cleanView) dressPanel.hidden = dexPanel.hidden = missionPanel.hidden = true
+  if (world.cleanView) {
+    dressPanel.hidden = dexPanel.hidden = missionPanel.hidden = true
+    closeRoad()
+  }
 }
 
 // ---------------- 指の操作 ----------------

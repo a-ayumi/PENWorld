@@ -9,11 +9,11 @@ import { Tex, rng } from './textures'
  */
 export type ItemKind =
   | 'sapling' | 'ball' | 'fire' | 'charm' | 'tools' | 'fence' | 'memorial'
-  | 'bench' | 'lantern' | 'plush' | 'banner' | 'flowerbed' | 'slide' | 'snowman'
+  | 'bench' | 'lantern' | 'plush' | 'banner' | 'flowerbed' | 'slide' | 'snowman' | 'crown'
 
 export const ITEM_KINDS: ItemKind[] = [
   'sapling', 'ball', 'fire', 'charm', 'tools', 'fence', 'memorial',
-  'bench', 'lantern', 'plush', 'banner', 'flowerbed', 'slide', 'snowman',
+  'bench', 'lantern', 'plush', 'banner', 'flowerbed', 'slide', 'snowman', 'crown',
 ]
 /** セーブデータ・読み込んだ値は信用しない */
 export const isItemKind = (v: unknown): v is ItemKind => typeof v === 'string' && (ITEM_KINDS as string[]).includes(v)
@@ -44,6 +44,7 @@ export const ITEM_SPEC: Record<ItemKind, ItemSpec> = {
   flowerbed: { max: 3, r: 0.45, pickH: 0.6, turn: true },
   slide: { max: 1, r: 0, pickH: 1.0, turn: true },
   snowman: { max: 2, r: 0.35, pickH: 1.0, turn: true },
+  crown: { max: 1, r: 0.4, pickH: 1.2, turn: false },
 }
 
 /** タップで出る説明（\n で行をわける。1 行は 24 文字くらいまで） */
@@ -62,6 +63,7 @@ export const ITEM_INFO: Record<ItemKind, { name: string; desc: string }> = {
   flowerbed: { name: 'はなだん', desc: 'たべものが みのるのが はやくなる\nひるは ちょうちょが あつまる' },
   slide: { name: 'ミニすべりだい', desc: 'のぼって すべって あそぶ\nあそぶと こころと けいけんが そだつ' },
   snowman: { name: 'ゆきだるま', desc: 'ゆきまつりの かざり\nふゆの あいだ だけ かえる' },
+  crown: { name: 'えいゆうの おうかん', desc: 'だいぐんぜいを うちやぶった しるし\nほうせきの いろが かわる' },
 }
 
 // ------------------------------------------------------------------ 材質まわり
@@ -192,7 +194,31 @@ export function buildItem(kind: ItemKind, o: ItemBuild): THREE.Group {
     case 'flowerbed': return flowerbed(k, g)
     case 'slide': return slide(k, g)
     case 'snowman': return snowman(k, g)
+    case 'crown': return crown(k, g)
   }
+}
+
+/** えいゆうの おうかん：石のだいざと、宝石の色が かわる金のかんむり（だいぐんぜいの ごほうび。売っていない） */
+function crown(k: Kit, g: THREE.Group) {
+  k.cyl(0.3, 0.4, 0.3, '#c9ced6', 0, 0.15, 0, 8, undefined, rock())
+  const gold = k.bas('#ffd23f', { side: THREE.DoubleSide })
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.26, 0.22, 10, 1, true), gold)
+  band.position.y = 0.42
+  g.add(band)
+  const top = new THREE.Group()
+  top.name = 'spin'
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.24, 4), gold)
+    tip.position.set(Math.cos(a) * 0.28, 0.65, Math.sin(a) * 0.28)
+    const jewel = new THREE.Mesh(new THREE.OctahedronGeometry(0.06, 0), k.bas('#ff5e5e'))
+    jewel.position.set(Math.cos(a) * 0.3, 0.8, Math.sin(a) * 0.3)
+    jewel.name = 'jewel'
+    top.add(tip, jewel)
+  }
+  g.add(top)
+  g.scale.setScalar(1.3)
+  return g
 }
 
 /** ゆきだるま：大小 2 つの雪玉 + にんじんの鼻 + マフラー + 小枝のうで（ふゆの品） */
@@ -742,6 +768,16 @@ export function tickItem(kind: ItemKind, g: THREE.Group, s: ItemTick) {
   const u = g.userData
   const t = s.t
   switch (kind) {
+    case 'crown': {
+      // 宝石の色が ゆっくり かわる・かんむりが まわる
+      const top = g.getObjectByName('spin')
+      if (top) {
+        top.rotation.y += s.dt * 0.5
+        let i = 0
+        for (const o of top.children) if (o.name === 'jewel') ((o as THREE.Mesh).material as THREE.MeshBasicMaterial).color.setHSL((t * 0.25 + i++ * 0.2) % 1, 0.9, 0.6)
+      }
+      break
+    }
     case 'sapling': {
       const st = s.grow < 0.34 ? 0 : s.grow < 1 ? 1 : 2
       if (u.stage !== st) {

@@ -69,6 +69,17 @@
     </div>
     <button id="dress" aria-expanded="false" aria-controls="dress-panel">きせかえ</button>
     <button id="dex-btn" aria-expanded="false" aria-controls="dex-panel">ずかん</button>
+    <button id="road-btn" aria-expanded="false" aria-controls="road-panel">もくひょう</button>
+    <section id="road-panel" hidden aria-label="もくひょう">
+      <div class="dress-head"><h2>もくひょう</h2><button id="road-close" aria-label="閉じる">とじる</button></div>
+      <p id="road-title"></p>
+      <div id="road-bar" role="progressbar" aria-valuemin="0" aria-valuemax="10"><span></span></div>
+      <div id="road-boss" hidden>
+        <button type="button" class="chip" id="road-boss-btn"></button>
+        <p id="road-boss-note"></p>
+      </div>
+      <div id="road-list"></div>
+    </section>
     <button id="mission-btn" aria-expanded="false" aria-controls="mission-panel">おねがい</button>
     <section id="mission-panel" hidden aria-label="おねがい">
       <div class="dress-head"><h2>おねがい</h2><button id="mission-close" aria-label="閉じる">とじる</button></div>
