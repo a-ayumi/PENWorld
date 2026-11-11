@@ -2,10 +2,12 @@ import * as THREE from 'three'
 import { OUT, RES, SCENE, makePostMaterial, psx } from './psx'
 import { SpriteAnim, iconSheet } from './sprites'
 import { MonsterModel, hasModel } from './models'
-import { BABY, EGG_COLORS, FAMILY_NAME, NEW_SKILLS, SPECIES, STAGE_EGGS, SpriteMonster, XP_NEED, familyOf, nextForm, type Care, type EggKind, type MonsterView, type Species, type SpeciesId } from './monsters'
+import { BABY, EGG_COLORS, FAMILY_NAME, LOOK_NAME, NEW_SKILLS, SPECIES, STAGE_EGGS, SpriteMonster, XP_NEED, armyBoss, armyMember, enemyFor, familyOf, lookOf, newSeed, nextForm, variantOf, type Care, type EggKind, type Face, type MonsterView, type Species, type SpeciesId } from './monsters'
 import { Tex } from './textures'
-import { SNAP_GLSL, snapUniform } from './psx'
-import { HALF, LAND_SIZES, STAGES, setLandSize, type Stage } from './stages'
+import { fxU } from './fx'
+import { WeatherFx, fxLod } from './fxprops'
+import { HALF, LAND_SIZES, SIZE, STAGES, setLandSize, type Stage } from './stages'
+import { EAT_KEYS, EVENT_IDS, SECRET_EVENTS, SECRET_FORMS, hintLines, hintMask, isSecretId, secretById, secretForm, type EventCtx, type EventFx, type SecretCtx, type SecretEvent } from './secrets'
 import { STRUCTS, buildStructModel, isStructKind, styleOf, type StructKind } from './structures'
 import { ITEM_INFO, ITEM_SPEC, buildItem, disposeItem, isItemKind, slidePath, tickItem, type ItemKind } from './items'
 import { SHOP, catIndexes, catOf, drawShop as drawShopWindow, shopTap, type ShopCheck, type ShopItem } from './shop'
@@ -72,7 +74,16 @@ interface Creature {
   detourN: number
   detour: { x: number; z: number; t: number } | null
   avoid: 1 | -1
+  /** 個体の見た目のシード（もよう・色のゆらぎ）と 色ちがい */
+  seed: number
+  rare: boolean
+  /** 進化の演出中（白いシルエット → ふくらむ → 新しい姿） */
+  evo: Evo | null
+  /** 色ちがいのキラキラを出す間隔 */
+  glint: number
 }
+/** 進化の演出：t = 経過秒 / from = 元の種族 / h0 = 元の大きさ / shown = いま出している絵 */
+interface Evo { t: number; from: SpeciesId; to: SpeciesId; h0: number; shown: 'old' | 'white-old' | 'white-new' | 'new'; said: boolean }
 
 /** 技：種族ごとに 1 つ。演出の種類（shot = 弾 / burst = 衝撃 / dash = 突進 / rain = 降りそそぐ / heal = 回復 / wave = 地面の波）*/
 interface Skill { name: string; kind: 'shot' | 'burst' | 'dash' | 'rain' | 'heal' | 'wave'; color: string; mult: number }
@@ -135,7 +146,8 @@ interface Item {
   /** 効果の周期タイマー */
   tick: number
 }
-interface Egg { x: number; z: number; t: number; anim: SpriteAnim; shadow: THREE.Mesh; parents: SpeciesId[]; kind: EggKind; wild: boolean }
+/** lucky = ふしぎなたまご（色ちがいがうまれやすい） */
+interface Egg { x: number; z: number; t: number; anim: SpriteAnim; shadow: THREE.Mesh; parents: SpeciesId[]; kind: EggKind; wild: boolean; lucky: boolean }
 interface Popup { pos: THREE.Vector3; text: string; color: string; t: number; big?: boolean }
 type Pick = { type: 'creature' | 'house' | 'struct' | 'item' | 'egg' | 'res' | 'food'; ref: any; armed: boolean }
 const STATE_NAME: Record<string, string> = {
@@ -198,7 +210,7 @@ const EGG_SHEET = (kind: EggKind) => {
 
 /** 少し見下ろす箱庭カメラ（手前の木でキャラが隠れにくい角度） */
 const CAM_OFF = new THREE.Vector3(0, 6.6, 5.8)
-const FONT = '"DotGothic16", ui-monospace, monospace'
+const FONT = '"DotGothic16", "Hiragino Sans", "Noto Sans JP", "Yu Gothic", Meiryo, ui-monospace, monospace'
 const SAVE_KEY = 'pulsar-save-v1'
 const HOUSE_STEPS = [0, 2, 5, 8, 12]
 const MAX_STRUCTS = 26
@@ -215,15 +227,34 @@ const WEATHER_NAME: Record<Weather, string> = { sun: 'はれ', cloud: 'くもり
 const WEATHER_MSG: Record<Weather, string> = {
   sun: 'そらが はれてきた', cloud: 'くもが でてきた', rain: 'あめが ふってきた', snow: 'ゆきが ふってきた', ember: 'ひのこが まいはじめた…',
 }
-/** ステージごとの天気の出やすさ（森・砂丘・入り江・雪原・雪山） */
+/** ステージごとの天気の出やすさ（森・砂丘・入り江・雪原・雪山・火山・遺跡） */
 const WEATHER_W: Partial<Record<Weather, number>>[] = [
   { sun: 4, cloud: 2.5, rain: 2.5, snow: 0.4, ember: 0.6 },
   { sun: 4.5, cloud: 2, ember: 3, rain: 0.5 },
   { sun: 4.5, cloud: 2, rain: 3, ember: 0.5 },
   { snow: 5, cloud: 2.5, sun: 2.5, ember: 0.3 },
   { snow: 6, cloud: 3, sun: 1, ember: 0.6 },
+  { ember: 6, cloud: 2.5, sun: 2, rain: 0.2 }, // かざん
+  { cloud: 4, rain: 3, sun: 2.5, ember: 0.1 }, // いせき（くもり = きりが深い）
 ]
+/** 天気ごとの「目標」（強さは World.wx が なめらかに近づく） */
+const WX: Record<Weather, { rain: number; snow: number; ember: number; wind: number; cloud: number; grey: number; mist: number }> = {
+  sun: { rain: 0, snow: 0, ember: 0, wind: 0.22, cloud: 1, grey: 0, mist: 0 },
+  cloud: { rain: 0, snow: 0, ember: 0, wind: 0.42, cloud: 0.5, grey: 0.55, mist: 0.2 },
+  rain: { rain: 1, snow: 0, ember: 0, wind: 0.8, cloud: 0, grey: 0.85, mist: 0.35 },
+  snow: { rain: 0, snow: 1, ember: 0, wind: 0.45, cloud: 0.15, grey: 0.45, mist: 0.3 },
+  ember: { rain: 0, snow: 0, ember: 1, wind: 0.95, cloud: 0.2, grey: 0.1, mist: 0 },
+}
+/** 空気の色（くもり・あめ・ゆき・ひのこ） */
+const WX_TINT: Record<Weather, string | null> = { sun: null, cloud: '#9aa3ad', rain: '#7f8c9c', snow: '#e8eef8', ember: '#b8603a' }
+const EMBER_SUN = new THREE.Color('#ff7a3a')
+const TMP = new THREE.Color()
+/** にじの長さ（秒） */
+const BOW_LEN = 30
 const MAX_FRIENDS = 5
+/** 色ちがいの出やすさ（ふつう 3% / ふしぎなたまご 8%） */
+const RARE_RATE = 0.03
+const RARE_RATE_LUCKY = 0.08
 
 export class World {
   readonly scene = new THREE.Scene()
@@ -289,6 +320,8 @@ export class World {
   private structs: Struct[] = []
   /** 当たった瞬間のわずかな止まり（ヒットストップ） */
   private hitStop = 0
+  /** 「動きをへらす」：画面ゆれ・フラッシュ・ヒットストップ・ぷにぷにを弱める（main.ts の設定から切り替える） */
+  reducedMotion = false
   private ambient: { s: SpriteAnim; kind: 'bf' | 'ff' | 'ice'; cx: number; cz: number; r: number; ph: number; sp: number; y: number; bx: number; by: number }[] = []
   private army: Army | null = null
   private armyCd = 180
@@ -302,8 +335,19 @@ export class World {
   weather: Weather = 'sun'
   private weatherT = 50
   private weatherDim = 1
-  private weatherFx!: THREE.Points
-  private weatherMat!: THREE.ShaderMaterial
+  /** 雨・雪・火の粉・しぶき・もや（fxprops.ts） */
+  private wfx!: WeatherFx
+  /**
+   * なめらかに変わる天気の強さ（0〜1）。天気が変わる時は粒・光・空・地面がこの値で ゆっくり入れかわる。
+   * wet = 地面のぬれ（雨で上がり、止むとかわく）/ cover = 雪の積もり（降ると増え、止むと溶ける）/ bow = にじ
+   */
+  readonly wx = { rain: 0, snow: 0, ember: 0, wind: 0.22, cloud: 1, grey: 0, mist: 0, wet: 0, cover: 0, bow: 0, bowT: 0 }
+  private tintC = new THREE.Color('#9aa3ad')
+  private tintK = 0
+  /** 朝（もやが出る）。main.ts の時間帯から setDayPart で入る */
+  private morning = false
+  /** 画質（高 = 影・波紋・雲の影・もや・草のゆれ まで / 低 = 粒を減らして切る）。main.ts の applyQuality から */
+  high = true
   private warp = 0
   private warpSwitched = true
   private flash = 0
@@ -316,6 +360,8 @@ export class World {
   land = 0
   /** ずかん：1 = みつけた / 2 = なかまにした */
   dex: Record<string, 1 | 2> = {}
+  /** ずかん（色ちがい）：1 = みつけた / 2 = なかまにした（dex とは別に記録する） */
+  dexRare: Record<string, 1 | 2> = {}
   private dexClaimed = 0
   private dexNew: string[] = []
   private dexMsgT = 6
@@ -345,7 +391,8 @@ export class World {
     this.post = makePostMaterial(this.rtScene.texture, this.hudTex)
     this.postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.post))
     this.scene.add(this.hemi, this.sun)
-    this.buildWeatherFx()
+    this.wfx = new WeatherFx()
+    this.scene.add(this.wfx.group)
     if (!this.load()) {
       this.loadStage(0)
       this.pet = this.spawn('mebu', 'pet', 0, 1.5)
@@ -395,7 +442,9 @@ export class World {
     this.stage = STAGES[i]()
     const s = this.stage
     this.scene.add(s.group)
-    this.scene.fog = new THREE.Fog(s.fog, 14, 34)
+    fxLod(s.group, this.high)
+    this.wfx.setGround(s.heightAt, SIZE, s.obstacles.filter((o) => o.water))
+    this.scene.fog = new THREE.Fog(s.fog, ...(s.fogRange ?? [14, 34]))
     this.hemi.color.set(s.hemi[0])
     this.hemi.groundColor.set(s.hemi[1])
     this.sun.color.set(s.sun.color)
@@ -416,7 +465,7 @@ export class World {
     s.residents.forEach((id) => {
       if (id === 'noiz' && this.hasItem('charm') && Math.random() < 0.7) return
       const p = this.freePos(3)
-      this.spawn(id, 'wild', p.x, p.z)
+      this.spawn(enemyFor(id, i), 'wild', p.x, p.z)
     })
     for (let k = 0; k < 3; k++) this.dropFood()
     let k = 0
@@ -441,9 +490,9 @@ export class World {
     this.ambient = []
     const bfSheets = ['#ffd23f', '#ff8fb1', '#9fd8ff', '#ffffff', '#b48cff'].map((col) => iconSheet(['.....', 'oo.oo', 'ooxoo', 'oo.oo', '.....'], { o: col, x: '#3d2a1e' }))
     const ff = iconSheet(['.....', '..o..', '.ooo.', '..o..', '.....'], { o: '#d8ff7a' })
-    const ice = iconSheet(['.....', '..o..', '.ooo.', '..o..', '.....'], { o: '#aef0ff' })
+    const ice = iconSheet(['.....', '..o..', '.ooo.', '..o..', '.....'], { o: this.stageIndex === 5 ? '#ffb347' : '#aef0ff' })
     for (let i = 0; i < 12; i++) {
-      const kind: 'bf' | 'ff' | 'ice' = this.stageIndex === 4 ? 'ice' : i < 7 ? 'bf' : 'ff'
+      const kind: 'bf' | 'ff' | 'ice' = this.stageIndex === 4 || this.stageIndex === 5 ? 'ice' : i < 7 ? 'bf' : 'ff'
       const sheet = kind === 'bf' ? bfSheets[i % bfSheets.length] : kind === 'ff' ? ff : ice
       const s = new SpriteAnim(sheet, kind === 'bf' ? 0.32 : kind === 'ff' ? 0.3 : 0.22)
       s.sprite.center.set(0.5, 0.5)
@@ -480,26 +529,40 @@ export class World {
     }
   }
 
-  private applyLight() {
+  private applyLight(dt = 0.03) {
     const s = this.stage
     const k = (1 - this.night * 0.68) * this.weatherDim
     this.hemi.intensity = s.hemi[2] * k
     this.sun.intensity = s.sun.intensity * k
     const fog = this.scene.fog as THREE.Fog
     fog.color.set(s.fog)
-    // 天気で空気の色を変える
-    const tint = { sun: null, cloud: '#9aa3ad', rain: '#7f8c9c', snow: '#e8eef8', ember: '#b8603a' }[this.weather]
-    if (tint) fog.color.lerp(new THREE.Color(tint), (1 - this.weatherDim) * 1.6 + (this.weather === 'snow' ? 0.35 : 0))
+    // 天気で空気の色を変える（色も強さも なめらかに追いかける）
+    const tint = WX_TINT[this.weather]
+    const k2 = 1 - Math.exp(-dt * 0.9)
+    if (tint) this.tintC.lerp(TMP.set(tint), k2)
+    const tk = tint ? (1 - this.weatherDim) * 1.6 + (this.weather === 'snow' ? 0.35 : 0) : 0
+    this.tintK += (tk - this.tintK) * k2
+    if (this.tintK > 0.001) fog.color.lerp(this.tintC, Math.min(1, this.tintK))
     fog.color.multiplyScalar(1 - this.night * 0.7)
+    // 朝もや・雨・ゆきで、遠くがかすむ
+    fog.near = 14 - 5 * this.wx.mist
+    fog.far = 34 - 8 * this.wx.mist
     this.sun.color.set(s.sun.color)
-    if (this.weather === 'ember') this.sun.color.lerp(new THREE.Color('#ff7a3a'), 0.5)
+    this.hemi.color.set(s.hemi[0])
+    if (this.wx.ember > 0.001) {
+      this.sun.color.lerp(EMBER_SUN, 0.55 * this.wx.ember)
+      this.hemi.color.lerp(EMBER_SUN, 0.35 * this.wx.ember)
+    }
     this.scene.background = fog.color
   }
 
   // ================= 生き物 =================
-  private spawn(id: SpeciesId, team: Team, x: number, z: number, grow = 0): Creature {
+  private spawn(id: SpeciesId, team: Team, x: number, z: number, grow = 0, look?: { seed: number; rare: boolean }): Creature {
     const sp = SPECIES[id]
-    const anim = this.makeView(id, sp.height)
+    // 個体差：もようと色のゆらぎのシード。なかまになれる種族は約 3% で色ちがい（ボスは いつもの姿）
+    const seed = sp.boss ? 0 : look?.seed ?? newSeed()
+    const rare = sp.tier > 0 && (look ? look.rare : Math.random() < RARE_RATE)
+    const anim = this.makeView(id, sp.height, variantOf(seed, rare))
     const shadow = new THREE.Mesh(this.shadowGeo, this.shadowMat)
     this.scene.add(anim.sprite, shadow)
     const c: Creature = {
@@ -510,6 +573,7 @@ export class World {
       xp: 0, care: { power: 0, guard: 0, spirit: 0 }, bias: (['power', 'guard', 'spirit'] as Care[])[Math.floor(Math.random() * 3)],
       spar: false, carry: null, carryMesh: null, res: null, raid: null, inside: false,
       skillCd: 3 + Math.random() * 5, cheer: false, sleepFrom: null, site: null, army: false, squash: 0, pj: 0, finish: null, role: 'free', tendTo: null, lx: x, lz: z, mvT: 0, stuck: 0, detourN: 0, detour: null, avoid: Math.random() < 0.5 ? 1 : -1,
+      seed, rare, evo: null, glint: 1 + Math.random() * 2,
     }
     this.creatures.push(c)
     this.burst(x, this.ground(c) + 0.5, z, 'cube', 8, 2)
@@ -518,17 +582,29 @@ export class World {
 
   /** キャラの見た目：'sprite' = 2.5D ドット絵 / 'model' = 3D ポリゴン */
   style: 'sprite' | 'model' = 'sprite'
-  private makeView(id: SpeciesId, h: number): MonsterView {
-    return this.style === 'model' && hasModel(id) ? new MonsterModel(id, h) : new SpriteMonster(id, h)
+  private makeView(id: SpeciesId, h: number, variant = 0): MonsterView {
+    return this.style === 'model' && hasModel(id) ? new MonsterModel(id, h) : new SpriteMonster(id, h, variant)
+  }
+  /** スプライトの種類（もよう 0〜7 + 色ちがい 8） */
+  private variant(c: Creature) {
+    return variantOf(c.seed, c.rare)
+  }
+  /** なまえ（色ちがいは ★ がつく） */
+  private nm(c: Creature) {
+    return (c.rare ? '★' : '') + c.sp.name
   }
   setStyle(style: 'sprite' | 'model') {
     if (style === this.style) return
     this.style = style
     for (const c of this.creatures) {
+      if (c.evo) {
+        if (!c.evo.said) this.evolved(c, SPECIES[c.evo.from].name)
+        c.evo = null
+      }
       const old = c.anim
       this.scene.remove(old.sprite)
       old.dispose()
-      c.anim = this.makeView(c.sp.id, this.size(c))
+      c.anim = this.makeView(c.sp.id, this.size(c), this.variant(c))
       c.anim.facing = old.facing
       c.anim.sprite.visible = old.sprite.visible
       this.scene.add(c.anim.sprite)
@@ -658,8 +734,16 @@ export class World {
     return dReal
   }
 
-  /** ステージの障害物 + 置き物 */
+  /** ステージの障害物 + 置き物。1 フレームに何十回も呼ばれるので、フレームごとに 1 回だけ組み立てて使いまわす（個数が変わったら作り直す） */
+  private obsCache: { x: number; z: number; r: number; water?: boolean }[] = []
+  private obsKey = ''
+  private obsTick = -1
+  private obsFrame = 0
   private obstacles() {
+    const key = `${this.obsFrame}|${this.stageIndex}|${this.items.length}|${this.houses.length}|${this.structs.length}|${this.stage.obstacles.length}`
+    if (key === this.obsKey && this.obsTick === this.obsFrame) return this.obsCache
+    this.obsKey = key
+    this.obsTick = this.obsFrame
     const extra = this.items
       .filter((it) => it.stage === this.stageIndex && ITEM_SPEC[it.kind].r > 0 && (it.kind !== 'sapling' || it.grow >= 1))
       .map((it) => ({ x: it.x, z: it.z, r: ITEM_SPEC[it.kind].r, water: false }))
@@ -668,7 +752,8 @@ export class World {
       !!o.water && this.structs.some((b) => b.kind === 'bridge' && b.stage === this.stageIndex && b.mats >= STRUCTS.bridge.need && Math.hypot(b.x - o.x, b.z - o.z) < 0.6)
     const land = this.stage.obstacles.filter((o) => !bridged(o))
     const builds = this.structs.filter((b) => b.stage === this.stageIndex && STRUCTS[b.kind].r > 0 && b.mesh).map((b) => ({ x: b.x, z: b.z, r: STRUCTS[b.kind].r, water: false }))
-    return [...land, ...extra, ...homes, ...builds]
+    this.obsCache = [...land, ...extra, ...homes, ...builds]
+    return this.obsCache
   }
 
   private collide(c: Creature) {
@@ -928,12 +1013,13 @@ export class World {
     let best: Creature | null = null
     let bd = range
     for (const o of this.creatures) {
-      if (o === c || !this.alive(o) || !pred(o)) continue
-      const d = Math.hypot(o.x - c.x, o.z - c.z)
-      if (d < bd) {
-        bd = d
-        best = o
-      }
+      if (o === c || !this.alive(o)) continue
+      const dx = o.x - c.x
+      const dz = o.z - c.z
+      const d2 = dx * dx + dz * dz
+      if (d2 >= bd * bd || !pred(o)) continue // 遠い子は条件の関数を呼ぶ前に外す
+      bd = Math.sqrt(d2)
+      best = o
     }
     return best
   }
@@ -1265,25 +1351,110 @@ export class World {
     // ペットは育て方どおり。ほかの子は生まれつきの性格と気まぐれも入る
     const score = (k: Care) => care[k] + (c === this.pet ? 0 : (c.bias === k ? 3 : 0) + Math.random() * 2.5)
     const top = (['power', 'guard', 'spirit'] as Care[]).sort((a, b) => score(b) - score(a))[0]
-    this.evolve(c, nextForm(c.sp.id, tier, top))
+    this.evolve(c, this.pickSecret(c, top) ?? nextForm(c.sp.id, tier, top))
   }
 
   private evolve(c: Creature, to: SpeciesId) {
-    const from = c.sp.name
+    const fromId = c.sp.id
+    const h0 = this.size(c)
     const sp = SPECIES[to]
     c.sp = sp
     c.maxHp = Math.max(c.maxHp + 10, sp.hp)
     c.hp = c.maxHp
     c.atk = Math.max(c.atk + 2, sp.atk)
-    c.anim.setSpecies(to, this.size(c))
+    // 見えている 2.5D の子は、白いシルエットの演出をはさむ（見えない・3D モデルはすぐ切りかえ）
+    if (c.anim.silhouette && c.anim.sprite.visible && !c.evo) {
+      c.evo = { t: 0, from: fromId, to, h0, shown: 'old', said: false }
+      if (this.ally(c)) this.onSfx('evolve')
+      return
+    }
+    c.anim.setSpecies(to, this.size(c), this.variant(c))
+    this.evolved(c, SPECIES[fromId].name)
+  }
+
+  /** 進化がおわった時のメッセージ・コイン（演出のあとに 1 回だけ） */
+  private evolved(c: Creature, from: string) {
+    const sp = c.sp
     this.burst(c.x, this.ground(c) + 0.6, c.z, 'spark', 18, 3)
     const near = Math.hypot(c.x - this.look.x, c.z - this.look.z) < 9
     if (this.ally(c)) {
       if (c === this.pet) this.flash = 1
-      this.say(`${from}は ${sp.name}に しんかした！`)
-      this.onSfx('evolve')
+      this.say(`${c.rare ? '★' : ''}${from}は ${sp.name}に しんかした！`)
+      if (!c.evo) this.onSfx('evolve')
       this.earn(c === this.pet ? 30 : 15)
     } else if (near) this.say(`やせいの ${from}が ${sp.name}に しんかした！`)
+    if (isSecretId(sp.id) && this.ally(c)) this.foundSecretForm(c)
+  }
+
+  /**
+   * 進化の演出（約 1.8 秒）：
+   * 0〜0.65 ちかちか白く光ってふるえる → 0.65〜1.3 白いシルエットがふくらむ → 1.3 新しい姿のシルエットに（光の輪）→ 〜1.8 ちぢんで新しい姿
+   */
+  private updateEvo(c: Creature, dt: number) {
+    const e = c.evo!
+    e.t += dt
+    const t = e.t
+    const v = this.variant(c)
+    const hNew = this.size(c)
+    const show = (what: Evo['shown']) => {
+      if (e.shown === what) return
+      e.shown = what
+      if (what === 'old') c.anim.setSpecies(e.from, e.h0, v)
+      else if (what === 'white-old') c.anim.silhouette!(e.from, e.h0)
+      else if (what === 'white-new') c.anim.silhouette!(e.to, hNew)
+      else c.anim.setSpecies(e.to, hNew, v)
+    }
+    // ジャンプ中ならその場で着地まで
+    c.vy -= 16 * dt
+    c.jy = Math.max(0, c.jy + c.vy * dt)
+    if (c.jy === 0 && c.vy < 0) c.vy = 0
+    let h = e.h0
+    let sx = 1
+    let sy = 1
+    let shake = 0
+    const ease = (k: number) => 1 - (1 - Math.min(1, Math.max(0, k))) ** 3
+    if (t < 0.65) {
+      show(Math.floor(t * (9 + t * 26)) % 2 === 0 ? 'white-old' : 'old')
+      shake = Math.sin(t * 70) * 0.04 * (0.4 + t)
+      sy = 1 + Math.sin(t * 24) * 0.03
+    } else if (t < 1.3) {
+      show('white-old')
+      const k = ease((t - 0.65) / 0.65)
+      sx = 1 + 0.45 * k
+      sy = 1 + 0.6 * k
+      shake = Math.sin(t * 90) * 0.03
+      if (e.t - dt < 0.65) this.ring(c.x, c.z, '#ffffff', 2.6, 0.7)
+    } else {
+      if (!e.said) {
+        // 新しい姿のシルエットへ：光の輪とキラキラ・ペットは画面もフラッシュ
+        e.said = true
+        this.ring(c.x, c.z, '#ffe27a', 3.4, 0.8)
+        this.evolved(c, SPECIES[e.from].name)
+      }
+      if (t < 1.8) {
+        show('white-new')
+        const k = ease((t - 1.3) / 0.5)
+        const s0 = THREE.MathUtils.clamp((e.h0 * 1.5) / hNew, 1.05, 1.6)
+        h = hNew
+        sx = sy = s0 + (1 - s0) * k
+      } else {
+        show('new')
+        c.evo = null
+        c.squash = 0.35
+        this.burst(c.x, this.ground(c) + hNew * 0.6, c.z, 'heart', 4, 1.6)
+        if (this.ally(c)) this.setState(c, 'happy', 1.4)
+        h = hNew
+      }
+    }
+    if (t < 1.3 && Math.random() < dt * 14) this.burst(c.x + (Math.random() - 0.5) * 0.8, this.ground(c) + Math.random() * e.h0, c.z, 'spark', 1, 1.2, -1)
+    c.anim.update(dt)
+    c.anim.setHeight(h)
+    c.anim.sprite.scale.x *= sx
+    c.anim.sprite.scale.y *= sy
+    const gy = this.ground(c)
+    c.anim.sprite.position.set(c.x + shake * h, gy + c.jy, c.z)
+    c.shadow.position.set(c.x, this.stage.heightAt(c.x, c.z) + 0.03, c.z)
+    c.shadow.scale.setScalar(h * 0.9 * (1 + (sx - 1) * 0.6))
   }
 
   private earn(n: number, x?: number, z?: number) {
@@ -1376,7 +1547,7 @@ export class World {
   }
 
   /** 画質：「低」では置き物の光源（たき火・ランタン）を作らない。作り直すので今の箱庭だけ入れ替える */
-  setQuality(q: 'high' | 'low') {
+  private setItemQuality(q: 'high' | 'low') {
     const low = q === 'low'
     if (low === this.lowQ) return
     this.lowQ = low
@@ -2168,7 +2339,7 @@ export class World {
     return this.vLv
   }
   private villageName() {
-    const base = ['ミドリ', 'スナハマ', 'サンゴ', 'ワタユキ', 'コオリ'][this.stageIndex] ?? 'ホシ'
+    const base = ['ミドリ', 'スナハマ', 'サンゴ', 'ワタユキ', 'コオリ', 'ホムラ', 'イシブミ'][this.stageIndex] ?? 'ホシ'
     return base + ['', 'むら', 'まち', 'じょうかまち'][this.vLv]
   }
 
@@ -2185,9 +2356,9 @@ export class World {
     // 地面の点と上の点を画面に投影して、見た目の大きさから当たりの半径を決める
     const test = (px: number, pz: number, h: number, pick: Pick, minR = 9) => {
       const gy = this.stage.heightAt(px, pz)
-      const a = this.project(new THREE.Vector3(px, gy + h * 0.5, pz))
+      const a = this.projectXYZ(px, gy + h * 0.5, pz)
       if (!a.on) return
-      const b = this.project(new THREE.Vector3(px, gy + h, pz))
+      const b = this.projectXYZ(px, gy + h, pz)
       const r = Math.max(minR, Math.hypot(a.x - b.x, a.y - b.y) * 1.15)
       const score = Math.hypot(a.x - x, a.y - y) / r
       if (score < bs) {
@@ -2242,12 +2413,14 @@ export class World {
         const team = c.team === 'pet' ? 'ペット' : c.team === 'friend' ? 'なかま' : c.army ? 'てきぐん' : c.sp.temper === 'wild' ? 'てき' : 'やせい'
         const fam = c.sp.tier ? FAMILY_NAME[familyOf(c.sp.id)] : 'てき'
         lines.push(`${team}・${fam}・ランク${c.sp.tier || '-'}${c.grow > 0 ? '・こども' : ''}`)
+        if (c.rare) lines.push('★ いろちがい（めずらしい！）' + (lookOf(c.seed) ? `・${LOOK_NAME[lookOf(c.seed)]}` : ''))
+        else if (c.sp.tier > 0 && lookOf(c.seed)) lines.push(`からだ：${LOOK_NAME[lookOf(c.seed)]}`)
         lines.push(`こうげき ${Math.round(c.atk)}  すばやさ ${c.sp.speed.toFixed(1)}  ${c.role !== 'free' ? 'やくわり ' + ROLE_NAME[c.role] : ''}`)
         lines.push(`いま：${STATE_NAME[c.state] ?? c.state}`)
         bars.push(['たいりょく', c.hp / c.maxHp, '#7cf29b'])
         if (c.team === 'wild' && c.sp.temper === 'calm') bars.push(['なかよし', Math.min(1, c.affinity / 100), '#ff7eb6'])
         else if (this.ally(c) && c.sp.tier >= 1 && c.sp.tier <= 3) bars.push(['しんか', Math.min(1, (c === this.pet ? this.xp : c.xp) / XP_NEED[c.sp.tier as 1 | 2 | 3]), '#c9a8ff'])
-        return { title: c.sp.name + (c === this.pet ? ' ★' : ''), sub: c.sp.kind, lines, bars, del: null }
+        return { title: (c.rare ? '★' : '') + c.sp.name + (c === this.pet ? ' ★' : ''), sub: c.sp.kind, lines, bars, del: null }
       }
       case 'house': {
         const h: House = p.ref
@@ -2376,7 +2549,7 @@ export class World {
     if (p.armed && this.time > this.armUntil) p.armed = false
     const g = this.hudCtx
     const pos = this.pickPos(p)
-    const s = this.project(new THREE.Vector3(pos.x, this.stage.heightAt(pos.x, pos.z) + pos.h, pos.z))
+    const s = this.projectXYZ(pos.x, this.stage.heightAt(pos.x, pos.z) + pos.h, pos.z)
     if (s.on) {
       const by = s.y - 4 + Math.round(Math.sin(this.time * 6) * 2)
       g.fillStyle = '#10122a'
@@ -2457,12 +2630,12 @@ export class World {
   // ================= かいたく =================
   /** 箱庭をひろげる（ステージを作り直す。家・建物・置き物・たまごはそのまま残る） */
   private expandLand(level: number) {
-    const eggs = this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild }))
+    const eggs = this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild, lucky: e.lucky }))
     this.land = level
     setLandSize(LAND_SIZES[level])
     this.flash = 1
     this.loadStage(this.stageIndex)
-    for (const e of eggs) this.layEgg(e.x, e.z, e.parents, e.t, e.kind, e.wild)
+    for (const e of eggs) this.layEgg(e.x, e.z, e.parents, e.t, e.kind, e.wild, e.lucky)
     this.say(`はこにわが ${LAND_SIZES[level]} に ひろがった！`)
     this.onSfx('warp')
     this.save()
@@ -2477,7 +2650,11 @@ export class World {
         if (cur === 0) this.dexNew.push(id)
       }
     }
-    for (const c of this.creatures) if (c.state !== 'dead') add(c.sp.id, this.ally(c) ? 2 : 1)
+    for (const c of this.creatures) {
+      if (c.state === 'dead') continue
+      add(c.sp.id, this.ally(c) ? 2 : 1)
+      if (c.rare) this.addRareDex(c)
+    }
     if (this.dexNew.length && --this.dexMsgT <= 0) {
       const names = this.dexNew.splice(0).map((id) => SPECIES[id as SpeciesId].name)
       this.say(`ずかんに とうろく：${names.slice(0, 3).join('・')}${names.length > 3 ? ' ほか' : ''}`)
@@ -2485,11 +2662,25 @@ export class World {
     }
     const TH = [5, 10, 20, 30, 40, 49]
     const RW = [30, 50, 100, 150, 200, 500]
-    const owned = Object.values(this.dex).filter((v) => v === 2).length
+    const owned = Object.entries(this.dex).filter(([k, v]) => v === 2 && !isSecretId(k)).length
     while (this.dexClaimed < TH.length && owned >= TH[this.dexClaimed]) {
       this.say(`ずかん ${TH[this.dexClaimed]}しゅ たっせい！ コイン+${RW[this.dexClaimed]}`)
       this.earn(RW[this.dexClaimed])
       this.dexClaimed++
+    }
+  }
+
+  /** 色ちがいをずかんに記録する（みつけた = 1 / なかまにした = 2。はじめての時だけ知らせる） */
+  private addRareDex(c: Creature) {
+    const id = c.sp.id
+    const lv: 1 | 2 = this.ally(c) ? 2 : 1
+    const cur: number = this.dexRare[id] ?? 0
+    if (cur >= lv) return
+    this.dexRare[id] = lv
+    if (cur === 0) this.say(`★ いろちがいの ${c.sp.name}を みつけた！ ずかんに のった`)
+    if (lv === 2) {
+      this.say(`★ いろちがいの ${c.sp.name}が なかまに！ コイン+20`)
+      this.earn(20)
     }
   }
 
@@ -2498,15 +2689,18 @@ export class World {
     const order = ['めばえ', 'きかい', 'りゅう', 'ねこ', 'いぬ', 'とり', 'みず', 'モンスター', 'てき']
     const fam = (id: SpeciesId) => (SPECIES[id].tier ? FAMILY_NAME[familyOf(id)] : 'てき')
     return (Object.values(SPECIES) as Species[])
-      .map((sp) => ({ id: sp.id, name: sp.name, kind: sp.kind, tier: sp.tier, family: fam(sp.id), state: this.dex[sp.id] ?? 0 }))
+      .filter((sp) => !isSecretId(sp.id))
+      .map((sp) => ({ id: sp.id, name: sp.name, kind: sp.kind, tier: sp.tier, family: fam(sp.id), state: this.dex[sp.id] ?? 0, rare: this.dexRare[sp.id] ?? 0 }))
       .sort((a, b) => order.indexOf(a.family) - order.indexOf(b.family) || a.tier - b.tier)
   }
   dexInfo() {
-    const all = Object.values(SPECIES) as Species[]
+    const all = (Object.values(SPECIES) as Species[]).filter((sp) => !isSecretId(sp.id))
     return {
-      owned: Object.values(this.dex).filter((v) => v === 2).length,
+      owned: Object.entries(this.dex).filter(([k, v]) => v === 2 && !isSecretId(k)).length,
       total: all.filter((s) => s.tier > 0).length,
-      seen: Object.keys(this.dex).length,
+      seen: Object.keys(this.dex).filter((k) => !isSecretId(k)).length,
+      rareSeen: Object.keys(this.dexRare).length,
+      rareOwned: Object.values(this.dexRare).filter((v) => v === 2).length,
       all: all.length,
       gen: this.stats.gen,
       lineage: this.stats.lineage,
@@ -2604,21 +2798,26 @@ export class World {
     // 育ちの傾向は 3 割だけ引きつぐ。代をかさねるほど少し強く生まれる
     this.care = { power: this.care.power * 0.3, guard: this.care.guard * 0.3, spirit: this.care.spirit * 0.3 }
     this.xp = 0
+    this.eatenOf.set(p, {})
     const legacy = 1 + Math.min(0.4, 0.05 * (this.stats.gen - 1))
     p.sp = sp
+    // 次の代は見た目も新しく（もようのシード・3% で色ちがい）
+    p.evo = null
+    p.seed = newSeed()
+    p.rare = Math.random() < RARE_RATE
     p.grow = 0.01
     p.maxHp = Math.round(sp.hp * 0.6 * legacy)
     p.hp = p.maxHp
     p.atk = Math.round(sp.atk * legacy * 10) / 10
     p.hunger = 100
     p.energy = 100
-    p.anim.setSpecies(id, this.size(p))
+    p.anim.setSpecies(id, this.size(p), this.variant(p))
     this.setState(p, 'happy', 2)
     this.burst(p.x, this.ground(p) + 0.8, p.z, 'spark', 20, 3)
     this.ring(p.x, p.z, '#ffe27a', 3, 0.9)
     this.flash = 1
     this.onSfx('evolve')
-    this.say(`たまごが ひかり ${sp.name}が うまれた！ だい${this.stats.gen}せだい`)
+    this.say(`たまごが ひかり ${p.rare ? '★ いろちがいの ' : ''}${sp.name}が うまれた！ だい${this.stats.gen}せだい`)
     this.earn(50)
     this.retiring = false
   }
@@ -2642,6 +2841,7 @@ export class World {
     this.villageT = 0
     this.calcVillage()
     this.updateDex()
+    this.updateSecrets()
     this.roleT += 1
     if (this.roleT >= 15) {
       this.roleT = 0
@@ -2686,8 +2886,8 @@ export class World {
     const mult = 1 + 0.15 * (a.wave - 1)
     for (let i = 0; i < a.n; i++) {
       const boss = i === 0 && a.wave % 3 === 0
-      const r = Math.random()
-      const id: SpeciesId = boss ? 'gougan' : r < 0.55 ? 'noiz' : r < 0.9 || a.wave < 2 ? 'togebug' : 'gougan'
+      // 編成：ふつうの兵は もとの敵 + そのステージの亜種、3 回に 1 回は専用の姿のボス
+      const id: SpeciesId = boss ? armyBoss(this.stageIndex, a.wave) : armyMember(this.stageIndex, a.wave)
       const x = THREE.MathUtils.clamp((Math.random() * 2 - 1) * (HALF - 1), -HALF, HALF)
       const z = -HALF + 0.6 + Math.random() * 1.2
       const c = this.spawn(id, 'wild', x, z)
@@ -2697,12 +2897,13 @@ export class World {
       c.atk = c.sp.atk * mult * (boss ? 1.4 : 1)
       if (boss) {
         this.ring(x, z, '#ff7a2a', 3.4, 1)
-        this.popups.push({ pos: new THREE.Vector3(x, this.size(c) + 0.6, z), text: 'ボス！', color: '#ff7a2a', t: 0, big: true })
+        this.popups.push({ pos: new THREE.Vector3(x, this.size(c) + 0.6, z), text: `ボス ${c.sp.name}！`, color: '#ff7a2a', t: 0, big: true })
       }
       this.setState(c, 'march', 8)
       a.left.push(c)
     }
-    this.say(`てきぐん ${a.n}たいが せめてきた！${a.wave % 3 === 0 ? ' ボスもいる！' : ''}`)
+    const bossName = a.left.find((c) => c.sp.boss)?.sp.name
+    this.say(`てきぐん ${a.n}たいが せめてきた！${bossName ? ` ボス ${bossName}もいる！` : ''}`)
     this.onSfx('boom')
     this.shake = Math.max(this.shake, 0.4)
   }
@@ -2797,66 +2998,6 @@ export class World {
   }
 
   // ================= 天気 =================
-  private buildWeatherFx() {
-    const n = 1500
-    const pos = new Float32Array(n * 3)
-    const seed = new Float32Array(n)
-    for (let i = 0; i < n; i++) {
-      pos[i * 3] = (Math.random() - 0.5) * 26
-      pos[i * 3 + 1] = Math.random() * 9
-      pos[i * 3 + 2] = (Math.random() - 0.5) * 26
-      seed[i] = Math.random()
-    }
-    const geo = new THREE.BufferGeometry()
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-    geo.setAttribute('seed', new THREE.BufferAttribute(seed, 1))
-    this.weatherMat = new THREE.ShaderMaterial({
-      transparent: true,
-      depthWrite: false,
-      uniforms: { time: { value: 0 }, mode: { value: 0 }, uSnap: snapUniform },
-      vertexShader: /* glsl */ `
-        ${SNAP_GLSL}
-        uniform float time; uniform float mode; attribute float seed; varying float vSeed;
-        void main() {
-          vec3 p = position;
-          if (mode < 1.5) {          // 雨：速く落ちる
-            p.y = mod(p.y - time * 12.0 - seed * 9.0, 9.0);
-            p.x += p.y * 0.06;
-          } else if (mode < 2.5) {   // 雪：ゆっくり揺れながら
-            p.y = mod(p.y - time * 1.1 - seed * 9.0, 9.0);
-            p.x += sin(time * 0.8 + seed * 40.0) * 0.5;
-            p.z += cos(time * 0.6 + seed * 30.0) * 0.4;
-          } else {                   // ひのこ：ゆらゆら昇る
-            p.y = mod(p.y + time * 1.3 + seed * 9.0, 9.0);
-            p.x += sin(time * 1.4 + seed * 50.0) * 0.7;
-          }
-          vSeed = seed;
-          vec4 mv = modelViewMatrix * vec4(p, 1.0);
-          gl_Position = psxSnap(projectionMatrix * mv);
-          gl_PointSize = mode < 1.5 ? 7.0 : mode < 2.5 ? 4.0 : 4.0;
-        }`,
-      fragmentShader: /* glsl */ `
-        uniform float time; uniform float mode; varying float vSeed;
-        void main() {
-          vec2 q = gl_PointCoord - 0.5;
-          if (mode < 1.5) {
-            if (abs(q.x) > 0.08) discard;     // 雨は細い線
-            gl_FragColor = vec4(0.8, 0.9, 1.0, 0.8);
-          } else if (mode < 2.5) {
-            gl_FragColor = vec4(1.0, 1.0, 1.0, 0.95);
-          } else {
-            float f = 0.6 + 0.4 * sin(time * 9.0 + vSeed * 60.0);
-            if (length(q) > 0.5) discard;
-            gl_FragColor = vec4(1.0, 0.45 + 0.35 * f, 0.12, 0.6 + 0.4 * f);
-          }
-        }`,
-    })
-    this.weatherFx = new THREE.Points(geo, this.weatherMat)
-    this.weatherFx.frustumCulled = false
-    this.weatherFx.visible = false
-    this.scene.add(this.weatherFx)
-  }
-
   private pickWeather(): Weather {
     const w = WEATHER_W[this.stageIndex] ?? WEATHER_W[0]
     const list = (Object.keys(w) as Weather[]).filter((k) => k !== this.weather || Math.random() < 0.3)
@@ -2871,14 +3012,38 @@ export class World {
 
   setWeather(w: Weather, quiet = false) {
     const changed = w !== this.weather
+    if (changed && !quiet && this.weather === 'rain') this.secret.rainEnd = this.time
+    // 雨あがりににじ（まだ雨がのこっている間に はれた時）
+    if (changed && this.weather === 'rain' && w === 'sun' && this.wx.rain > 0.3 && this.night < 0.5) {
+      this.wx.bowT = BOW_LEN
+      // にじは、そのとき見ている向きに かかる
+      const d = this.camera.getWorldDirection(new THREE.Vector3())
+      const h = Math.hypot(d.x, d.z)
+      fxU.uBowDir.value.set(h > 0.2 ? d.x / h : 0, 0, h > 0.2 ? d.z / h : -1)
+      if (!quiet) this.after(2.5, () => this.say('にじが かかった！'))
+    }
     this.weather = w
     this.weatherT = 60 + Math.random() * 90
-    const mode = { sun: 0, cloud: 0, rain: 1, snow: 2, ember: 3 }[w]
-    this.weatherMat.uniforms.mode.value = mode
-    this.weatherFx.visible = w === 'rain' || w === 'snow' || w === 'ember'
-    this.weatherMat.blending = w === 'ember' ? THREE.AdditiveBlending : THREE.NormalBlending
-    this.weatherMat.needsUpdate = true
+    // ステージを切りかえた時は、粒と空を すぐ今の天気に合わせる（ワープの画面のゆがみでかくれる）
+    if (quiet) {
+      const T = WX[w]
+      Object.assign(this.wx, { rain: T.rain, snow: T.snow, ember: T.ember, wind: T.wind, cloud: T.cloud, grey: T.grey, mist: Math.max(T.mist, this.morning ? 0.85 : 0) })
+    }
     if (changed && !quiet) this.say(WEATHER_MSG[w])
+  }
+
+  /** 朝はもやが出る（main.ts が時間帯を渡す） */
+  setDayPart(part: string) {
+    this.morning = part === 'morning'
+  }
+
+  /** 画質。低 = 雨・雪・火の粉を減らし、雲の影・水たまり・波紋・風のゆれ・もや・熱のゆらぎ・水面のきらめきを切る */
+  setQuality(q: 'high' | 'low') {
+    this.high = q === 'high'
+    fxU.uHigh.value = this.high ? 1 : 0
+    this.wfx.setQuality(this.high)
+    fxLod(this.stage.group, this.high)
+    this.setItemQuality(q)
   }
 
   private updateWeather(dt: number) {
@@ -2886,8 +3051,46 @@ export class World {
     if (this.weatherT <= 0) this.setWeather(this.pickWeather())
     const target = { sun: 1, cloud: 0.72, rain: 0.6, snow: 0.86, ember: 0.78 }[this.weather]
     this.weatherDim += (target - this.weatherDim) * Math.min(1, dt * 0.8)
-    this.weatherMat.uniforms.time.value = this.time
-    this.weatherFx.position.set(this.look.x, this.stage.heightAt(this.look.x, this.look.z) - 1, this.look.z)
+
+    // 天気の強さを目標へ なめらかに（約 4 秒で入れかわる）
+    const T = WX[this.weather]
+    const wx = this.wx
+    const k = 1 - Math.exp(-dt * 0.7)
+    wx.rain += (T.rain - wx.rain) * k
+    wx.snow += (T.snow - wx.snow) * k
+    wx.ember += (T.ember - wx.ember) * k
+    wx.wind += (T.wind - wx.wind) * k * 0.6
+    wx.cloud += (T.cloud - wx.cloud) * k * 0.5
+    wx.grey += (T.grey - wx.grey) * k * 0.5
+    wx.mist += (Math.max(T.mist, this.morning ? 0.85 : 0) - wx.mist) * k * 0.4
+    // ぬれ：雨で上がり、止むとゆっくりかわく / 雪：降るほど積もり、止むと溶ける（ひのこ・はれは早い）
+    wx.wet = THREE.MathUtils.clamp(wx.wet + (this.weather === 'rain' ? dt / 14 : this.weather === 'ember' ? -dt / 25 : -dt / 70), 0, 1)
+    const melt = this.weather === 'ember' ? 22 : this.weather === 'sun' ? 50 : 80
+    wx.cover = THREE.MathUtils.clamp(wx.cover + (this.weather === 'snow' ? (dt / 80) * wx.snow : -dt / melt), 0, 1)
+    // にじ（出て、しばらくして消える）
+    if (wx.bowT > 0) {
+      wx.bowT = Math.max(0, wx.bowT - dt)
+      wx.bow = Math.pow(Math.sin(Math.PI * (1 - wx.bowT / BOW_LEN)), 0.6)
+    } else wx.bow = 0
+
+    // 共通の uniform（地形・木・水・空のシェーダーが読む）
+    const ang = 0.55 + Math.sin(this.time * 0.04) * 0.5
+    fxU.uWindDir.value.set(Math.cos(ang), Math.sin(ang))
+    fxU.uDrift.value.addScaledVector(fxU.uWindDir.value, (0.18 + wx.wind * 0.5) * dt)
+    fxU.uTime.value = this.time
+    fxU.uWind.value = wx.wind
+    fxU.uWet.value = wx.wet
+    fxU.uRain.value = wx.rain
+    fxU.uSnow.value = wx.cover
+    fxU.uCloud.value = wx.cloud * (1 - this.night) * (1 - wx.grey * 0.6)
+    fxU.uNight.value = this.night
+    fxU.uGlint.value = (1 - this.night * 0.5) * Math.max(0, 1 - wx.grey * 1.15)
+    fxU.uGrey.value = wx.grey
+    fxU.uEmber.value = wx.ember
+    fxU.uBow.value = wx.bow
+    this.post.uniforms.heat.value = this.high ? wx.ember : 0
+    const fog = this.scene.fog as THREE.Fog
+    this.wfx.update(this.look, this.stage.heightAt(this.look.x, this.look.z), { rain: wx.rain, snow: wx.snow, ember: wx.ember, mist: wx.mist }, fog.color)
   }
 
   // ================= たまご =================
@@ -2925,12 +3128,12 @@ export class World {
     return pool[Math.floor(Math.random() * pool.length)]
   }
 
-  private layEgg(x: number, z: number, parents: SpeciesId[], t = 35, kind: EggKind = 'inherit', wild = false) {
+  private layEgg(x: number, z: number, parents: SpeciesId[], t = 35, kind: EggKind = 'inherit', wild = false, lucky = false) {
     const anim = new SpriteAnim(this.eggSheets[kind], kind === 'inherit' ? 0.6 : 0.68)
     const shadow = new THREE.Mesh(this.shadowGeo, this.shadowMat)
     shadow.scale.setScalar(0.5)
     this.scene.add(anim.sprite, shadow)
-    this.eggs.push({ x, z, t, anim, shadow, parents, kind, wild })
+    this.eggs.push({ x, z, t, anim, shadow, parents, kind, wild, lucky })
   }
 
   /** ときどき、その場所らしい系統のたまごが野原に落ちている（かえった子は野生で、仲良くなると仲間に） */
@@ -2960,16 +3163,23 @@ export class World {
         this.eggs.splice(this.eggs.indexOf(e), 1)
         const fam = e.kind !== 'inherit'
         const id = (fam ? BABY[e.kind] : e.parents[Math.floor(Math.random() * e.parents.length)]) as SpeciesId
-        const baby = this.spawn(id, e.wild ? 'wild' : 'friend', e.x, e.z, e.wild ? 0 : 0.01)
+        // 色ちがい：ふつう 3%、ふしぎなたまごは 8%
+        const rare = SPECIES[id].tier > 0 && Math.random() < (e.lucky ? RARE_RATE_LUCKY : RARE_RATE)
+        const baby = this.spawn(id, e.wild ? 'wild' : 'friend', e.x, e.z, e.wild ? 0 : 0.01, { seed: newSeed(), rare })
         baby.anim.setHeight(this.size(baby))
+        const star = rare ? '★ いろちがいの ' : ''
+        if (rare) {
+          this.burst(e.x, y + 0.6, e.z, 'spark', 10, 3, -1)
+          this.ring(e.x, e.z, '#ffe27a', 2.6, 0.9)
+        }
         baby.maxHp = Math.round(SPECIES[id].hp * (e.wild ? 1 : 0.6))
         baby.hp = baby.maxHp
         this.burst(e.x, y + 0.3, e.z, 'spark', 14, 2.5)
         if (e.wild) {
-          if (Math.hypot(e.x - this.look.x, e.z - this.look.z) < 10) this.say(`${FAMILY_NAME[e.kind]}のたまごから ${SPECIES[id].name}が うまれた！ なかよく なれるかな`)
+          if (Math.hypot(e.x - this.look.x, e.z - this.look.z) < 10) this.say(`${FAMILY_NAME[e.kind]}のたまごから ${star}${SPECIES[id].name}が うまれた！ なかよく なれるかな`)
         } else {
           this.stats.children++
-          this.say(fam ? `${FAMILY_NAME[e.kind]}のたまごから ${SPECIES[id].name}が うまれた！` : `たまごから ${SPECIES[id].name}の こどもが うまれた！`)
+          this.say(fam ? `${FAMILY_NAME[e.kind]}のたまごから ${star}${SPECIES[id].name}が うまれた！` : `たまごから ${star}${SPECIES[id].name}の こどもが うまれた！`)
           this.onSfx('evolve')
           this.earn(20)
         }
@@ -2980,6 +3190,7 @@ export class World {
   // ================= ボタン =================
   /** 戻り値 false = この画面では使わなかった（本体側で処理してよい） */
   press(key: 'A' | 'B' | 'C'): boolean {
+    this.hudNow = true
     if (this.warp > 0) return true
     if (this.shopOpen) {
       if (key === 'A') {
@@ -3070,7 +3281,7 @@ export class World {
       const pt = this.pet
       const ex = pt.x + pt.anim.facing * 1.1
       const ez = pt.z + 0.4
-      this.layEgg(ex, ez, [], 40, kind)
+      this.layEgg(ex, ez, [], 40, kind, false, s.egg === 'random')
       this.buyFx(ex, ez, 0.4)
       this.say(s.egg === 'random' ? 'ふしぎなたまごを おいた！' : `${FAMILY_NAME[kind]}のたまごを おいた！`)
       this.shopOpen = false
@@ -3189,18 +3400,21 @@ export class World {
   }
 
   // ================= 更新 =================
+  private hudT = 1
+  private hudNow = true
   update(dt: number) {
+    this.obsFrame++
+    const rawDt = dt
     if (this.hitStop > 0) {
       this.hitStop -= dt
-      dt *= 0.2
+      dt *= this.reducedMotion ? 1 : 0.2
     }
     this.time += dt
     this.night += (this.nightTarget - this.night) * Math.min(1, dt * 2)
     this.updateWeather(dt)
-    this.applyLight()
-    // くもり・雨のときは空も少し暗く
-    const overcast = { sun: 0, cloud: 0.3, rain: 0.45, snow: 0.15, ember: 0.35 }[this.weather]
-    this.stage.update(this.time, Math.max(this.night, overcast * (1 - this.weatherDim) * 2.5))
+    this.applyLight(dt)
+    // くもり・雨の空の暗さ・灰色は fxU（uGrey）で空のシェーダーに入る
+    this.stage.update(this.time, this.night)
 
     if (this.warp > 0) {
       this.warp = Math.max(0, this.warp - dt)
@@ -3209,9 +3423,9 @@ export class World {
         this.loadStage((this.stageIndex + 1) % STAGES.length)
       }
     }
-    this.post.uniforms.glitch.value = this.warp > 0 ? Math.sin((1 - this.warp / 1.6) * Math.PI) : 0
+    this.post.uniforms.glitch.value = this.warp > 0 ? Math.sin((1 - this.warp / 1.6) * Math.PI) * (this.reducedMotion ? 0.35 : 1) : 0
     this.flash = Math.max(0, this.flash - dt * 1.2)
-    this.post.uniforms.flash.value = this.flash
+    this.post.uniforms.flash.value = this.flash * (this.reducedMotion ? 0.3 : 1)
     this.post.uniforms.time.value = this.time
 
     // たべものが落ちる / 実る（植えた木が多いほどよく落ちる）
@@ -3252,11 +3466,12 @@ export class World {
     // 夜だけ出てくる敵
     this.nightSpawnT -= dt
     const shadows = this.creatures.filter((c) => c.sp.habit === 'night' && c.state !== 'dead')
-    if (this.night > 0.6 && this.nightSpawnT <= 0 && shadows.length < 2) {
-      this.nightSpawnT = 25
+    if (this.night > 0.6 && this.nightSpawnT <= 0 && shadows.length < (this.stage.shadows ?? 2)) {
+      this.nightSpawnT = this.stage.shadows ? 14 : 25
       const q = this.freePos(6)
-      this.spawn('yamikage', 'wild', q.x, q.z)
-      if (shadows.length === 0) this.say('くらやみから ヤミカゲが あらわれた…')
+      const dark = enemyFor('yamikage', this.stageIndex)
+      this.spawn(dark, 'wild', q.x, q.z)
+      if (shadows.length === 0) this.say(`くらやみから ${SPECIES[dark].name}が あらわれた…`)
     }
     if (this.night < 0.3) for (const c of shadows) this.setState(c, 'dead', 0.8)
 
@@ -3275,6 +3490,7 @@ export class World {
     this.updateEggs(dt)
     this.tryBreed(dt)
     this.updateFx(dt)
+    this.updateSecretFx(dt)
     this.updateCamera(dt)
 
     // 見守っているだけでも少しずつコインがたまる（仲間が多いほど多い）
@@ -3304,11 +3520,28 @@ export class World {
     }
     this.banner = Math.max(0, this.banner - dt)
     this.stats.mood = Math.max(0, Math.min(100, this.stats.mood - dt * 0.15 + (this.weather === 'sun' ? dt * 0.08 : 0)))
-    this.drawHud()
+    // 液晶の絵（HUD）は 30 回/秒まで。60Hz の端末では 1 フレームおきに描けば十分（ボタン・タップの直後はすぐ描く）
+    this.hudT += rawDt
+    if (this.hudT >= 1 / 30 - 0.002 || this.hudNow) {
+      this.hudT = 0
+      this.hudNow = false
+      this.drawHud()
+    }
   }
 
   private updateCreature(c: Creature, dt: number) {
     const sp = c.sp
+    if (c.evo) {
+      // 進化の演出中は動かない（倒れたら演出を打ち切る）
+      if (c.state === 'dead' || c.state === 'faint') {
+        c.anim.setSpecies(c.sp.id, this.size(c), this.variant(c))
+        if (!c.evo.said) this.evolved(c, SPECIES[c.evo.from].name)
+        c.evo = null
+      } else {
+        this.updateEvo(c, dt)
+        return
+      }
+    }
     c.t -= dt
     c.cd -= dt
     c.lunge = Math.max(0, c.lunge - dt)
@@ -3343,7 +3576,7 @@ export class World {
       if (c.affinity >= 100 && friends < MAX_FRIENDS) {
         c.team = 'friend'
         this.burst(c.x, this.ground(c) + this.size(c), c.z, 'heart', 6, 1.5)
-        this.say(`${sp.name}が なかまに なった！`)
+        this.say(`${this.nm(c)}が なかまに なった！`)
         this.onSfx('friend')
         this.earn(15)
       }
@@ -3462,6 +3695,7 @@ export class World {
           // 食べた物で傾向が育つ（野生・仲間は自分の好みも少し入る）
           if (info) this.addCare(c, info.care, 2)
           else if (c !== this.pet) this.addCare(c, c.bias, 0.5)
+          this.noteEaten(c, kind)
           this.gainXp(c, info ? 2 : 1)
           if (c.team === 'pet') {
             this.stats.mood = Math.min(100, this.stats.mood + (info?.mood ?? 10))
@@ -3805,6 +4039,14 @@ export class World {
         break
     }
     if (c.hurt > 0) anim = 'hurt'
+    else if (anim === 'idle') anim = this.faceOf(c)
+
+    // 色ちがいは ときどきキラッと光る
+    if (c.rare && c.anim.sprite.visible && (c.glint -= dt) <= 0) {
+      c.glint = 1.2 + Math.random() * 1.6
+      if (Math.hypot(c.x - this.look.x, c.z - this.look.z) < 12)
+        this.burst(c.x + (Math.random() - 0.5) * this.size(c) * 0.9, this.ground(c) + c.jy + Math.random() * this.size(c), c.z, 'spark', 1, 0.6, -0.8)
+    }
 
     c.vy -= 16 * dt
     c.jy = Math.max(0, c.jy + c.vy * dt)
@@ -3851,6 +4093,10 @@ export class World {
       sx *= 1 + 0.18 * l
       sy *= 1 - 0.08 * l
     }
+    if (this.reducedMotion) {
+      sx = 1 + (sx - 1) * 0.3
+      sy = 1 + (sy - 1) * 0.3
+    }
     c.anim.setHeight(this.size(c))
     c.anim.sprite.scale.x *= sx
     c.anim.sprite.scale.y *= sy
@@ -3868,6 +4114,20 @@ export class World {
       }
       c.carryMesh.rotation.y += dt * 2
     }
+  }
+
+  /** 止まっている時の表情：おなかがすいた・ねむい・うれしい・おこっている・こまっている */
+  private faceOf(c: Creature): 'idle' | Face {
+    const s = c.state
+    if (s === 'fight' || s === 'assist' || s === 'raid' || s === 'march' || s === 'hunt') return 'angry'
+    if (c.sp.tier === 0) return c.sp.temper === 'wild' ? 'angry' : 'idle'
+    if (c.hp < c.maxHp * 0.3 || c.detour || c.stuck > 0) return 'worry'
+    if (c.hunger < 28) return 'hungry'
+    if (c.energy < 25) return 'sleepy'
+    const wave = Math.sin(this.time * 0.4 + c.phase)
+    if ((this.weather === 'rain' || this.weather === 'ember') && !c.inside && c.team !== 'wild' && wave > 0.2) return 'worry'
+    if (this.ally(c) && c.hunger > 60 && c.energy > 50 && wave > 0.35) return 'glad'
+    return 'idle'
   }
 
   // ================= エフェクト =================
@@ -3924,7 +4184,7 @@ export class World {
     this.shake = Math.max(0, this.shake - dt)
     const jolt = () => {
       if (this.shake <= 0) return
-      const k = this.shake * 0.5
+      const k = this.shake * (this.reducedMotion ? 0.07 : 0.5)
       this.camera.position.x += (Math.random() - 0.5) * k
       this.camera.position.y += (Math.random() - 0.5) * k
     }
@@ -4017,6 +4277,7 @@ export class World {
    * 戻り値 true = HUD で使った
    */
   tap(u: number, v: number): boolean {
+    this.hudNow = true
     if (this.warp > 0) return true
     if (this.cleanView) return false
     const x = u * RES.w
@@ -4073,6 +4334,409 @@ export class World {
     return { x: 0, z: 0 }
   }
 
+  // ================= ひみつ（隠し進化・できごと） =================
+  /** 食べた物の履歴（1 匹ずつ。stage / meat / sweet / nut の回数）。セーブは secrets.eaten */
+  private eatenOf = new WeakMap<Creature, Record<string, number>>()
+  /** 見つけた隠しの姿・できごと / ヒントの進み / 雨がやんだ時刻 / できごとの待ち秒 / 見つけた時の札 */
+  private secret = {
+    forms: new Set<string>(),
+    events: new Set<string>(),
+    hints: {} as Record<string, number>,
+    rainEnd: -9999,
+    evT: {} as Record<string, number>,
+    card: null as { title: string; sub: string; t: number } | null,
+  }
+  private secretMeshes: { obj: THREE.Mesh; t: number; dur: number; hold: number }[] = []
+
+  private noteEaten(c: Creature, kind: FoodKind) {
+    const e = this.eatenOf.get(c) ?? {}
+    e[kind] = Math.min(999, (e[kind] ?? 0) + 1)
+    this.eatenOf.set(c, e)
+  }
+
+  /** 水ぞくの池の半径（はしが かかっている池） */
+  private bridgeSpan(b: Struct) {
+    const o = this.stage.obstacles.find((q) => q.water && Math.hypot(b.x - q.x, b.z - q.z) < 0.7)
+    return o ? o.r : 1.5
+  }
+
+  /** 進化の瞬間（とヒントの判定）の まわりのようす */
+  private secretCtx(c: Creature, top?: Care): SecretCtx {
+    const care = this.careOf(c)
+    const t: Care = top ?? (['power', 'guard', 'spirit'] as Care[]).sort((a, b) => care[b] + (c !== this.pet && c.bias === b ? 3 : 0) - (care[a] + (c !== this.pet && c.bias === a ? 3 : 0)))[0]
+    const here = (b: Struct) => b.stage === this.stageIndex && this.structDone(b)
+    const st = (k: StructKind, r: number) => this.structs.some((b) => b.kind === k && here(b) && Math.hypot(b.x - c.x, b.z - c.z) < r)
+    const fam = familyOf(c.sp.id)
+    return {
+      isPet: c === this.pet,
+      night: this.night > 0.55,
+      weather: this.weather,
+      rainedLately: this.time - this.secret.rainEnd < 120,
+      stage: this.stageIndex,
+      gen: this.stats.gen,
+      coins: this.coins,
+      mood: this.stats.mood,
+      role: c.role,
+      top: t,
+      eaten: this.eatenOf.get(c) ?? {},
+      homeLv: this.homeOf(c)?.level ?? 0,
+      kin: this.creatures.filter((o) => o !== c && this.ally(o) && this.alive(o) && familyOf(o.sp.id) === fam && Math.hypot(o.x - c.x, o.z - c.z) < 6).length,
+      village: this.vLv,
+      near: {
+        tower: st('tower', 8),
+        castle: st('castle', 8),
+        bridge: this.structs.some((b) => b.kind === 'bridge' && here(b) && Math.hypot(b.x - c.x, b.z - c.z) < this.bridgeSpan(b) + 3),
+        farm: st('farm', 6),
+        fire: this.nearItem('fire', c.x, c.z, 5),
+        memorial: this.nearItem('memorial', c.x, c.z, 4),
+        tools: this.nearItem('tools', c.x, c.z, 6),
+        water: this.stage.obstacles.some((o) => o.water && Math.hypot(o.x - c.x, o.z - c.z) < o.r + 2.5),
+      },
+    }
+  }
+
+  /** 条件がそろった 隠しの姿（仲間だけ。ペットは必ず、ほかの子は 8 割） */
+  private pickSecret(c: Creature, top: Care): SpeciesId | null {
+    if (!this.ally(c)) return null
+    const f = secretForm(familyOf(c.sp.id), c.sp.tier, this.secretCtx(c, top))
+    if (!f) return null
+    if (c !== this.pet && Math.random() > 0.8) return null
+    return f.id
+  }
+
+  /** 隠しの姿に進化した時の 大きな演出 */
+  private foundSecretForm(c: Creature) {
+    const f = secretById(c.sp.id)
+    if (!f) return
+    const first = !this.secret.forms.has(f.id)
+    this.secret.forms.add(f.id)
+    this.secret.hints[f.id] = 0x87
+    const y = this.ground(c) + 0.8
+    this.flash = 1
+    this.shake = Math.max(this.shake, 0.3)
+    this.ring(c.x, c.z, '#ffd23f', 5, 1.2)
+    this.after(0.25, () => this.ring(c.x, c.z, '#ffffff', 7, 1.4))
+    this.after(0.5, () => this.ring(c.x, c.z, '#ff9ecb', 9, 1.6))
+    this.burst(c.x, y, c.z, 'spark', 40, 5, 3)
+    this.burst(c.x, y, c.z, 'coin', 12, 4, 6)
+    this.glow(c.x, y, c.z, '#ffd23f', 18, { life: 2.4, spread: 2.2, rise: 1.2 })
+    this.onSfx('win')
+    this.after(0.4, () => this.onSfx('evolve'))
+    this.say(`ひみつの すがた！ ${f.name}に しんかした！`)
+    this.say(f.story)
+    this.secret.card = { title: first ? '★ ひみつの すがた はっけん！' : '★ ひみつの すがた', sub: `${f.name}　${f.kind}`, t: 5 }
+    if (first) this.earn(c === this.pet ? 200 : 120)
+    this.save()
+  }
+
+  /** ふわふわ漂う光の粒（ほたる・花びら・オーロラなど）。grav 0 でゆっくり動く */
+  private glow(x: number, y: number, z: number, color: string, n: number, o: { life: number; spread: number; rise: number; size?: number; fall?: number }) {
+    for (let i = 0; i < n; i++) {
+      if (this.fx.length > 230) return
+      const a = new SpriteAnim(this.orb(color), (o.size ?? 0.16) * (0.7 + Math.random() * 0.6))
+      a.sprite.center.set(0.5, 0.5)
+      const ang = Math.random() * Math.PI * 2
+      const d = Math.random() * o.spread
+      a.sprite.position.set(x + Math.cos(ang) * d, y + Math.random() * 0.6, z + Math.sin(ang) * d)
+      this.scene.add(a.sprite)
+      const life = o.life * (0.7 + Math.random() * 0.6)
+      this.fx.push({ sprite: a.sprite, vx: (Math.random() - 0.5) * 0.5, vz: (Math.random() - 0.5) * 0.5, vy: o.rise * (0.3 + Math.random() * 0.7), life, max: life, grav: o.fall ?? 0 })
+    }
+  }
+
+  /** 1 秒に 1 回：ヒントの進み具合と、ひみつのできごとの判定 */
+  private updateSecrets() {
+    const s = this.secret
+    // ヒント：この系統の成長期・成熟期の仲間が、いま条件のどれかを満たしていれば その行が増える
+    for (const c of this.creatures) {
+      if (!this.ally(c) || c.grow > 0 || c.sp.tier < 2 || c.sp.tier > 3 || !this.alive(c)) continue
+      const fam = familyOf(c.sp.id)
+      if (fam === 'plain') continue
+      for (const [id, mask] of hintMask(fam, this.secretCtx(c))) {
+        const cur = s.hints[id] ?? 0
+        if ((cur | mask) !== cur) {
+          s.hints[id] = cur | mask
+          if (cur !== 0 && !s.forms.has(id)) this.say('なにか ありそうな きがする… （ずかんの ひみつ）')
+        }
+      }
+    }
+    if (this.eventsLeft() === 0) return
+    // できごと
+    const ctx = this.eventCtx()
+    for (const e of SECRET_EVENTS) {
+      if (s.events.has(e.id)) continue
+      s.evT[e.id] = e.test(ctx) ? (s.evT[e.id] ?? 0) + 1 : 0
+      if (s.evT[e.id] >= e.dwell) this.foundEvent(e)
+    }
+  }
+  private eventsLeft() {
+    return SECRET_EVENTS.length - this.secret.events.size
+  }
+
+  private eventCtx(): EventCtx {
+    const al = this.creatures.filter((c) => this.ally(c) && this.alive(c) && !c.army)
+    const here = <T extends { stage: number }>(a: T[]) => a.filter((x) => x.stage === this.stageIndex)
+    const fires = here(this.items).filter((it) => it.kind === 'fire' && it.mesh)
+    const mem = here(this.items).filter((it) => it.kind === 'memorial' && it.mesh)
+    const done = (k: StructKind) => here(this.structs).filter((b) => b.kind === k && this.structDone(b))
+    const castles = done('castle')
+    const cradles = done('cradle')
+    const bridges = done('bridge')
+    const within = (c: Creature, p: { x: number; z: number }, r: number) => Math.hypot(p.x - c.x, p.z - c.z) < r
+    const birds = al.filter((c) => familyOf(c.sp.id) === 'bird')
+    return {
+      night: this.night > 0.55,
+      weather: this.weather,
+      stage: this.stageIndex,
+      gen: this.stats.gen,
+      village: this.vLv,
+      allies: al.length,
+      nearFire: al.filter((c) => fires.some((f) => within(c, f, 5))).length,
+      fires: fires.length,
+      onBridge: al.filter((c) => bridges.some((b) => within(c, b, Math.max(1.2, this.bridgeSpan(b) * 0.9)))).length,
+      petAtMemorial: this.alive(this.pet) && mem.some((m) => within(this.pet, m, 3)),
+      atCastle: al.filter((c) => castles.some((b) => within(c, b, 4.5))).length,
+      castles: castles.length,
+      trees: here(this.items).filter((it) => it.kind === 'sapling' && it.grow >= 1).length,
+      waterAwake: al.filter((c) => familyOf(c.sp.id) === 'water' && c.state !== 'sleep' && c.state !== 'rest' && c.sp.tier > 0).length,
+      sleepCradle: al.filter((c) => c.state === 'sleep' && cradles.some((b) => within(c, b, 5))).length,
+      cradles: cradles.length,
+      birds: Math.max(0, ...birds.map((c) => birds.filter((o) => within(o, c, 5)).length)),
+      inside: al.filter((c) => c.inside).length,
+    }
+  }
+
+  /** できごとが起きた：札・メッセージ・コイン・演出 */
+  private foundEvent(e: SecretEvent) {
+    this.secret.events.add(e.id)
+    const al = this.creatures.filter((c) => this.ally(c) && this.alive(c))
+    const pet = this.pet
+    this.playEventFx(e.fx, al)
+    this.say(e.msg)
+    this.secret.card = { title: '★ ひみつを みつけた！', sub: `${e.name}　コイン+${e.reward}`, t: 5 }
+    this.flash = Math.max(this.flash, 0.55)
+    this.earn(e.reward, pet.x, pet.z)
+    this.onSfx('win')
+    this.save()
+  }
+
+  private playEventFx(fx: EventFx, al: Creature[]) {
+    const p = this.pet
+    const find = <T extends { stage: number; x: number; z: number }>(a: T[], pred: (x: T) => boolean = () => true) => a.find((x) => x.stage === this.stageIndex && pred(x))
+    const at = (o: { x: number; z: number } | undefined) => o ?? { x: p.x, z: p.z }
+    const gy = (o: { x: number; z: number }) => this.stage.heightAt(o.x, o.z)
+    switch (fx) {
+      case 'hotaru': {
+        const f = at(find(this.items, (it) => it.kind === 'fire'))
+        for (let k = 0; k < 10; k++) this.after(k * 0.8, () => this.glow(f.x, gy(f) + 0.5, f.z, k % 2 ? '#e8ff7a' : '#b8ff9a', 7, { life: 7, spread: 4, rise: 0.35, size: 0.14 }))
+        this.ring(f.x, f.z, '#e8ff7a', 6, 2)
+        break
+      }
+      case 'rainbow': {
+        const b = at(find(this.structs, (s) => s.kind === 'bridge'))
+        this.rainbow(b.x, b.z)
+        this.burst(b.x, gy(b) + 1, b.z, 'spark', 14, 3, 2)
+        break
+      }
+      case 'meteor': {
+        const m = at(find(this.items, (it) => it.kind === 'memorial'))
+        for (let k = 0; k < 14; k++)
+          this.after(k * 0.35, () => {
+            const sx = m.x - 4 + Math.random() * 8
+            const sz = m.z - 4 + Math.random() * 8
+            const a = new SpriteAnim(this.fxSheets.spark, 0.3)
+            a.sprite.center.set(0.5, 0.5)
+            a.sprite.position.set(sx + 3, 9, sz)
+            this.scene.add(a.sprite)
+            this.fx.push({ sprite: a.sprite, vx: -5, vy: -6.5, vz: 0, life: 1.3, max: 1.3, grav: 0 })
+            this.glow(sx + 1.5, 6, sz, '#fff6c0', 3, { life: 0.9, spread: 1.2, rise: -1, size: 0.1 })
+          })
+        this.ring(m.x, m.z, '#ffe27a', 5, 2.4)
+        break
+      }
+      case 'confetti': {
+        const c = at(find(this.structs, (s) => s.kind === 'castle'))
+        for (let k = 0; k < 8; k++)
+          this.after(k * 0.3, () => {
+            for (const col of ['#ff5e7a', '#ffd23f', '#6fe7ff', '#7cf29b', '#c9a8ff']) this.colorBurst(c.x + (Math.random() - 0.5) * 3, gy(c) + 2.5, c.z + 1 + Math.random(), col, 3, 2.6)
+            this.burst(c.x, gy(c) + 1.5, c.z + 1.5, 'coin', 3, 3)
+          })
+        this.ring(c.x, c.z + 1.5, '#ffd23f', 6, 1.6)
+        for (const a of al) if (Math.hypot(a.x - c.x, a.z - c.z) < 4.5) this.setState(a, 'happy', 2.5)
+        break
+      }
+      case 'petals': {
+        for (const it of this.items) if (it.stage === this.stageIndex && it.kind === 'sapling' && it.grow >= 1) {
+          for (let k = 0; k < 5; k++) this.after(k * 0.9, () => this.glow(it.x, gy(it) + 2, it.z, k % 2 ? '#ffb8d8' : '#ffffff', 5, { life: 4, spread: 1.4, rise: -0.1, size: 0.13, fall: 0.18 }))
+          this.burst(it.x, gy(it) + 1.6, it.z, 'heart', 3, 1.2, 1.2)
+        }
+        break
+      }
+      case 'dance': {
+        const cols = ['#6fe7ff', '#a8fff0', '#ff9ecb', '#ffe27a']
+        al.filter((c) => familyOf(c.sp.id) === 'water').forEach((c, i) => {
+          this.setState(c, 'happy', 6)
+          this.after(i * 0.3, () => this.ring(c.x, c.z, cols[i % cols.length], 3.5, 1.4))
+          for (let k = 0; k < 4; k++) this.after(k * 1.1 + i * 0.2, () => this.burst(c.x, this.ground(c) + this.size(c), c.z, 'heart', 2, 1.5))
+          this.glow(c.x, this.ground(c) + 0.4, c.z, '#a8fff0', 8, { life: 4, spread: 1.4, rise: 0.5 })
+        })
+        break
+      }
+      case 'egg': {
+        const cr = at(find(this.structs, (s) => s.kind === 'cradle'))
+        if (this.eggs.length < 6) this.layEgg(cr.x + 0.9, cr.z + 0.9, [], 30, this.stageEggKind(), true)
+        this.glow(cr.x, gy(cr) + 0.8, cr.z, '#fff6c0', 14, { life: 3.5, spread: 2, rise: 0.6 })
+        this.ring(cr.x, cr.z, '#fff6c0', 5, 1.8)
+        break
+      }
+      case 'aurora': {
+        const cols = ['#7cf29b', '#5ef2ff', '#b48cff', '#ff9ecb', '#7cf29b']
+        cols.forEach((col, i) => {
+          this.after(i * 1.2, () => this.ring(p.x, p.z, col, 12 + i * 2, 3.5))
+          for (let k = 0; k < 6; k++) this.after(i * 1.2 + k * 0.5, () => this.glow(p.x - 5 + k * 2, 5 + i * 0.5, p.z - 3, col, 5, { life: 5, spread: 1.5, rise: 0.15, size: 0.3 }))
+        })
+        this.flash = 0.8
+        break
+      }
+      case 'chorus': {
+        const birds = al.filter((c) => familyOf(c.sp.id) === 'bird')
+        birds.forEach((c, i) => {
+          this.setState(c, 'happy', 4)
+          for (let k = 0; k < 5; k++) this.after(k * 0.7 + i * 0.15, () => {
+            this.burst(c.x, this.ground(c) + this.size(c) + 0.3, c.z, 'spark', 2, 1.4, 1)
+            this.popups.push({ pos: new THREE.Vector3(c.x, this.ground(c) + this.size(c) + 0.5, c.z), text: k % 2 ? 'ぴよ' : 'ちゅん', color: '#ffe27a', t: 0 })
+          })
+        })
+        break
+      }
+      case 'festival': {
+        al.forEach((c, i) => {
+          this.setState(c, 'happy', 5)
+          this.after(i * 0.15, () => {
+            c.vy = 4
+            this.colorBurst(c.x, this.ground(c) + 1, c.z, ['#ff5e7a', '#ffd23f', '#6fe7ff', '#7cf29b'][i % 4], 4, 3)
+          })
+        })
+        for (let k = 0; k < 8; k++) this.after(k * 0.4, () => this.burst(p.x + (Math.random() - 0.5) * 6, 3, p.z + (Math.random() - 0.5) * 6, 'coin', 4, 2.5, 5))
+        this.ring(p.x, p.z, '#ffd23f', 9, 2)
+        break
+      }
+      case 'cozy': {
+        for (const h of this.houses) if (h.stage === this.stageIndex && h.level >= 1) {
+          this.glow(h.x, this.stage.heightAt(h.x, h.z) + 1.2, h.z, '#ffd8a8', 8, { life: 5, spread: 0.8, rise: 0.4 })
+          this.burst(h.x, this.stage.heightAt(h.x, h.z) + 1.4, h.z, 'heart', 3, 1)
+        }
+        break
+      }
+    }
+  }
+
+  /** にじ：かたむけた半円のおび（7 色）。ゆっくり現れて、しばらくして消える */
+  private rainbow(x: number, z: number) {
+    const geo = new THREE.RingGeometry(3.2, 4.4, 40, 7, 0, Math.PI)
+    const cols = ['#ff4d4d', '#ff9a3d', '#ffe03d', '#6be86b', '#4dc8ff', '#5a6cff', '#b45aff', '#b45aff'].map((c) => new THREE.Color(c))
+    const n = geo.attributes.position.count
+    const arr = new Float32Array(n * 3)
+    for (let i = 0; i < n; i++) {
+      const j = Math.floor(i / 41)
+      arr.set([cols[Math.min(j, 7)].r, cols[Math.min(j, 7)].g, cols[Math.min(j, 7)].b], i * 3)
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(arr, 3))
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }))
+    const cx = this.camera.position.x
+    const cz = this.camera.position.z
+    const dir = Math.atan2(cx - x, cz - z)
+    // カメラから見て、はしの うしろに立てる
+    mesh.position.set(x - Math.sin(dir) * 2.5, this.stage.heightAt(x, z) + 0.05, z - Math.cos(dir) * 2.5)
+    mesh.rotation.set(-0.28, dir, 0)
+    this.scene.add(mesh)
+    this.secretMeshes.push({ obj: mesh, t: 0, dur: 14, hold: 0.6 })
+  }
+
+  /** 毎フレーム：にじの出入り・札のタイマー */
+  private updateSecretFx(dt: number) {
+    for (const m of [...this.secretMeshes]) {
+      m.t += dt
+      const k = m.t / m.dur
+      const a = k < 0.12 ? k / 0.12 : k > 0.8 ? Math.max(0, (1 - k) / 0.2) : 1
+      ;(m.obj.material as THREE.MeshBasicMaterial).opacity = a * m.hold
+      if (k >= 1) {
+        this.scene.remove(m.obj)
+        m.obj.geometry.dispose()
+        ;(m.obj.material as THREE.Material).dispose()
+        this.secretMeshes.splice(this.secretMeshes.indexOf(m), 1)
+      }
+    }
+    if (this.secret.card) {
+      this.secret.card.t -= dt
+      if (this.secret.card.t <= 0) this.secret.card = null
+    }
+  }
+
+  /** 札：ひみつを みつけた時に 画面の上に出る */
+  private drawSecretCard() {
+    const k = this.secret.card
+    if (!k) return
+    const age = 5 - k.t
+    const y = Math.round(64 - Math.max(0, 1 - age * 4) * 60 - Math.max(0, 0.5 - k.t) * 120)
+    this.win(24, y, RES.w - 48, 40)
+    const g = this.hudCtx
+    g.strokeStyle = '#ffd23f'
+    g.strokeRect(25.5, y + 1.5, RES.w - 51, 37)
+    this.text(k.title, RES.w / 2, y + 7, '#ffd23f', 11, 'center')
+    this.text(k.sub, RES.w / 2, y + 23, '#ffffff', 10, 'center')
+  }
+
+  /** ずかんの「ひみつ」欄に出す 情報 */
+  secretInfo() {
+    const forms = SECRET_FORMS.map((s) => {
+      const found = this.secret.forms.has(s.id)
+      const mask = this.secret.hints[s.id] ?? 0
+      return {
+        id: s.id, name: s.name, kind: s.kind, family: FAMILY_NAME[s.family], found,
+        lines: hintLines(s, mask, found),
+        known: s.conds.filter((_, i) => mask & (1 << i)).length,
+        total: s.conds.length,
+        story: found ? s.story : '',
+      }
+    })
+    const events = SECRET_EVENTS.map((e) => {
+      const found = this.secret.events.has(e.id)
+      return { id: e.id, name: found ? e.name : '？？？', found, text: found ? e.msg : e.riddle }
+    })
+    return { forms, events, formsFound: forms.filter((f) => f.found).length, eventsFound: events.filter((e) => e.found).length }
+  }
+
+  private saveSecrets(friends: Creature[]) {
+    const s = this.secret
+    return {
+      forms: [...s.forms], events: [...s.events], hints: s.hints,
+      eaten: { pet: this.eatenOf.get(this.pet) ?? {}, friends: friends.map((c) => this.eatenOf.get(c) ?? {}) },
+    }
+  }
+
+  /** 読み込み：ID は表と照合、数字は範囲に収める */
+  private loadSecrets(d: any, friends: Creature[], savedFriends: unknown[]) {
+    const s = this.secret
+    const o = d && typeof d === 'object' ? d : {}
+    s.forms = new Set((Array.isArray(o.forms) ? o.forms : []).filter(isSecretId).slice(0, 40))
+    s.events = new Set((Array.isArray(o.events) ? o.events : []).filter((v: unknown): v is string => typeof v === 'string' && EVENT_IDS.has(v)).slice(0, 60))
+    s.hints = {}
+    if (o.hints && typeof o.hints === 'object' && !Array.isArray(o.hints))
+      for (const [k, v] of Object.entries(o.hints)) if (isSecretId(k)) s.hints[k] = Math.round(num(v, 0, 255, 0)) & 0x87
+    const clean = (v: unknown) => {
+      const r: Record<string, number> = {}
+      if (v && typeof v === 'object' && !Array.isArray(v)) for (const k of EAT_KEYS) r[k] = Math.round(num((v as Record<string, unknown>)[k], 0, 999, 0))
+      return r
+    }
+    const e = o.eaten && typeof o.eaten === 'object' ? o.eaten : {}
+    this.eatenOf.set(this.pet, clean(e.pet))
+    const list: unknown[] = Array.isArray(e.friends) ? e.friends : []
+    // 保存した友だちのうち 読み込めた子だけが friends に入っているので、同じ条件でそろえる
+    const ok = savedFriends.map((f, i) => ({ f: f as { sp?: unknown } | null, i })).filter((x) => x.f && isSpecies(x.f.sp))
+    friends.forEach((c, i) => this.eatenOf.set(c, clean(list[ok[i]?.i ?? -1])))
+  }
+
   // ================= セーブ / ロード =================
   /** 読み込み・やり直しの直前は自動セーブを止める（上書きしないように） */
   saveLocked = false
@@ -4080,19 +4744,20 @@ export class World {
     if (!this.pet || this.saveLocked) return
     const c2 = (c: Creature) => ({
       sp: c.sp.id, hp: Math.round(c.hp), maxHp: c.maxHp, atk: c.atk, hunger: Math.round(c.hunger), energy: Math.round(c.energy), grow: c.grow,
-      xp: c.xp, care: c.care, bias: c.bias,
+      xp: c.xp, care: c.care, bias: c.bias, seed: c.seed, rare: c.rare,
     })
     const friends = this.creatures.filter((c) => c.team === 'friend')
     const ownerKey = (h: House) => (h.owner === this.pet ? 'pet' : h.owner && friends.includes(h.owner) ? `f${friends.indexOf(h.owner)}` : '')
     const data = {
-      land: this.land, dex: this.dex, dexClaimed: this.dexClaimed,
+      land: this.land, dex: this.dex, dexRare: this.dexRare, dexClaimed: this.dexClaimed,
       coins: this.coins, stage: this.stageIndex, care: this.care, xp: this.xp, stats: this.stats, night: this.nightTarget,
       pet: c2(this.pet),
       friends: friends.map(c2),
       houses: this.houses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, ownerSp: h.ownerSp, owner: ownerKey(h), mats: h.mats, hp: Math.round(h.hp) })),
       structs: this.structs.map((b) => ({ kind: b.kind, stage: b.stage, x: b.x, z: b.z, rot: b.rot, len: b.len, mats: b.mats, hp: Math.round(b.hp) })),
       items: this.items.map((it) => ({ kind: it.kind, stage: it.stage, x: it.x, z: it.z, grow: it.grow, rot: it.rot })),
-      eggs: this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild })),
+      eggs: this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild, lucky: e.lucky })),
+      secrets: this.saveSecrets(friends),
     }
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(data))
@@ -4125,6 +4790,9 @@ export class World {
       this.dex = {}
       if (d.dex && typeof d.dex === 'object' && !Array.isArray(d.dex))
         for (const [k, v] of Object.entries(d.dex)) if (isSpecies(k) && (v === 1 || v === 2)) this.dex[k] = v
+      this.dexRare = {}
+      if (d.dexRare && typeof d.dexRare === 'object' && !Array.isArray(d.dexRare))
+        for (const [k, v] of Object.entries(d.dexRare)) if (isSpecies(k) && (v === 1 || v === 2)) this.dexRare[k] = v
       this.dexClaimed = Math.round(num(d.dexClaimed, 0, 6, 0))
       this.nightTarget = this.night = d.night ?? 0
       // 置き物：種類・数・場所を検査してから使う（ステージごとの上限つき）
@@ -4158,7 +4826,9 @@ export class World {
           }
         })
       this.loadStage(Math.min(STAGES.length - 1, Math.round(num(d.stage, 0, STAGES.length - 1))))
-      type Saved = { sp: SpeciesId; hp: number; maxHp: number; atk: number; hunger: number; energy: number; grow: number; xp?: number; care?: Record<Care, number>; bias?: Care }
+      type Saved = { sp: SpeciesId; hp: number; maxHp: number; atk: number; hunger: number; energy: number; grow: number; xp?: number; care?: Record<Care, number>; bias?: Care; seed?: number; rare?: boolean }
+      /** 見た目のシード（古いセーブには無いので、その時は新しく決める）。色ちがいは 保存されたものだけ */
+      const lookOfSaved = (s: Saved) => ({ seed: Math.round(num(s.seed, 0, 0x7fffffff, newSeed())), rare: s.rare === true && SPECIES[s.sp].tier > 0 })
       const apply = (c: Creature, s: Saved) => {
         Object.assign(c, { hp: num(s.hp, 0, 9999), maxHp: num(s.maxHp, 1, 9999, 10), atk: num(s.atk, 0, 9999, 1), hunger: num(s.hunger, 0, 100, 50), energy: num(s.energy, 0, 100, 50), grow: num(s.grow, 0, 1, 0) })
         if (s.xp !== undefined) c.xp = s.xp
@@ -4166,11 +4836,11 @@ export class World {
         if (s.bias) c.bias = s.bias
         c.anim.setHeight(this.size(c))
       }
-      this.pet = this.spawn(d.pet.sp, 'pet', 0, 1.5)
+      this.pet = this.spawn(d.pet.sp, 'pet', 0, 1.5, 0, lookOfSaved(d.pet))
       apply(this.pet, d.pet)
       const friends: Creature[] = []
       for (const f of ((Array.isArray(d.friends) ? d.friends : []) as Saved[]).slice(0, 40)) if (f && isSpecies(f.sp)) {
-        const c = this.spawn(f.sp, 'friend', (Math.random() - 0.5) * 2, 2.2)
+        const c = this.spawn(f.sp, 'friend', (Math.random() - 0.5) * 2, 2.2, 0, lookOfSaved(f))
         apply(c, f)
         friends.push(c)
       }
@@ -4184,8 +4854,9 @@ export class World {
         const kind: EggKind = typeof e.kind === 'string' && Object.prototype.hasOwnProperty.call(EGG_COLORS, e.kind) ? e.kind : 'inherit'
         const parents = (Array.isArray(e.parents) ? e.parents : []).filter(isSpecies).slice(0, 2)
         if (kind === 'inherit' && !parents.length) continue
-        this.layEgg(num(e.x, -HALF, HALF), num(e.z, -HALF, HALF), parents, num(e.t, 0, 120, 35), kind, !!e.wild)
+        this.layEgg(num(e.x, -HALF, HALF), num(e.z, -HALF, HALF), parents, num(e.t, 0, 120, 35), kind, !!e.wild, e.lucky === true)
       }
+      this.loadSecrets(d.secrets, friends, Array.isArray(d.friends) ? d.friends.slice(0, 40) : [])
       this.say(`おかえり！ ${this.pet.sp.name}が まっていたよ`)
       return true
     } catch {
@@ -4204,8 +4875,14 @@ export class World {
   }
 
   // ================= HUD =================
+  private pv = new THREE.Vector3()
   private project(v: THREE.Vector3) {
-    const p = v.clone().project(this.camera)
+    return this.projectXYZ(v.x, v.y, v.z)
+  }
+
+  /** 3D の点を HUD の座標へ（使い捨ての Vector3 を作らない） */
+  private projectXYZ(x: number, y: number, z: number) {
+    const p = this.pv.set(x, y, z).project(this.camera)
     return { x: Math.round((p.x + 1) * 0.5 * RES.w), y: Math.round((1 - p.y) * 0.5 * RES.h), on: p.z < 1 }
   }
 
@@ -4269,6 +4946,44 @@ export class World {
             g.fillRect(x0 + x * 2, y0 + y * 2, 2, 2)
           }
         }
+  }
+
+  /** 色ちがいの目印（小さな金の ★） */
+  private starMark(x: number, y: number) {
+    const g = this.hudCtx
+    g.fillStyle = '#10122a'
+    g.fillRect(x - 3, y - 2, 7, 7)
+    g.fillStyle = Math.floor(this.time * 3) % 2 ? '#ffd23f' : '#fff6b0'
+    for (const [dx, dy, w] of [[0, -1, 1], [-1, 0, 3], [-2, 1, 5], [-1, 2, 3], [-2, 3, 1], [2, 3, 1]]) g.fillRect(x + dx, y + dy, w, 1)
+  }
+
+  /** ボスの大きな HP バー（画面の上のまんなか）。ボスが出ている間だけ */
+  private drawBossBar() {
+    const boss = this.creatures.find((c) => c.sp.boss && this.alive(c))
+    if (!boss) return
+    const g = this.hudCtx
+    const w = 208
+    const x = Math.round((RES.w - w) / 2)
+    const y = 46
+    g.fillStyle = 'rgba(10,14,40,0.82)'
+    g.fillRect(x, y, w, 25)
+    g.strokeStyle = '#ff9a3a'
+    g.strokeRect(x + 0.5, y + 0.5, w - 1, 24)
+    this.text(`ボス ${boss.sp.name}`, x + 8, y + 3, '#ffd0a0', 10)
+    this.text(`${Math.max(0, Math.ceil(boss.hp))}/${boss.maxHp}`, x + w - 8, y + 4, '#ffffff', 8, 'right')
+    const r = Math.max(0, Math.min(1, boss.hp / boss.maxHp))
+    g.fillStyle = '#10122a'
+    g.fillRect(x + 6, y + 15, w - 12, 7)
+    g.fillStyle = '#3a2030'
+    g.fillRect(x + 7, y + 16, w - 14, 5)
+    g.fillStyle = r > 0.5 ? '#ff5e3a' : r > 0.25 ? '#ff9a3a' : '#ffd23f'
+    g.fillRect(x + 7, y + 16, Math.round((w - 14) * r), 5)
+    g.fillStyle = 'rgba(255,255,255,0.35)'
+    g.fillRect(x + 7, y + 16, Math.round((w - 14) * r), 1)
+    for (const k of [0.25, 0.5, 0.75]) {
+      g.fillStyle = 'rgba(16,18,42,0.8)'
+      g.fillRect(x + 7 + Math.round((w - 14) * k), y + 16, 1, 5)
+    }
   }
 
   private heartMark(x: number, y: number) {
@@ -4349,7 +5064,7 @@ export class World {
       if (b.kind === 'wall' && (done ? b.hp >= STRUCTS.wall.hp - 1 : b.mats === 0)) continue
       if (done && b.hp >= STRUCTS[b.kind].hp - 1) continue
       const hgt = { castle: 3.5, tower: 2.7, cradle: 1.7, well: 1.6, farm: 1.2, wall: 1.1, bridge: 0.9 }[b.kind]
-      const p = this.project(new THREE.Vector3(b.x, this.stage.heightAt(b.x, b.z) + hgt, b.z))
+      const p = this.projectXYZ(b.x, this.stage.heightAt(b.x, b.z) + hgt, b.z)
       if (!p.on) continue
       if (!done) this.bar(p.x - 10, p.y, 20, b.mats / STRUCTS[b.kind].need, '#c8955a')
       else this.bar(p.x - 10, p.y, 20, b.hp / STRUCTS[b.kind].hp, '#ff9f43')
@@ -4357,7 +5072,7 @@ export class World {
     // 家：建てている途中はできあがり具合、こわされていれば残り
     for (const h of this.houses) {
       if (h.stage !== this.stageIndex || !h.mesh) continue
-      const s = this.project(new THREE.Vector3(h.x, this.stage.heightAt(h.x, h.z) + (h.level >= 4 ? 2.4 : h.level >= 3 ? 1.9 : 1.1), h.z))
+      const s = this.projectXYZ(h.x, this.stage.heightAt(h.x, h.z) + (h.level >= 4 ? 2.4 : h.level >= 3 ? 1.9 : 1.1), h.z)
       if (!s.on) continue
       if (h.level < 3) this.bar(s.x - 10, s.y, 20, h.mats / HOUSE_STEPS[3], '#c8955a')
       else if (h.hp < houseMaxHp(h.level) - 1) this.bar(s.x - 10, s.y, 20, h.hp / houseMaxHp(h.level), '#ff9f43')
@@ -4366,7 +5081,7 @@ export class World {
     // 頭の上の目印 + HP バー
     for (const c of this.creatures) {
       if (c.state === 'dead' || (c.inside && c.state === 'sleep')) continue
-      const top = this.project(new THREE.Vector3(c.x, this.ground(c) + c.jy + this.size(c) + 0.15, c.z))
+      const top = this.projectXYZ(c.x, this.ground(c) + c.jy + this.size(c) + 0.15, c.z)
       if (!top.on) continue
       if (c.team === 'pet' && this.view === 'eye') continue
       if (c.team === 'pet') {
@@ -4378,8 +5093,20 @@ export class World {
       } else if (c.team === 'friend') {
         this.heartMark(top.x, top.y - 9)
         if (c.role !== 'free') {
+          // 色だけに頼らないよう、役割ごとに形も変える（だいく = ■ / はたけがかり = ▲ / みはり = ✚）
+          const rx = top.x + 6
+          const ry = top.y - 9
+          g.fillStyle = '#10122a'
+          g.fillRect(rx - 1, ry - 1, 5, 5)
           g.fillStyle = ROLE_COLOR[c.role]
-          g.fillRect(top.x + 6, top.y - 9, 3, 3)
+          if (c.role === 'builder') g.fillRect(rx, ry, 3, 3)
+          else if (c.role === 'farmer') {
+            g.fillRect(rx + 1, ry, 1, 1)
+            g.fillRect(rx, ry + 1, 3, 2)
+          } else {
+            g.fillRect(rx + 1, ry, 1, 3)
+            g.fillRect(rx, ry + 1, 3, 1)
+          }
         }
       }
       else if (c.affinity > 30 && c.sp.temper === 'calm') {
@@ -4387,11 +5114,14 @@ export class World {
         g.fillStyle = 'rgba(255,126,182,0.85)'
         g.fillRect(top.x - 5, top.y - 6, Math.round(10 * Math.min(1, c.affinity / 100)), 2)
       }
+      if (c.rare) this.starMark(top.x - 11, top.y - 8)
+      if (c.sp.boss) continue
       if (c.state === 'fight' || c.state === 'assist' || c.hp < c.maxHp - 0.5 || c.team === 'pet') this.bar(top.x - 10, top.y - 2, 20, c.hp / c.maxHp)
     }
+    this.drawBossBar()
     // たまごの残り時間
     for (const e of this.eggs) {
-      const s = this.project(new THREE.Vector3(e.x, this.stage.heightAt(e.x, e.z) + 0.75, e.z))
+      const s = this.projectXYZ(e.x, this.stage.heightAt(e.x, e.z) + 0.75, e.z)
       if (s.on) this.bar(s.x - 8, s.y, 16, 1 - e.t / 35, '#7fd1ff')
     }
 
@@ -4418,6 +5148,8 @@ export class World {
       this.text(this.stage.sub, x + 8, 47, '#9fd8ff', 8)
     }
 
+    this.drawSecretCard()
+
     const label = this.cursor >= 0 && !this.messages.length && !this.shopOpen ? `▶ ${ICONS[this.cursor]}` : this.messages[0]
     if (label) {
       this.win(8, RES.h - 60, RES.w - 16, 32)
@@ -4440,7 +5172,7 @@ export class World {
     const x = 40
     const y = 28
     this.win(x, y, 240, 164)
-    this.text(p.sp.name, x + 12, y + 8, '#ffffff', 13)
+    this.text(this.nm(p), x + 12, y + 8, '#ffffff', 13)
     this.text(p.sp.kind, x + 12, y + 25, '#9fd8ff', 9)
     this.text(`だい${this.stats.gen}せだい`, x + 228, y + 9, '#ffd23f', 9, 'right')
     const need = p.sp.tier >= 1 && p.sp.tier <= 3 ? XP_NEED[p.sp.tier as 1 | 2 | 3] : 0

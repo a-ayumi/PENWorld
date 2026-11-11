@@ -38,6 +38,8 @@ export const STYLES: BuildStyle[] = [
   { wall: '#f2b6a8', stone: '#e6cfc4', roof: '#3fa0c8', accent: '#ff9ecb' }, // さんごの入り江
   { wall: '#f1eee6', stone: '#d6dfea', roof: '#7f9fd8', accent: '#ffffff' }, // わたゆきの原
   { wall: '#bfe3f2', stone: '#9cc4da', roof: '#e8f6ff', accent: '#7fe8ff' }, // こおりの回路峰
+  { wall: '#4a3a3e', stone: '#2e2830', roof: '#c8482a', accent: '#ffb347' }, // ほむらのかざん
+  { wall: '#b9c4a8', stone: '#8fa08c', roof: '#4f8a6a', accent: '#9dffd0' }, // こだいのいせき
 ]
 export const styleOf = (stage: number) => STYLES[stage] ?? STYLES[0]
 
