@@ -18,6 +18,7 @@ import { exportCode, importCode, requestPersist, widgetCode } from './backup'
 import { portraitFor, type SpeciesId } from './world/monsters'
 import { hideSplash, initTips, NO_WEBGL, showFatal, showOfflineReady, showUpdateBar, tipsSeen, watchContextLoss } from './shell'
 import { initJournal } from './journalui'
+import { initLuckyUI } from './luckyPanel'
 
 // ---------------- レンダラー ----------------
 const canvas = document.getElementById('scene') as HTMLCanvasElement
@@ -934,6 +935,7 @@ function playSfx(k: Sfx) {
   SFX[k]()
 }
 world.onSfx = playSfx
+const luckyUI = initLuckyUI({ world, beeper, lite: () => quality === 'low' })
 
 // ---------------- 画面に入る（全画面モード） ----------------
 type Mode = 'device' | 'entering' | 'inside' | 'leaving'
@@ -954,6 +956,7 @@ function setMode(m: Mode) {
   qualityBtn.hidden = m === 'inside'
   dressBtn.hidden = m === 'inside'
   dexBtn.hidden = m === 'inside'
+  luckyUI.setInside(m === 'inside')
   roadBtn.hidden = missionBtn.hidden = m === 'inside'
   enterBtn.hidden = m !== 'device'
   if (m === 'inside') {

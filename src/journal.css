@@ -1,5 +1,5 @@
 /* にっき・おかえりレポート（journal.ts / journalui.ts）。きせかえ・ずかんと同じ見た目 */
-#journal-btn { position: fixed; top: calc(env(safe-area-inset-top) + 96px); left: calc(env(safe-area-inset-left) + 12px);
+#journal-btn { position: fixed; top: calc(env(safe-area-inset-top) + 222px); left: calc(env(safe-area-inset-left) + 12px);
   border: 0; border-radius: 999px; padding: 8px 14px; font-size: 12px; font-weight: 700; color: var(--ink);
   background: var(--chip); backdrop-filter: blur(6px); cursor: pointer; }
 #journal-btn:focus-visible, #journal-close:focus-visible, .jr-filter:focus-visible, #wb-ok:focus-visible, #wb-journal:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }

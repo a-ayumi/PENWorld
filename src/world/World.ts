@@ -163,7 +163,10 @@ interface Item {
   tick: number
 }
 /** lucky = ふしぎなたまご（色ちがいがうまれやすい） */
-interface Egg { x: number; z: number; t: number; anim: SpriteAnim; shadow: THREE.Mesh; parents: SpeciesId[]; kind: EggKind; wild: boolean; lucky: boolean; deco?: Season }
+interface Egg { x: number; z: number; t: number; anim: SpriteAnim; shadow: THREE.Mesh; parents: SpeciesId[]; kind: EggKind; wild: boolean; lucky: boolean; deco?: Season; /** うんだめしのたまご：1 = レア / 2 = スーパーレア */ luck?: number }
+/** バトル予想（lucky.ts）に渡す、じゃれあいバトルの片方の情報 */
+export interface SparSide { name: string; fam: string; tier: number; hp: number; maxHp: number; atk: number; cheer: boolean; mine: boolean }
+export interface SparMatch { id: number; a: SparSide; b: SparSide }
 interface Popup { pos: THREE.Vector3; text: string; color: string; t: number; big?: boolean }
 type Pick = { type: 'creature' | 'house' | 'struct' | 'item' | 'egg' | 'res' | 'food'; ref: any; armed: boolean }
 const STATE_NAME: Record<string, string> = {
@@ -1260,6 +1263,11 @@ export class World {
     this.setState(b, 'fight')
     a.cd = 0.4
     b.cd = 0.9
+    if (spar && !this.sparBook.some((m) => (m.a === a && m.b === b) || (m.a === b && m.b === a))) {
+      const id = ++this.sparSeq
+      this.sparBook = [...this.sparBook.slice(-5), { id, a, b }]
+      this.onSparStart({ id, a: this.sparSide(a), b: this.sparSide(b) })
+    }
     if (a.team === 'pet' || b.team === 'pet') {
       const other = a.team === 'pet' ? b : a
       this.say(spar ? `${other.sp.name}と じゃれあいバトル！` : `${other.sp.name}と バトル！`)
@@ -1299,6 +1307,11 @@ export class World {
     loser.foe = null
     // じゃれあいバトル：負けた子もたおれるだけ。どちらも少し強くなる
     if (loser.spar) {
+      const m = this.sparBook.find((m) => (m.a === winner && m.b === loser) || (m.a === loser && m.b === winner))
+      if (m) {
+        this.sparBook = this.sparBook.filter((o) => o !== m)
+        this.onSparEnd(m.id, m.a === winner ? 0 : 1)
+      }
       loser.spar = winner.spar = false
       loser.hp = 1
       this.setState(loser, 'faint', 4)
@@ -1685,6 +1698,68 @@ export class World {
     this.coins += n
     if (x !== undefined && z !== undefined) this.burst(x, this.stage.heightAt(x, z) + 0.6, z, 'coin', Math.min(6, 1 + Math.floor(n / 5)), 2)
     this.onSfx('coin')
+  }
+
+  // ================= うんだめし（lucky.ts）とのつなぎ口 =================
+  /** うんだめしの保存データ（中身は lucky.ts が検査する。セーブに一緒に入る） */
+  luckySave: unknown = null
+  /** きょうのおみくじの収入ボーナス（20 秒ごとのコインに足される） */
+  luckIncome = 0
+  private sparSeq = 0
+  private sparBook: { id: number; a: Creature; b: Creature }[] = []
+  /** じゃれあいバトルが始まった / 終わった（winner: 0 = a の勝ち、1 = b の勝ち、-1 = 引き分け・中止） */
+  onSparStart: (m: SparMatch) => void = () => {}
+  onSparEnd: (id: number, winner: 0 | 1 | -1) => void = () => {}
+
+  /** ゲーム内コインを使う（足りなければ false） */
+  spendCoins(n: number): boolean {
+    n = Math.floor(n)
+    if (!(n >= 0) || this.coins < n) return false
+    this.coins -= n
+    return true
+  }
+
+  /** ゲーム内コインをもらう（音を出さない時は quiet） */
+  addCoins(n: number, quiet = false) {
+    n = Math.floor(n)
+    if (!(n > 0)) return
+    this.coins = Math.min(999999, this.coins + n)
+    if (!quiet) this.onSfx('coin')
+  }
+
+  /** たまごを置ける空き（箱庭に置けるのは 3 こまで） */
+  eggRoom() {
+    return Math.max(0, 3 - this.eggs.length)
+  }
+
+  /** うんだめしのたまごを、ペットのそばに置く（luck: 0 = ふつう / 1 = レア / 2 = スーパーレア）。置けなければ false */
+  giveEgg(kind: EggKind, luck = 0): boolean {
+    if (this.eggRoom() <= 0 || !Object.prototype.hasOwnProperty.call(EGG_COLORS, kind)) return false
+    const pt = this.pet
+    const a = Math.random() * Math.PI * 2
+    this.layEgg(pt.x + Math.cos(a) * 1.3, pt.z + Math.sin(a) * 1.3, [], luck >= 2 ? 25 : luck === 1 ? 32 : 40, kind)
+    this.eggs[this.eggs.length - 1].luck = luck === 1 || luck === 2 ? luck : undefined
+    this.burst(pt.x, this.ground(pt) + 0.6, pt.z, 'spark', luck ? 16 : 6, 2.5)
+    return true
+  }
+
+  /** メッセージ欄に出す（うんだめし用） */
+  luckySay(text: string) {
+    this.say(text)
+  }
+
+  /** うんだめしのたまごから生まれた子へのごほうび */
+  private luckyHatch(baby: Creature, luck: number) {
+    const k = luck >= 2 ? 1.5 : 1.25
+    baby.maxHp = Math.round(baby.maxHp * k)
+    baby.hp = baby.maxHp
+    baby.atk += luck >= 2 ? 3 : 1
+    this.gainXp(baby, luck >= 2 ? 20 : 8)
+    this.colorBurst(baby.x, this.ground(baby) + 0.6, baby.z, luck >= 2 ? '#ffd23f' : '#9be0ff', 14, 3)
+  }
+
+  private sparSide(c: Creature): SparSide {
+    return { name: c.sp.name, fam: familyOf(c.sp.id), tier: c.sp.tier, hp: Math.round(c.hp), maxHp: Math.round(c.maxHp), atk: c.atk, cheer: c.cheer, mine: c.team !== 'wild' }
   }
 
   // ================= たべもの =================
@@ -4205,6 +4280,7 @@ export class World {
       e.shadow.position.set(e.x, y + 0.03, e.z)
       // 生まれそうになると揺れる
       e.anim.material.rotation = e.t < 8 ? Math.sin(this.time * (e.t < 3 ? 30 : 14)) * 0.25 : 0
+      if (e.luck && Math.random() < dt * 2) this.burst(e.x, y + 0.5, e.z, 'spark', 1, 0.8)
       if (e.t <= 0) {
         this.scene.remove(e.anim.sprite, e.shadow)
         e.anim.dispose()
@@ -4223,6 +4299,7 @@ export class World {
         baby.maxHp = Math.round(SPECIES[id].hp * (e.wild ? 1 : 0.6))
         baby.hp = baby.maxHp
         this.burst(e.x, y + 0.3, e.z, 'spark', 14, 2.5)
+        if (e.luck) this.luckyHatch(baby, e.luck)
         if (e.wild) {
           if (Math.hypot(e.x - this.look.x, e.z - this.look.z) < 10) {
             this.say(`${FAMILY_NAME[e.kind]}のたまごから ${star}${SPECIES[id].name}が うまれた！ なかよく なれるかな`)
@@ -4564,7 +4641,7 @@ export class World {
     this.incomeT += dt
     if (this.incomeT > 20) {
       this.incomeT = 0
-      this.coins += 1 + Math.floor(this.creatures.filter((c) => c.team === 'friend').length / 2) + this.villageLevel() + this.marketIncome()
+      this.coins += 1 + Math.floor(this.creatures.filter((c) => c.team === 'friend').length / 2) + this.villageLevel() + this.marketIncome() + this.luckIncome
       // 野生と仲間は、暮らしているだけでも少しずつ育つ（それぞれ自分の性格の方向に）
       for (const c of this.creatures)
         if (c !== this.pet && c.sp.tier > 0 && c.grow === 0 && this.alive(c)) {
@@ -5893,8 +5970,9 @@ export class World {
       houses: this.houses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, ownerSp: h.ownerSp, owner: ownerKey(h), mats: h.mats, hp: Math.round(h.hp) })),
       structs: this.structs.map((b) => ({ kind: b.kind, stage: b.stage, x: b.x, z: b.z, rot: b.rot, len: b.len, mats: b.mats, hp: Math.round(b.hp) })),
       items: this.items.map((it) => ({ kind: it.kind, stage: it.stage, x: it.x, z: it.z, grow: it.grow, rot: it.rot })),
-      eggs: this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild, lucky: e.lucky, deco: e.deco })),
+      eggs: this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild, lucky: e.lucky, deco: e.deco, luck: e.luck })),
       secrets: this.saveSecrets(friends),
+      lucky: this.luckySave,
     }
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(data))
@@ -5932,6 +6010,7 @@ export class World {
       if (d.dexRare && typeof d.dexRare === 'object' && !Array.isArray(d.dexRare))
         for (const [k, v] of Object.entries(d.dexRare)) if (isSpecies(k) && (v === 1 || v === 2)) this.dexRare[k] = v
       this.dexClaimed = Math.round(num(d.dexClaimed, 0, 6, 0))
+      this.luckySave = d.lucky ?? null
       this.counters = sanitizeStats(d.counters)
       this.book = MissionBook.from(d.missions)
       this.nightTarget = this.night = d.night ?? 0
@@ -5995,6 +6074,7 @@ export class World {
         const parents = (Array.isArray(e.parents) ? e.parents : []).filter(isSpecies).slice(0, 2)
         if (kind === 'inherit' && !parents.length) continue
         this.layEgg(num(e.x, -HALF, HALF), num(e.z, -HALF, HALF), parents, num(e.t, 0, 120, 35), kind, !!e.wild, e.lucky === true, isSeason(e.deco) ? e.deco : undefined)
+        if (e.luck === 1 || e.luck === 2) this.eggs[this.eggs.length - 1].luck = e.luck
       }
       this.loadRoadState(d.road)
       this.loadSecrets(d.secrets, friends, Array.isArray(d.friends) ? d.friends.slice(0, 40) : [])
