@@ -68,7 +68,6 @@ function terrain(heightAt: (x: number, z: number) => number, map: THREE.Texture,
   // 起伏をなめらかに見せるため 1 マスを 2 分割（PS1 っぽさは頂点スナップで残る）
   const geo = new THREE.PlaneGeometry(SIZE, SIZE, SIZE * 2, SIZE * 2).rotateX(-Math.PI / 2)
   const pos = geo.attributes.position
-  const colors: number[] = []
   const a = new THREE.Color(tint[0])
   const b = new THREE.Color(tint[1])
   const r = rng(42)
@@ -87,15 +86,51 @@ function terrain(heightAt: (x: number, z: number) => number, map: THREE.Texture,
   // 地面のテクスチャ（草など）と かけ合わせるので、明るめの色にしておく
   const strata = [new THREE.Color('#e0b48a'), new THREE.Color('#f4d0a0'), new THREE.Color('#c8946a')]
   const rockC = [new THREE.Color('#d8d4cc'), new THREE.Color('#bfb8ae')]
+  const snowC = [new THREE.Color('#f4f8ff'), new THREE.Color('#dfe8f6')]
+  // 面を 3 組に分ける：0 = 地面のテクスチャ / 1 = 岩はだ（高い所の急な面・山の上のほう）/ 2 = 雪（山の てっぺん）
+  const fu = flat.attributes.uv
+  const buckets: { p: number[]; n: number[]; u: number[]; c: number[] }[] = [0, 1, 2].map(() => ({ p: [], n: [], u: [], c: [] }))
   for (let f = 0; f < fp.count; f += 3) {
     const ny = (fn.getY(f) + fn.getY(f + 1) + fn.getY(f + 2)) / 3
     const y = (fp.getY(f) + fp.getY(f + 1) + fp.getY(f + 2)) / 3
-    // 高い所の急な面は 岩はだ、低い所の急な面は 地層のしま
-    const c = ny < 0.72 ? (y > 2.6 ? rockC[Math.floor(y / 0.5) % 2] : strata[Math.floor(y / 0.32) % 3]) : a.clone().lerp(b, r())
-    for (let k = 0; k < 3; k++) colors.push(c.r, c.g, c.b)
+    let g = 0
+    let c: THREE.Color
+    if (y > 8.2 + r() * 1.2) {
+      // 山の てっぺん（高さ 8 より上）は 雪をかぶる
+      g = 2
+      c = snowC[ny > 0.6 ? 0 : 1]
+    } else if (y > 2.6 && (ny < 0.72 || y > 5.5 + r() * 1.5)) {
+      // 高い所の急な面と 山の上のほうは 岩はだ
+      g = 1
+      c = rockC[Math.floor(y / 0.5) % 2]
+    } else c = ny < 0.72 ? strata[Math.floor(y / 0.32) % 3] : a.clone().lerp(b, r())
+    const B = buckets[g]
+    for (let k = f; k < f + 3; k++) {
+      B.p.push(fp.getX(k), fp.getY(k), fp.getZ(k))
+      B.n.push(fn.getX(k), fn.getY(k), fn.getZ(k))
+      B.u.push(fu.getX(k), fu.getY(k))
+      B.c.push(c.r, c.g, c.b)
+    }
   }
-  flat.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
-  const mesh = new THREE.Mesh(flat, psx(new THREE.MeshLambertMaterial({ map, vertexColors: true }), { ground: true, snow: snowy }))
+  const out = new THREE.BufferGeometry()
+  const cat = (key: 'p' | 'n' | 'u' | 'c') => buckets.flatMap((B) => B[key])
+  out.setAttribute('position', new THREE.Float32BufferAttribute(cat('p'), 3))
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(cat('n'), 3))
+  out.setAttribute('uv', new THREE.Float32BufferAttribute(cat('u'), 2))
+  out.setAttribute('color', new THREE.Float32BufferAttribute(cat('c'), 3))
+  let start = 0
+  buckets.forEach((B, g) => {
+    const cnt = B.p.length / 3
+    if (cnt) out.addGroup(start, cnt, g)
+    start += cnt
+  })
+  flat.dispose()
+  const opt = { ground: true, snow: snowy }
+  const mesh = new THREE.Mesh(out, [
+    psx(new THREE.MeshLambertMaterial({ map, vertexColors: true }), opt),
+    psx(new THREE.MeshLambertMaterial({ map: Tex.rock(), vertexColors: true }), opt),
+    psx(new THREE.MeshLambertMaterial({ vertexColors: true }), opt),
+  ])
   return mesh
 }
 
@@ -303,20 +338,22 @@ function seedGrove(): Stage {
   const borderDrop = (x: number, z: number) => smooth(SIZE / 2, SIZE / 2 - 0.7 * k, Math.max(Math.abs(x), Math.abs(z)) * k)
   const mountains = (x: number, z: number) => {
     // x, z は元の 20 マスの位置
-    const north = smooth(B, B - 1.6, z)
-    const west = smooth(B, B - 1.6, x) * smooth(1.6, -0.4, z)
+    const north = smooth(B, B - 2.2, z)
+    const west = smooth(B, B - 2.2, x) * smooth(1.6, -0.4, z)
     const m = Math.max(north, west)
     if (m <= 0) return 0
     const ridge = Math.abs(Math.sin(x * 0.55 + 0.7) + 0.6 * Math.sin(x * 1.35 + z * 0.8) + 0.45 * Math.sin(z * 1.15 - 0.4))
-    return m * (2.4 + 2.4 * ridge) * borderDrop(x, z)
+    // 峰は 高く・とがらせる（いちばん高い所で 16 ほど）。広げた島ほど 高く
+    const peak = Math.pow(ridge / 2.05, 1.6)
+    return m * (4.5 + 10 * peak) * Math.sqrt(k) * 0.85 * borderDrop(x, z)
   }
   // 段々の高台：1 段目（x, z < -1.2・高さ 1.2・東の z -4.8〜-3.0 だけ坂）/ 2 段目（x, z < -3.8・高さ 2.4・南の x -5.9〜-4.6 だけ坂）
   const step = (out: number, soft: number) => smooth(soft, 0, out)
   const terraces = (x: number, z: number) => {
     const r1 = smooth(-5.4, -4.6, z) * smooth(-2.4, -3.2, z) * (x > -2.2 ? 1 : 0)
-    const t1 = 1.2 * step(Math.max(x + 1.2, z + 1.2), 0.75 + r1 * 2.0)
+    const t1 = 1.8 * step(Math.max(x + 1.2, z + 1.2), 1.0 + r1 * 2.2)
     const r2 = smooth(-6.5, -5.7, x) * smooth(-4.0, -4.8, x) * (z > -4.4 ? 1 : 0)
-    const t2 = 1.2 * step(Math.max(x + 3.8, z + 3.8), 0.75 + r2 * 2.0)
+    const t2 = 1.8 * step(Math.max(x + 3.8, z + 3.8), 1.0 + r2 * 2.2)
     return t1 + t2
   }
   // 岩の壁：くねりながら南へ。切り通しが 3 つ（z 1.6 / 4.2 / 7.4 のあたりは 通れる）
@@ -325,7 +362,7 @@ function seedGrove(): Stage {
     if (z < 0) return 0
     const cut = Math.min(Math.abs(z - 1.6), Math.abs(z - 4.2), Math.abs(z - 7.4))
     const gap = smooth(0.0, 0.5, cut - 0.6)
-    return 1.8 * smooth(0.8, 0.32, Math.abs(x - wallX(z))) * gap * smooth(0, 1.2, z) * borderDrop(x, z)
+    return 2.6 * smooth(0.8, 0.32, Math.abs(x - wallX(z))) * gap * smooth(0, 1.2, z) * borderDrop(x, z)
   }
   const riverXu = (z: number) => -6.4 + Math.sin(z * 0.6 + 0.5) * 1.0
   const riverX = (z: number) => riverXu(z / k) * k
@@ -337,7 +374,7 @@ function seedGrove(): Stage {
   const heightAt = (wx: number, wz: number) => {
     const x = wx / k
     const z = wz / k
-    let h = 0.25 + (Math.sin(x * 0.42) * Math.cos(z * 0.36) * 0.25 + mounds(x, z, [[5.6, 4.2, 2.6, 1.2], [2.2, 7.2, 2.2, 0.9], [7.2, -1.2, 2.0, 0.8]])) * edge(wx, wz)
+    let h = 0.25 + (Math.sin(x * 0.42) * Math.cos(z * 0.36) * 0.25 + mounds(x, z, [[5.6, 4.2, 2.6, 2.0], [2.2, 7.2, 2.2, 1.5], [7.2, -1.2, 2.0, 1.4]])) * edge(wx, wz)
     const ds = Math.hypot(wx - spring.x, wz - spring.z)
     h = THREE.MathUtils.lerp(0.24, h, smooth(spring.r, spring.r + 1.2, ds))
     // 村を建てる まんなかは 広く平らに
