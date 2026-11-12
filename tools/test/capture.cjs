@@ -1,7 +1,7 @@
-// usage: node cap.cjs <dist> <outdir> <name> <query> <zoom> <night 0|1> [sim seconds]
+// usage: node cap.cjs <dist> <outdir> <name> <query> <zoom> <night 0|1> [sim seconds] [weather] [stage index]
 const { chromium } = require('playwright')
 const http = require('http'), fs = require('fs'), path = require('path')
-const [dir, outDir, name, query, zoom, night, simS, weather] = process.argv.slice(2)
+const [dir, outDir, name, query, zoom, night, simS, weather, stageI] = process.argv.slice(2)
 const types = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html' }
 const srv = http.createServer((q, r) => { let f = path.join(dir, decodeURIComponent(q.url.split('?')[0])); if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(dir, 'index.html'); r.writeHead(200, { 'content-type': types[path.extname(f)] || 'application/octet-stream' }); r.end(fs.readFileSync(f)) }).listen(0, async () => {
   const b = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] })
@@ -13,8 +13,9 @@ const srv = http.createServer((q, r) => { let f = path.join(dir, decodeURICompon
   p.on('pageerror', (e) => console.log('pageerror', e.message))
   await p.goto(`http://localhost:${srv.address().port}/${query}`)
   await p.waitForFunction(() => window.__pulsar, null, { timeout: 150000 })
-  const url = await p.evaluate(async ([zoom, night, simS, weather]) => {
+  const url = await p.evaluate(async ([zoom, night, simS, weather, stageI]) => {
     const P = window.__pulsar, w = P.world
+    if (stageI) w.loadStage(stageI)
     const render = w.render.bind(w), hud = w.drawHud.bind(w)
     w.render = () => {}; w.drawHud = () => {}
     w.coins = 99999
@@ -44,7 +45,7 @@ const srv = http.createServer((q, r) => { let f = path.join(dir, decodeURICompon
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = ((H - 1 - y) * W + x) * 4, o = (y * W + x) * 4; for (let k = 0; k < 3; k++) img.data[o + k] = Math.round(Math.pow(px[i + k] / 255, 1 / 2.2) * 255); img.data[o + 3] = 255 }
     g.putImageData(img, 0, 0)
     return cv.toDataURL('image/png')
-  }, [+zoom, +night, +(simS || 20), weather || 'sun'])
+  }, [+zoom, +night, +(simS || 20), weather || 'sun', +(stageI || 0)])
   fs.writeFileSync(path.join(outDir, name + '.png'), Buffer.from(url.split(',')[1], 'base64'))
   console.log('saved', name)
   await b.close(); srv.close()
