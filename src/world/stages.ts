@@ -10,10 +10,10 @@ import { STAGES2 } from './stages2'
  * オリジナルのステージ 5 種。どれも「デジタル空間に浮かぶ四角い箱庭」。
  * 地形・小物はローポリ + Gouraud（頂点ライティング）+ Nearest テクスチャで PS1 風に。
  */
-export let SIZE = 32
+export let SIZE = 40
 export let HALF = SIZE / 2 - 0.8
 /** 箱庭の広さ（かいたくで ひろがる）。ステージを作り直す前に呼ぶ */
-export const LAND_SIZES = [32, 40, 48]
+export const LAND_SIZES = [40, 48, 56]
 export function setLandSize(n: number) {
   SIZE = n
   HALF = n / 2 - 0.8
@@ -299,12 +299,12 @@ function seedGrove(): Stage {
   // 入り組んだ地形（計画 D の見本）：
   //  奥（北と西のふち）= のぼれない山なみ / 北西 = 2 段の高台（東の坂 → 南の坂の つづら折り）
   //  西 = くねる岩の壁（まんなかに切り通し 1 つ）と、その西の谷を 蛇行する川（浅瀬 1 つ）/ 手前 = なだらかな丘
-  const B = -HU + 2.8 // 山なみの内がわの線
+  const B = -HU + 2.0 // 山なみの内がわの線（うすく：歩ける所を広く）
   const borderDrop = (x: number, z: number) => smooth(SIZE / 2, SIZE / 2 - 0.7 * k, Math.max(Math.abs(x), Math.abs(z)) * k)
   const mountains = (x: number, z: number) => {
     // x, z は元の 20 マスの位置
-    const north = smooth(B, B - 2.0, z)
-    const west = smooth(B, B - 2.0, x) * smooth(1.6, -0.4, z)
+    const north = smooth(B, B - 1.6, z)
+    const west = smooth(B, B - 1.6, x) * smooth(1.6, -0.4, z)
     const m = Math.max(north, west)
     if (m <= 0) return 0
     const ridge = Math.abs(Math.sin(x * 0.55 + 0.7) + 0.6 * Math.sin(x * 1.35 + z * 0.8) + 0.45 * Math.sin(z * 1.15 - 0.4))
@@ -314,22 +314,25 @@ function seedGrove(): Stage {
   const step = (out: number, soft: number) => smooth(soft, 0, out)
   const terraces = (x: number, z: number) => {
     const r1 = smooth(-5.4, -4.6, z) * smooth(-2.4, -3.2, z) * (x > -2.2 ? 1 : 0)
-    const t1 = 1.2 * step(Math.max(x + 1.2, z + 1.2), 0.3 + r1 * 2.4)
+    const t1 = 1.2 * step(Math.max(x + 1.2, z + 1.2), 0.75 + r1 * 2.0)
     const r2 = smooth(-6.5, -5.7, x) * smooth(-4.0, -4.8, x) * (z > -4.4 ? 1 : 0)
-    const t2 = 1.2 * step(Math.max(x + 3.8, z + 3.8), 0.3 + r2 * 2.4)
+    const t2 = 1.2 * step(Math.max(x + 3.8, z + 3.8), 0.75 + r2 * 2.0)
     return t1 + t2
   }
-  // 岩の壁：くねりながら南へ。z 3.6〜4.8 は切り通し（通れる）
+  // 岩の壁：くねりながら南へ。切り通しが 3 つ（z 1.6 / 4.2 / 7.4 のあたりは 通れる）
   const wallX = (z: number) => -3.4 + Math.sin(z * 0.55) * 0.9
   const wall = (x: number, z: number) => {
     if (z < 0) return 0
-    const gap = smooth(0.0, 0.5, Math.abs(z - 4.2) - 0.6)
+    const cut = Math.min(Math.abs(z - 1.6), Math.abs(z - 4.2), Math.abs(z - 7.4))
+    const gap = smooth(0.0, 0.5, cut - 0.6)
     return 1.8 * smooth(0.8, 0.32, Math.abs(x - wallX(z))) * gap * smooth(0, 1.2, z) * borderDrop(x, z)
   }
   const riverXu = (z: number) => -6.4 + Math.sin(z * 0.6 + 0.5) * 1.0
   const riverX = (z: number) => riverXu(z / k) * k
   const RIVER_Z0 = -0.6
-  const FORD_Z = 3.0
+  // 浅瀬（歩いてわたれる所）は 2 つ
+  const FORDS = [1.6, 6.2]
+  const isFord = (zu: number) => FORDS.some((f) => Math.abs(zu - f) < 0.8)
   const river = (x: number, z: number) => (z < RIVER_Z0 ? 0 : smooth(0.95, 0.45, Math.abs(x - riverXu(z))))
   const heightAt = (wx: number, wz: number) => {
     const x = wx / k
@@ -343,7 +346,7 @@ function seedGrove(): Stage {
     h = Math.max(h, mountains(x, z) + 0.25)
     h += wall(x, z)
     // 川は少し低く（浅瀬は ほんの少し）
-    h -= river(x, z) * (Math.abs(z - FORD_Z) < 0.8 ? 0.06 : 0.22)
+    h -= river(x, z) * (isFord(z) ? 0.06 : 0.22)
     return Math.max(0.24, h)
   }
   const group = new THREE.Group()
@@ -356,7 +359,7 @@ function seedGrove(): Stage {
   for (let zu = RIVER_Z0; zu <= HU + 0.6; zu += 0.6 / k) {
     const z = zu * k
     const x = riverX(z)
-    const ford = Math.abs(zu - FORD_Z) < 0.8
+    const ford = isFord(zu)
     const disk = new THREE.Mesh(new THREE.CircleGeometry(0.62 * k, 10).rotateX(-Math.PI / 2), ford ? fordMat : riverMat)
     disk.position.set(x, heightAt(x, z) + 0.05, z)
     group.add(disk)

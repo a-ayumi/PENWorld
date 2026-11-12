@@ -14,8 +14,10 @@ export interface Circle {
   water?: boolean
 }
 
-/** 隣の升目との高さの差がこれより大きいと、のぼり降りできない（崖） */
-export const CLIFF = 0.55
+/** 隣の升目（0.5 マス）へ のぼれる高さの差。これより高い段差は のぼれない（崖） */
+export const CLIFF = 0.75
+/** とびおりられる高さの差（降りるのは のぼるより ずっと楽） */
+export const DROP = 1.7
 const SOLID = 1
 const WATER = 2
 
@@ -86,9 +88,24 @@ export class NavGrid {
   standable(x: number, z: number, swim: boolean) {
     return this.open(this.cellOf(x, z).k, swim)
   }
-  /** a の升目から b の升目へ 1 歩で行けるか（崖でない） */
+  /** a の升目から b の升目へ 1 歩で行けるか（のぼりは CLIFF まで・とびおりは DROP まで） */
   step(ka: number, kb: number) {
-    return Math.abs(this.h[ka] - this.h[kb]) <= CLIFF
+    const d = this.h[kb] - this.h[ka]
+    return d <= CLIFF && d >= -DROP
+  }
+  /** まわりの 8 マスの どこへも行けない（はまっている）か */
+  trapped(k: number, swim: boolean) {
+    const i0 = k % this.n
+    const j0 = (k - i0) / this.n
+    for (let dj = -1; dj <= 1; dj++)
+      for (let di = -1; di <= 1; di++) {
+        const i = i0 + di
+        const j = j0 + dj
+        if ((!di && !dj) || i < 0 || j < 0 || i >= this.n || j >= this.n) continue
+        const nk = j * this.n + i
+        if (this.open(nk, swim) && this.step(k, nk)) return false
+      }
+    return true
   }
 
   /** 2 点のあいだを まっすぐ歩けるか（0.25 マスごとに見る） */
@@ -111,7 +128,7 @@ export class NavGrid {
    * 目的地がふさがっていたら、いちばん近い 立てる升目を目的地にする。
    * maxNodes で 調べる数に上限（重くならないように）。
    */
-  findPath(sx: number, sz: number, tx: number, tz: number, swim: boolean, maxNodes = 4000): { x: number; z: number }[] | null {
+  findPath(sx: number, sz: number, tx: number, tz: number, swim: boolean, maxNodes = 14000): { x: number; z: number }[] | null {
     const n = this.n
     const s = this.cellOf(sx, sz)
     let t = this.cellOf(tx, tz)
@@ -201,7 +218,7 @@ export class NavGrid {
           if (!this.open(nk, swim) || !this.step(k, nk)) continue
           // ななめは 両どなりが通れる時だけ（角を すり抜けない）
           if (di && dj && (!this.open(cj * n + ni, swim) || !this.open(nj * n + ci, swim))) continue
-          const ng = this.g[k] + (di && dj ? 1.414 : 1) + Math.abs(this.h[nk] - this.h[k]) * 2
+          const ng = this.g[k] + (di && dj ? 1.414 : 1) + Math.max(0, this.h[nk] - this.h[k]) * 2
           if (this.seen[nk] === st && ng >= this.g[nk]) continue
           this.seen[nk] = st
           this.g[nk] = ng

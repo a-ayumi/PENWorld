@@ -79,8 +79,8 @@ export const SHOP: ShopItem[] = [
   { id: 'bp-market', cat: 'plan', icon: 'market', name: 'せっけいず：いちば', price: 130, desc: 'むらレベル 1 から。しゅうにゅう UP、\nうりこが みせに たつ', plan: 'market' },
   { id: 'bp-fort', cat: 'plan', icon: 'fort', name: 'せっけいず：とりで', price: 150, desc: 'ちかくの なかまの こうげきが UP', plan: 'fort' },
 
-  { id: 'land1', cat: 'land', icon: 'land', name: 'かいたく ①', price: 250, desc: 'はこにわが 32 → 40 に ひろがる。\n家や たてもの・置き物は そのまま', land: 1 },
-  { id: 'land2', cat: 'land', icon: 'land', name: 'かいたく ②', price: 500, desc: 'はこにわが 40 → 48 に ひろがる。\nおおきな むらを つくれる', land: 2 },
+  { id: 'land1', cat: 'land', icon: 'land', name: 'かいたく ①', price: 250, desc: 'はこにわが 40 → 48 に ひろがる。\n家や たてもの・置き物は そのまま', land: 1 },
+  { id: 'land2', cat: 'land', icon: 'land', name: 'かいたく ②', price: 500, desc: 'はこにわが 48 → 56 に ひろがる。\nおおきな むらを つくれる', land: 2 },
 ]
 
 /** 買えるか？ と、買えない理由（色で見せる） */

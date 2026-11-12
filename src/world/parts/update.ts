@@ -12,7 +12,7 @@ import { Creature, FOODS, CARE_NAME, FX_SHEETS, CAM_OFF, HOUSE_STEPS, MAX_FRIEND
 
 export function update(this: World, dt: number) {
   this.obsFrame++
-  this.pathBudget = 6
+  this.pathBudget = 4
   const rawDt = dt
   if (this.hitStop > 0) {
     this.hitStop -= dt
@@ -1053,6 +1053,7 @@ export function tap(this: World, u: number, v: number): boolean {
   const hit = this.pickAt(x, y)
   if (hit) {
     this.picked = hit
+    if (hit.type === 'chest') this.sendToChest(hit.ref)
     this.onSfx('select')
     return true
   }
