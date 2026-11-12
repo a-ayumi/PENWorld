@@ -210,7 +210,8 @@ export function moveTo(this: World, c: Creature, tx: number, tz: number, speed: 
     if (ahead <= -0.2 || ahead > 2.4 || ahead > d + o.r) continue
     const cross = bx * vz - bz * vx // 物が進行方向の左(+)か右(-)か
     const side = Math.abs(cross)
-    const clear = o.r + 0.75
+    // 道をたどっている時は 木のすきまも通れるよう、よける幅を せまく
+    const clear = o.r + (c.path ? 0.35 : 0.75)
     if (side < clear) {
       // 物がある側と反対へ、進行方向に直角に曲がる
       const dir = side > 0.08 ? (cross > 0 ? -1 : 1) : c.avoid
@@ -274,7 +275,7 @@ export function collide(this: World, c: Creature) {
     if (o.water && c.sp.float) continue
     const dx = c.x - o.x
     const dz = c.z - o.z
-    const min = o.r + 0.3
+    const min = o.r + 0.22
     const d = Math.hypot(dx, dz)
     if (d < min && d > 0) {
       c.x = o.x + (dx / d) * min

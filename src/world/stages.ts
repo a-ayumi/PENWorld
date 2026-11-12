@@ -370,13 +370,14 @@ function seedGrove(): Stage {
   const bandA = { x: 1.2 * k, z: HALF + 0.4 }
   const bandB = { x: HALF + 0.4, z: 1.6 * k }
   const bandLen = Math.hypot(bandB.x - bandA.x, bandB.z - bandA.z)
-  for (let t = 0; t <= 1.0001; t += 0.8 / bandLen) {
+  // 木と木のあいだは すこし あけて、すきまを ぬって歩ける（行けない所を つくらない）
+  for (let t = 0; t <= 1.0001; t += 1.6 / bandLen) {
     const x = THREE.MathUtils.lerp(bandA.x, bandB.x, t)
     const z = THREE.MathUtils.lerp(bandA.z, bandB.z, t)
     // まんなかに 小道（2 マスほど）
     if (Math.abs(t - 0.5) * bandLen < 1.3) continue
     band.push({ x, z })
-    obstacles.push({ x, z, r: 0.42 })
+    obstacles.push({ x, z, r: 0.36 })
   }
   // たからばこ：高台のおく と 森の帯のむこう（行き止まりの ごほうび）
   const treasures: { x: number; z: number; mesh: THREE.Object3D }[] = []

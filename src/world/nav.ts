@@ -66,7 +66,7 @@ export class NavGrid {
   }
 
   /** 物の置き方から ふさがっている升目を作り直す（margin = 体の半径） */
-  rebuild(obs: Circle[], margin = 0.3) {
+  rebuild(obs: Circle[], margin = 0.2) {
     this.flags.fill(0)
     for (const o of obs) {
       const r = o.r + margin
