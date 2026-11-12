@@ -1151,7 +1151,7 @@ export function initLuckyUI(o: LuckyUIOpts) {
   openBtn.addEventListener('click', () => {
     o.beeper.unlock()
     play([[2200, 0.04]])
-    open(panel.hidden)
+    open(panel.hidden === true)
   })
   $('lucky-close').addEventListener('click', () => open(false))
   // ほかのパネル（きせかえ・ずかん など）が開いたら、こちらを閉じる
