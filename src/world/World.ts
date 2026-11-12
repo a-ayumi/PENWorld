@@ -185,7 +185,7 @@ export interface Egg { x: number; z: number; t: number; anim: SpriteAnim; shadow
 export interface SparSide { name: string; fam: string; tier: number; hp: number; maxHp: number; atk: number; cheer: boolean; mine: boolean }
 export interface SparMatch { id: number; a: SparSide; b: SparSide }
 export interface Popup { pos: THREE.Vector3; text: string; color: string; t: number; big?: boolean }
-export type Pick = { type: 'creature' | 'house' | 'struct' | 'item' | 'egg' | 'res' | 'food'; ref: any; armed: boolean }
+export type Pick = { type: 'creature' | 'house' | 'struct' | 'item' | 'egg' | 'res' | 'food' | 'chest'; ref: any; armed: boolean }
 export const STATE_NAME: Record<string, string> = {
   idle: 'ぼんやり', wander: 'さんぽ', hunt: 'おいかけている', fight: 'たたかっている', seek: 'ごはんへ むかう', eat: 'たべている', sleep: 'ねむっている', rest: 'やすんでいる',
   play: 'あそんでいる', happy: 'うれしい', faint: 'きぜつ', dead: 'たおれた', train: 'トレーニング', come: 'よばれた', gather: 'しざいを ひろう', build: 'しざいを はこぶ',
@@ -400,6 +400,8 @@ export class World {
   updateAge = Cr.updateAge
   updateTreasures = Vi.updateTreasures
   wantTreasure = Vi.wantTreasure
+  goToChest = Vi.goToChest
+  sendToChest = Vi.sendToChest
   friendCount = Cr.friendCount
   mark = Cr.mark
   setFollow = Cr.setFollow

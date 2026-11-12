@@ -1414,12 +1414,39 @@ export function updateTreasures(this: World, dt: number) {
 /** ひまな子は ときどき、まだ あいていない たからばこを 見に行く（行き止まりまで 道さがしで歩く） */
 export function wantTreasure(this: World, c: Creature) {
   const list = this.stage.treasures
-  if (!list || Math.random() > 0.04) return false
-  const i = Math.floor(Math.random() * list.length)
-  const t = list[i]
-  if (this.chestOpen.has(i)) return false
+  if (!list || Math.random() > 0.12) return false
+  const shut = list.map((t, i) => ({ t, i })).filter((e) => !this.chestOpen.has(e.i))
+  if (!shut.length) return false
+  // 近い はこほど えらばれやすい
+  shut.sort((a, b) => Math.hypot(a.t.x - c.x, a.t.z - c.z) - Math.hypot(b.t.x - c.x, b.t.z - c.z))
+  const e = shut[Math.random() < 0.6 ? 0 : Math.floor(Math.random() * shut.length)]
+  this.goToChest(c, e.t)
+  return true
+}
+
+/** たからばこへ むかわせる（道のりが長くても とちゅうで あきらめないよう、時間は きょりから） */
+export function goToChest(this: World, c: Creature, t: { x: number; z: number }) {
   c.tx = t.x + 0.3
   c.tz = t.z + 0.3
-  this.setState(c, 'wander', 16)
-  return true
+  this.setState(c, 'wander', 8 + (Math.hypot(t.x - c.x, t.z - c.z) / Math.max(0.6, c.sp.speed)) * 2.2)
+}
+
+/** たからばこを タップした：いちばん近くの ひまな なかま（いなければ ペット）が あけに行く */
+export function sendToChest(this: World, t: { x: number; z: number }) {
+  const i = this.stage.treasures?.indexOf(t as any) ?? -1
+  if (i < 0 || this.chestOpen.has(i)) return
+  const busy = new Set(['fight', 'dead', 'sleep', 'eat', 'work', 'carry', 'evolve'])
+  let best: Creature | null = null
+  let bd = Infinity
+  for (const c of this.creatures) {
+    if (!this.ally(c) || busy.has(c.state) || c.grow > 0) continue
+    const d = Math.hypot(c.x - t.x, c.z - t.z)
+    if (d < bd) {
+      bd = d
+      best = c
+    }
+  }
+  if (!best) return
+  this.goToChest(best, t)
+  this.say(`${this.nm(best)}が たからばこを あけに いった`)
 }

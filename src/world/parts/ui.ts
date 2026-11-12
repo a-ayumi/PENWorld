@@ -38,6 +38,7 @@ export function pickAt(this: World, x: number, y: number): Pick | null {
   for (const e of this.eggs) test(e.x, e.z, 0.6, { type: 'egg', ref: e, armed: false }, 10)
   for (const r of this.resources) test(r.x, r.z, 0.25, { type: 'res', ref: r, armed: false }, 8)
   for (const f of this.foods) test(f.x, f.z, 0.3, { type: 'food', ref: f, armed: false }, 8)
+  for (const t of this.stage.treasures ?? []) test(t.x, t.z, 0.6, { type: 'chest', ref: t, armed: false }, 11)
   return best
 }
 
@@ -50,6 +51,7 @@ export function pickValid(this: World, p: Pick) {
     case 'egg': return this.eggs.includes(p.ref)
     case 'res': return this.resources.includes(p.ref)
     case 'food': return this.foods.includes(p.ref)
+    case 'chest': return !!this.stage.treasures?.includes(p.ref)
   }
 }
 
@@ -133,6 +135,17 @@ export function describe(this: World, p: Pick): { title: string; sub: string; li
       const name = f.kind === 'stage' ? this.stage.food.name : FOODS[f.kind].name
       lines.push('おなかが すいた子が たべにくる')
       return { title: name, sub: 'たべもの', lines, bars, del: 'かたづける' }
+    }
+    case 'chest': {
+      const at = this.chestOpen.get(this.stage.treasures?.indexOf(p.ref) ?? -1)
+      if (at === undefined) {
+        lines.push('なかまが ちかくに くると あく')
+        lines.push('タップすると ちかくの子が あけに いく')
+      } else {
+        lines.push('からっぽ。しばらくすると また たまる')
+        bars.push(['つぎまで', Math.min(1, (this.time - at) / 480), '#ffd23f'])
+      }
+      return { title: 'たからばこ', sub: 'ごほうび', lines, bars, del: null }
     }
   }
 }
@@ -312,6 +325,7 @@ export function tapInfo(this: World, x: number, y: number): boolean {
   const next = this.pickAt(x, y)
   if (next) {
     this.picked = next
+    if (next.type === 'chest') this.sendToChest(next.ref)
     this.onSfx('select')
   } else {
     this.picked = null

@@ -87,7 +87,17 @@ export function size(this: World, c: Creature) {
 }
 
 export function ground(this: World, c: Creature) {
-  return this.stage.heightAt(c.x, c.z) + (c.sp.float ? 0.35 + Math.sin(this.time * 2 + c.phase) * 0.12 : 0)
+  return footY(this, c.x, c.z) + (c.sp.float ? 0.35 + Math.sin(this.time * 2 + c.phase) * 0.12 : 0)
+}
+
+/**
+ * 足もとの高さ。坂の上では 体のまわり（半径 0.22）で いちばん高い所に立たせる
+ * （地面の三角形は 0.5 マスごとの平らな面なので、まんなかの高さだけだと 坂や段差に めりこんで見える）
+ */
+function footY(w: World, x: number, z: number) {
+  const h = w.stage.heightAt
+  const r = 0.22
+  return Math.max(h(x, z), h(x + r, z), h(x - r, z), h(x, z + r), h(x, z - r)) + 0.02
 }
 
 /**
@@ -162,6 +172,12 @@ export function moveTo(this: World, c: Creature, tx: number, tz: number, speed: 
       c.path = this.nav.findPath(c.x, c.z, tx, tz, swim)
       c.pathTo = { x: tx, z: tz }
       c.pathI = 0
+      // 道が ない（崖の上・囲まれた所）：近くまで行けないので すぐ あきらめる
+      if (!c.path && !hold && dReal > 1.2) {
+        c.stuck = 2
+        c.detourN = 5
+        c.detour = null
+      }
     }
   }
   let gx = tx
@@ -194,7 +210,8 @@ export function moveTo(this: World, c: Creature, tx: number, tz: number, speed: 
     if (ahead <= -0.2 || ahead > 2.4 || ahead > d + o.r) continue
     const cross = bx * vz - bz * vx // 物が進行方向の左(+)か右(-)か
     const side = Math.abs(cross)
-    const clear = o.r + 0.75
+    // 道をたどっている時は 木のすきまも通れるよう、よける幅を せまく
+    const clear = o.r + (c.path ? 0.35 : 0.75)
     if (side < clear) {
       // 物がある側と反対へ、進行方向に直角に曲がる
       const dir = side > 0.08 ? (cross > 0 ? -1 : 1) : c.avoid
@@ -207,12 +224,17 @@ export function moveTo(this: World, c: Creature, tx: number, tz: number, speed: 
   const nx = c.x + (ux / ul) * step
   const nz = c.z + (uz / ul) * step
   // 崖：高さが大きくちがう升目へは のぼり降りしない（浮ける子は 水の上も）
+  // 行けない時は x だけ・z だけ に すべらせる。どこへも行けない（はまった）時は そのまま出してあげる
   const k0 = this.nav.cellOf(c.x, c.z).k
-  const k1 = this.nav.cellOf(nx, nz).k
-  if (k0 === k1 || this.nav.step(k0, k1)) {
+  const ok = (x: number, z: number) => {
+    const k1 = this.nav.cellOf(x, z).k
+    return k0 === k1 || this.nav.step(k0, k1)
+  }
+  if (ok(nx, nz) || this.nav.trapped(k0, swim)) {
     c.x = nx
     c.z = nz
-  }
+  } else if (Math.abs(nx - c.x) > 1e-4 && ok(nx, c.z)) c.x = nx
+  else if (Math.abs(nz - c.z) > 1e-4 && ok(c.x, nz)) c.z = nz
   if (Math.abs(ux) > 0.05) c.anim.facing = ux > 0 ? 1 : -1
   return dReal
 }
@@ -247,11 +269,13 @@ export function obstacles(this: World) {
 }
 
 export function collide(this: World, c: Creature) {
+  const ox = c.x
+  const oz = c.z
   for (const o of this.obstacles()) {
     if (o.water && c.sp.float) continue
     const dx = c.x - o.x
     const dz = c.z - o.z
-    const min = o.r + 0.3
+    const min = o.r + 0.22
     const d = Math.hypot(dx, dz)
     if (d < min && d > 0) {
       c.x = o.x + (dx / d) * min
@@ -271,6 +295,13 @@ export function collide(this: World, c: Creature) {
   }
   c.x = THREE.MathUtils.clamp(c.x, -HALF, HALF)
   c.z = THREE.MathUtils.clamp(c.z, -HALF, HALF)
+  // おしあいで 崖の上や かべの中へ 押しこまれない
+  const k0 = this.nav.cellOf(ox, oz).k
+  const k1 = this.nav.cellOf(c.x, c.z).k
+  if (k0 !== k1 && !this.nav.step(k0, k1) && !this.nav.trapped(k0, !!c.sp.float)) {
+    c.x = ox
+    c.z = oz
+  }
 }
 
 export function setState(this: World, c: Creature, s: State, t = 0) {
@@ -986,7 +1017,7 @@ export function updateEvo(this: World, c: Creature, dt: number) {
   c.anim.sprite.scale.y *= sy
   const gy = this.ground(c)
   c.anim.sprite.position.set(c.x + shake * h, gy + c.jy, c.z)
-  c.shadow.position.set(c.x, this.stage.heightAt(c.x, c.z) + 0.03, c.z)
+  c.shadow.position.set(c.x, footY(this, c.x, c.z) + 0.01, c.z)
   c.shadow.scale.setScalar(h * 0.9 * (1 + (sx - 1) * 0.6))
 }
 
