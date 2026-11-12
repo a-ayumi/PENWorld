@@ -5375,6 +5375,14 @@ export class World {
   }
 
   private updateCamera(dt: number) {
+    // 霧は「カメラからの距離」でかかるので、みおろしで引いた分だけ 霧の始まりと終わりも遠くへ（引くと白くかすまないように）
+    const fog = this.scene.fog as THREE.Fog | null
+    if (fog) {
+      const [n, f] = this.stage.fogRange ?? [14, 34]
+      const extra = this.view === 'top' ? Math.max(0, CAM_OFF.length() * (this.camZoom - 1)) : 0
+      fog.near = n + extra
+      fog.far = f + extra
+    }
     const p = this.pet
     // ペットの向き：動いた方向から求める（止まっている時は前の向きのまま）
     const mx = p.x - this.petLast.x
