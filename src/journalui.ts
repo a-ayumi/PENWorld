@@ -146,12 +146,12 @@ export function initJournal(world: World): JournalUI {
       panel.scrollTop = 0
     }
   }
-  btn.addEventListener('click', () => openPanel(panel.hidden))
+  btn.addEventListener('click', () => openPanel(panel.hidden === true))
   close.addEventListener('click', () => openPanel(false))
   // きせかえ・ずかんが開いたら、にっきは閉じる。本体の中に入っている間は ボタンを隠す
   const watch = (id: string, fn: (hidden: boolean) => void) => {
     const t = document.getElementById(id)
-    if (t) new MutationObserver(() => fn(t.hidden)).observe(t, { attributes: true, attributeFilter: ['hidden'] })
+    if (t) new MutationObserver(() => fn(t.hidden === true)).observe(t, { attributes: true, attributeFilter: ['hidden'] })
   }
   for (const id of ['dress-panel', 'dex-panel']) watch(id, (h) => !h && openPanel(false))
   watch('pad', (h) => {
