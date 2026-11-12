@@ -334,7 +334,8 @@ const EMBER_SUN = new THREE.Color('#ff7a3a')
 const TMP = new THREE.Color()
 /** にじの長さ（秒） */
 const BOW_LEN = 30
-const MAX_FRIENDS = 5
+/** なかまの上限（多すぎると眺めにくい・重い）。いっぱいの時は たまごの子は のはらで くらす */
+const MAX_FRIENDS = 10
 /** 敵軍のボス（たおすと実績） */
 const BOSSES = new WeakSet<object>()
 /** 色ちがいの出やすさ（ふつう 3% / ふしぎなたまご 8%） */
@@ -3411,6 +3412,10 @@ export class World {
 
   private ageT = 0
 
+  private friendCount() {
+    return this.creatures.filter((c) => c.team === 'friend' && c.state !== 'dead').length
+  }
+
   /** できごとの場所を おぼえる（おまかせカメラ用。w = 見に行きたさ） */
   private mark(x: number, z: number, w: number) {
     this.marks.push({ x, z, w, t: this.time })
@@ -3461,7 +3466,7 @@ export class World {
     const near = Math.hypot(c.x - this.look.x, c.z - this.look.z) < 10
     if (c.team === 'friend' || near) this.say(`${this.nm(c)}は じゅみょうを むかえ… しずかに ねむりについた`)
     this.burst(c.x, this.ground(c) + 0.8, c.z, 'heart', 5, 1.6)
-    if (c.team === 'friend' && this.eggs.length < 5 && Math.random() < 0.6) {
+    if (c.team === 'friend' && this.eggs.length < 5 && this.friendCount() + this.eggs.filter((e) => !e.wild).length <= MAX_FRIENDS && Math.random() < 0.6) {
       this.layEgg(c.x + 0.6, c.z + 0.3, [c.sp.id], 30)
       this.say(`${c.sp.name}の いたところに たまごが のこっていた`)
     }
@@ -4349,6 +4354,8 @@ export class World {
     if (!ready(p) || this.stats.mood < 55) return
     const mate = this.creatures.find((c) => c.team === 'friend' && ready(c) && Math.hypot(c.x - p.x, c.z - p.z) < 3)
     if (!mate) return
+    // なかまと（かえる前の）たまごで いっぱいなら、もう たまごは できない
+    if (this.friendCount() + this.eggs.filter((e) => !e.wild).length >= MAX_FRIENDS) return
     const fire = this.item('fire')
     const nearFire = fire && Math.hypot(fire.x - p.x, fire.z - p.z) < 3
     const chance = 0.22 * (nearFire ? 2 : 1) * (this.night > 0.5 ? 1.5 : 1) * (cradle ? 1.8 : 1)
@@ -4412,7 +4419,10 @@ export class World {
         const id = (fam ? BABY[e.kind] : e.parents[Math.floor(Math.random() * e.parents.length)]) as SpeciesId
         // 色ちがい：ふつう 3%、ふしぎなたまごは 8%
         const rare = SPECIES[id].tier > 0 && Math.random() < (e.lucky ? RARE_RATE_LUCKY : RARE_RATE)
-        const baby = this.spawn(id, e.wild ? 'wild' : 'friend', e.x, e.z, e.wild ? 0 : 0.01, { seed: newSeed(), rare })
+        // なかまが いっぱいなら、うまれた子は のはらで くらす（あとで空きができれば なかよくなって なかまに）
+        const full = !e.wild && this.friendCount() >= MAX_FRIENDS
+        if (full) this.say('なかまが いっぱいなので、うまれた子は のはらで くらすことに')
+        const baby = this.spawn(id, e.wild || full ? 'wild' : 'friend', e.x, e.z, e.wild || full ? 0 : 0.01, { seed: newSeed(), rare })
         baby.anim.setHeight(this.size(baby))
         const star = rare ? '★ いろちがいの ' : ''
         if (rare) {
@@ -6773,7 +6783,7 @@ export class World {
     const p = this.pet
     const x = 40
     const y = 28
-    this.win(x, y, 240, 164)
+    this.win(x, y, 240, 178)
     this.text(this.nm(p), x + 12, y + 8, '#ffffff', 13)
     this.text(p.sp.kind, x + 12, y + 25, '#9fd8ff', 9)
     this.text(`だい${this.stats.gen}せだい`, x + 228, y + 9, '#ffd23f', 9, 'right')
@@ -6788,11 +6798,11 @@ export class World {
     })
     const top = (Object.keys(this.care) as Care[]).sort((a, b) => this.care[b] - this.care[a])[0]
     const hint = this.care[top] > 0 ? CARE_NAME[top] : 'まだ ふつう'
-    this.text(`けいこう ${hint}   こうげき ${Math.round(p.atk)}   かち ${this.stats.wins}`, x + 12, y + 112, '#ffffff', 9)
+    this.text(`けいこう ${hint}   こうげき ${Math.round(p.atk)}   かち ${this.stats.wins}`, x + 12, y + 130, '#ffffff', 9)
     const friends = this.creatures.filter((c) => c.team === 'friend').length
     const home = this.homeOf(p)
-    const homeText = home ? ['たてはじめ', 'どだい', 'かべ', 'かんせい'][home.level] : 'なし'
-    this.text(`なかま ${friends}  こども ${this.stats.children}  いえ ${homeText}`, x + 12, y + 142, '#ffe9a8', 9)
+    const homeText = home ? ['たてはじめ', 'どだい', 'かべ', 'かんせい', 'ぞうちく'][home.level] ?? 'かんせい' : 'なし'
+    this.text(`なかま ${friends}/${MAX_FRIENDS}  こども ${this.stats.children}  いえ ${homeText}`, x + 12, y + 152, '#ffe9a8', 9)
   }
 
   private drawShop() {

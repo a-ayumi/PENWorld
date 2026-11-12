@@ -1238,9 +1238,9 @@ function resize() {
   camera.aspect = w / h
   // 液晶（幅 1.48）+ ボタンが画面いっぱいに収まる距離に。本体の縁や背景ははみ出してよい
   const halfV = THREE.MathUtils.degToRad(camera.fov / 2)
-  // 少し引いて、本体の形と背景の場所も見えるように
-  const needH = 4.3 / 2 / Math.tan(halfV)
-  const needW = 2.8 / 2 / (Math.tan(halfV) * camera.aspect)
+  // 液晶が大きく見えるよう、本体の縁は少しはみ出してよい（液晶とボタンは入る）
+  const needH = 3.6 / 2 / Math.tan(halfV)
+  const needW = 2.25 / 2 / (Math.tan(halfV) * camera.aspect)
   const dist = Math.max(needH, needW)
   camera.position.set(0, LOOK.y + 0.12 + dist * 0.03, dist + 0.5)
   camera.lookAt(LOOK)
