@@ -233,6 +233,12 @@ export function moveTo(this: World, c: Creature, tx: number, tz: number, speed: 
   if (ok(nx, nz) || this.nav.trapped(k0, swim)) {
     c.x = nx
     c.z = nz
+  } else {
+    // 道から それて 崖に ぶつかった：次のフレームで いまの場所から 道を さがしなおす
+    if (c.pathTo) c.pathTo = { x: 1e9, z: 1e9 }
+  }
+  if (c.x === nx && c.z === nz) {
+    // すすめた
   } else if (Math.abs(nx - c.x) > 1e-4 && ok(nx, c.z)) c.x = nx
   else if (Math.abs(nz - c.z) > 1e-4 && ok(c.x, nz)) c.z = nz
   if (Math.abs(ux) > 0.05) c.anim.facing = ux > 0 ? 1 : -1

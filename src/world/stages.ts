@@ -64,7 +64,8 @@ function mounds(x: number, z: number, list: [number, number, number, number][]) 
 const edge = (x: number, z: number) => smooth(SIZE / 2, SIZE / 2 - 2.5, Math.max(Math.abs(x), Math.abs(z)))
 
 // ---------- 共通パーツ ----------
-function terrain(heightAt: (x: number, z: number) => number, map: THREE.Texture, tint: [string, string], snowy = true) {
+/** opt.rock = 岩はだの 2 色（既定は灰色）、opt.snowLine = 雪をかぶる高さ（既定 8.2、Infinity で なし） */
+function terrain(heightAt: (x: number, z: number) => number, map: THREE.Texture, tint: [string, string], snowy = true, opt: { rock?: [string, string]; snowLine?: number } = {}) {
   // 起伏をなめらかに見せるため 1 マスを 2 分割（PS1 っぽさは頂点スナップで残る）
   const geo = new THREE.PlaneGeometry(SIZE, SIZE, SIZE * 2, SIZE * 2).rotateX(-Math.PI / 2)
   const pos = geo.attributes.position
@@ -85,7 +86,7 @@ function terrain(heightAt: (x: number, z: number) => number, map: THREE.Texture,
   const fn = flat.attributes.normal
   // 地面のテクスチャ（草など）と かけ合わせるので、明るめの色にしておく
   const strata = [new THREE.Color('#e0b48a'), new THREE.Color('#f4d0a0'), new THREE.Color('#c8946a')]
-  const rockC = [new THREE.Color('#d8d4cc'), new THREE.Color('#bfb8ae')]
+  const rockC = (opt.rock ?? ['#d8d4cc', '#bfb8ae']).map((c) => new THREE.Color(c))
   const snowC = [new THREE.Color('#f4f8ff'), new THREE.Color('#dfe8f6')]
   // 面を 3 組に分ける：0 = 地面のテクスチャ / 1 = 岩はだ（高い所の急な面・山の上のほう）/ 2 = 雪（山の てっぺん）
   const fu = flat.attributes.uv
@@ -95,7 +96,7 @@ function terrain(heightAt: (x: number, z: number) => number, map: THREE.Texture,
     const y = (fp.getY(f) + fp.getY(f + 1) + fp.getY(f + 2)) / 3
     let g = 0
     let c: THREE.Color
-    if (y > 8.2 + r() * 1.2) {
+    if (y > (opt.snowLine ?? 8.2) + r() * 1.2) {
       // 山の てっぺん（高さ 8 より上）は 雪をかぶる
       g = 2
       c = snowC[ny > 0.6 ? 0 : 1]
@@ -125,11 +126,11 @@ function terrain(heightAt: (x: number, z: number) => number, map: THREE.Texture,
     start += cnt
   })
   flat.dispose()
-  const opt = { ground: true, snow: snowy }
+  const fxo = { ground: true, snow: snowy }
   const mesh = new THREE.Mesh(out, [
-    psx(new THREE.MeshLambertMaterial({ map, vertexColors: true }), opt),
-    psx(new THREE.MeshLambertMaterial({ map: Tex.rock(), vertexColors: true }), opt),
-    psx(new THREE.MeshLambertMaterial({ vertexColors: true }), opt),
+    psx(new THREE.MeshLambertMaterial({ map, vertexColors: true }), fxo),
+    psx(new THREE.MeshLambertMaterial({ map: Tex.rock(), vertexColors: true }), fxo),
+    psx(new THREE.MeshLambertMaterial({ vertexColors: true }), fxo),
   ])
   return mesh
 }
@@ -362,7 +363,7 @@ function seedGrove(): Stage {
     if (z < 0) return 0
     const cut = Math.min(Math.abs(z - 1.6), Math.abs(z - 4.2), Math.abs(z - 7.4))
     const gap = smooth(0.0, 0.5, cut - 0.6)
-    return 2.6 * smooth(0.8, 0.32, Math.abs(x - wallX(z))) * gap * smooth(0, 1.2, z) * borderDrop(x, z)
+    return 2.6 * smooth(0.8, 0.05, Math.abs(x - wallX(z))) * gap * smooth(0, 1.2, z) * borderDrop(x, z)
   }
   const riverXu = (z: number) => -6.4 + Math.sin(z * 0.6 + 0.5) * 1.0
   const riverX = (z: number) => riverXu(z / k) * k
@@ -553,13 +554,105 @@ function seedGrove(): Stage {
 // 2. ガラスの砂丘（Glass Dunes）— むかしの建物の跡が残る
 // =====================================================================
 function glassDunes(): Stage {
-  const heightAt = (x: number, z: number) =>
-    0.26 + (Math.pow(Math.sin(x * 0.28 + z * 0.17), 2) * 1.6 + Math.sin(z * 0.6 + x * 0.2) * 0.25 + mounds(x, z, [[5, -5, 2.4, 1.4]])) * edge(x, z)
+  // 入り組んだ地形（計画 D）。森と同じく 20 マスの島を元に作り、k = 広さ / 20 倍に ひろげる
+  //  北東 = テーブルの台地（まわりは地層の崖・西の坂だけ のぼれる・上に いせきの門）/ 南東 = 細い岩の塔（のぼれない）
+  //  南西 = 一段高い砂の台地と、それを切りこむ 涸れ谷（わき道の行き止まりに たからばこ）/ 西 = オアシス / 東 = 砂の波
+  const k = SIZE / 20
+  const MESA = { x: 3.6, z: -4.4, r: 2.4, h: 4.2 }
+  const SPIRE = { x: 6.6, z: 5.6 }
+  const oasis = { x: -6.0 * k, z: -1.8 * k, r: 1.5 * Math.sqrt(k) }
+  const canyonX = (z: number) => -2.6 + Math.sin(z * 0.75 + 0.4) * 1.4
+  const PLAT_Z = 3.4
+  const mesa = (x: number, z: number) => {
+    const a = Math.atan2(z - MESA.z, x - MESA.x)
+    const r0 = MESA.r + Math.sin(a * 3) * 0.35 + Math.sin(a * 5 + 1) * 0.2
+    const d = Math.hypot(x - MESA.x, z - MESA.z)
+    const top = MESA.h * smooth(r0 + 0.4, r0, d)
+    // 西の坂（はばは 2.6 マス。はばいっぱい 同じ高さで のぼる・わきは崖）
+    // 坂は 崖が立ちあがる前（r0 + 0.5）に のぼりきる（段差を のこさない）
+    const x0 = MESA.x - r0 - 4.4
+    const t = Math.min(1, Math.max(0, (x - x0) / 3.9))
+    const ramp = x > x0 && x < MESA.x ? MESA.h * t * smooth(1.7, 1.3, Math.abs(z - MESA.z)) : 0
+    return Math.max(top, ramp)
+  }
+  const spire = (x: number, z: number) => {
+    const d = Math.hypot(x - SPIRE.x, z - SPIRE.z)
+    return 7.5 * Math.pow(smooth(1.3, 0, d), 1.4)
+  }
+  // 南西の台地（高さ 1.8）。北のふちは崖、x -6.2 と 0.6 のあたりは なだらかな坂
+  const plateau = (x: number, z: number) => {
+    if (x > 2.6) return 0
+    const soft = 0.4 + 2.4 * Math.max(smooth(1.0, 0.3, Math.abs(x + 6.2)), smooth(1.0, 0.3, Math.abs(x - 0.6)))
+    const north = smooth(PLAT_Z, PLAT_Z + soft, z)
+    const east = smooth(2.6, 2.0, x)
+    let h = 1.8 * north * east
+    // 涸れ谷：台地を南へ切りこむ（底は 0.3）。z 6.2 で 西へ わき道（行き止まり）
+    const main = smooth(0.6, 1.15, Math.abs(x - canyonX(z)))
+    const side = x < canyonX(6.2) && x > -7.2 ? smooth(0.55, 1.05, Math.abs(z - 6.2)) : 1
+    h *= Math.min(main, side)
+    return h
+  }
+  const heightAt = (wx: number, wz: number) => {
+    const x = wx / k
+    const z = wz / k
+    // 東は 砂の波（尾根が南北に ならぶ）
+    const wave = Math.pow(Math.sin(x * 1.15 + Math.sin(z * 0.5) * 1.4) * 0.5 + 0.5, 1.5) * 2.3 * smooth(1.5, 4.5, x) * smooth(-2.0, 1.0, z)
+    let h = 0.26 + (wave + Math.sin(x * 0.4 + z * 0.3) * 0.18 + 0.18) * edge(wx, wz)
+    // 村を建てる まんなかは 平らに
+    h = THREE.MathUtils.lerp(0.3, h, smooth(3.0, 5.0, Math.hypot(x - 0.0, z - 0.2)))
+    const dOa = Math.hypot(wx - oasis.x, wz - oasis.z)
+    h = THREE.MathUtils.lerp(0.24, h, smooth(oasis.r, oasis.r + 1.4, dOa))
+    h = Math.max(h, mesa(x, z) + 0.26, spire(x, z) + 0.26)
+    h += plateau(x, z) * edge(wx, wz)
+    return Math.max(0.24, h)
+  }
   const group = new THREE.Group()
-  group.add(terrain(heightAt, Tex.sand(), ['#ffffff', '#ffe2c4']), base('sand'))
-  const obstacles: Obstacle[] = []
+  group.add(terrain(heightAt, Tex.sand(), ['#ffffff', '#ffe2c4'], true, { rock: ['#f0b48a', '#d89470'], snowLine: Infinity }), base('sand'))
+  const obstacles: Obstacle[] = [{ x: oasis.x, z: oasis.z, r: oasis.r - 0.2, water: true }]
   const foodSpots: FoodSpot[] = []
-  const put = placer(23, obstacles)
+  // オアシスの水と やしの木
+  const oMat = waterSurface({ deep: '#1f9fc8', shallow: '#8ff0e0', rings: true })
+  const oWater = new THREE.Mesh(new THREE.CircleGeometry(oasis.r, 12).rotateX(-Math.PI / 2), oMat)
+  oWater.position.set(oasis.x, 0.27, oasis.z)
+  group.add(oWater)
+  const trunkM = lambert('#a0703a', { map: Tex.bark() })
+  const frondM = lambert('#3fae5a')
+  for (let i = 0; i < 5; i++) {
+    const a = i * 1.26 + 0.3
+    const px = oasis.x + Math.cos(a) * (oasis.r + 0.6)
+    const pz = oasis.z + Math.sin(a) * (oasis.r + 0.6)
+    const palm = new THREE.Group()
+    const tr = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.15, 1.8, 5), trunkM)
+    tr.position.y = 0.9
+    tr.rotation.z = 0.12
+    palm.add(tr)
+    for (let f = 0; f < 5; f++) {
+      const fr = new THREE.Mesh(new THREE.ConeGeometry(0.16, 1.1, 3), frondM)
+      fr.position.set(Math.cos(f * 1.26) * 0.42 + 0.1, 1.78, Math.sin(f * 1.26) * 0.42)
+      fr.rotation.set(Math.sin(f * 1.26) * 1.25, 0, -Math.cos(f * 1.26) * 1.25)
+      palm.add(fr)
+    }
+    swayify(palm)
+    palm.position.set(px, heightAt(px, pz) - 0.05, pz)
+    group.add(palm)
+    obstacles.push({ x: px, z: pz, r: 0.25 })
+    foodSpots.push({ x: px, z: pz })
+  }
+  // たからばこ：台地の上（いせきの門の下）・涸れ谷の わき道の おく・岩の塔の うら
+  const treasures: { x: number; z: number; mesh: THREE.Object3D }[] = []
+  for (const [ux, uz] of [[MESA.x + 0.4, MESA.z - 0.6], [-6.6, 6.2], [SPIRE.x + 1.4, SPIRE.z + 1.6]]) {
+    const tx = THREE.MathUtils.clamp(ux * k, -HALF + 0.8, HALF - 0.8)
+    const tz = THREE.MathUtils.clamp(uz * k, -HALF + 0.8, HALF - 0.8)
+    const ch = chestModel()
+    ch.position.set(tx, heightAt(tx, tz), tz)
+    ch.rotation.y = -Math.PI * 0.2
+    group.add(ch)
+    treasures.push({ x: tx, z: tz, mesh: ch })
+    obstacles.push({ x: tx, z: tz, r: 0.3 })
+  }
+  // 岩の塔は 歩けない（まわりの崖で のぼれないが、ねんのため ふさぐ）
+  obstacles.push({ x: SPIRE.x * k, z: SPIRE.z * k, r: 0.9 * k })
+  const put = placer(23, obstacles, [{ x: MESA.x * k - (MESA.r + 2) * k, z: MESA.z * k, r: 1.6 * k }], heightAt)
 
   // けっしょう
   const crystalMats = [
@@ -592,10 +685,13 @@ function glassDunes(): Stage {
     group.add(m)
     obstacles.push({ x, z, r: 0.45 })
   }
-  pillar(-3.5, -3, 2.6, 0)
-  pillar(-1.3, -3, 2.6, 0)
+  // いせきの門は 台地の上に
+  const gx = MESA.x * k
+  const gz = (MESA.z + 0.6) * k
+  pillar(gx - 1.1, gz, 2.6, 0)
+  pillar(gx + 1.1, gz, 2.6, 0)
   const beam = new THREE.Mesh(new THREE.BoxGeometry(3, 0.45, 0.6), ruin)
-  beam.position.set(-2.4, heightAt(-2.4, -3) + 2.5, -3)
+  beam.position.set(gx, heightAt(gx - 1.1, gz) + 2.5, gz)
   beam.rotation.z = 0.05
   group.add(beam)
   for (let i = 0; i < dens(4); i++) {
@@ -605,10 +701,10 @@ function glassDunes(): Stage {
   }
   // 倒れた柱
   const fallen = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.5, 0.5), ruin)
-  fallen.position.set(3.2, heightAt(3.2, 3.5) + 0.15, 3.5)
+  fallen.position.set(3.2 * k, heightAt(3.2 * k, 3.0 * k) + 0.15, 3.0 * k)
   fallen.rotation.set(0, 0.6, 0.08)
   group.add(fallen)
-  obstacles.push({ x: 3.2, z: 3.5, r: 0.8 })
+  obstacles.push({ x: 3.2 * k, z: 3.0 * k, r: 0.8 })
 
   group.add(grass(heightAt, obstacles, SIZE, { count: dens(90), colors: ['#8a6a3a', '#e8cf86'], height: 0.36, seed: 302 }))
   const sky = skyDome(['#5b3a8a', '#ff9b6a', '#2a1a3a'], 0)
@@ -617,7 +713,7 @@ function glassDunes(): Stage {
   group.add(sky.mesh, vs.group, mt)
 
   return {
-    id: 1, name: 'ガラスの砂丘', sub: 'GLASS DUNES', group, heightAt, obstacles, foodSpots,
+    id: 1, name: 'ガラスの砂丘', sub: 'GLASS DUNES', group, heightAt, obstacles, foodSpots, treasures,
     food: { name: 'けっしょう糖', color: '#5ef2ff', leaf: '#ff7ad9' },
     residents: ['noiz', 'togebug', 'gougan'],
     fog: '#f0a878', sky: ['#5b3a8a', '#ff9b6a', '#2a1a3a'],
