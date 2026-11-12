@@ -25,7 +25,7 @@ export class DioramaLook {
   private readonly post: THREE.ShaderMaterial
   private readonly postScene = new THREE.Scene()
   private readonly postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
-  private readonly dir = new THREE.Vector3(Math.sin(AZIMUTH) * Math.cos(ELEVATION), Math.sin(ELEVATION), Math.cos(AZIMUTH) * Math.cos(ELEVATION))
+  private readonly dir = new THREE.Vector3()
   private readonly right = new THREE.Vector3()
   private readonly up = new THREE.Vector3()
   private shadowT = 0
@@ -43,12 +43,28 @@ export class DioramaLook {
     })
     this.post = makeDioramaPost(this.rt.texture, this.rt.depthTexture!, hudTex)
     this.postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.post))
+    this.setYaw(0)
+  }
+
+  /** 見る向き（0〜3：90° ずつ回す） */
+  yaw = 0
+  setYaw(k: number) {
+    this.yaw = ((k % 4) + 4) % 4
+    const az = AZIMUTH + this.yaw * (Math.PI / 2)
+    this.dir.set(Math.sin(az) * Math.cos(ELEVATION), Math.sin(ELEVATION), Math.cos(az) * Math.cos(ELEVATION))
     // カメラの向き（右・上）を先に求めておく（ピクセル合わせに使う）
     this.cam.position.copy(this.dir).multiplyScalar(DIST)
     this.cam.lookAt(0, 0, 0)
     this.cam.updateMatrixWorld()
     this.right.setFromMatrixColumn(this.cam.matrixWorld, 0)
     this.up.setFromMatrixColumn(this.cam.matrixWorld, 1)
+  }
+
+  /** 画面の右・奥（地面の上の向き）。指でずらす時に使う */
+  screenAxes() {
+    const r = new THREE.Vector3(this.right.x, 0, this.right.z).normalize()
+    const f = new THREE.Vector3(-this.dir.x, 0, -this.dir.z).normalize()
+    return { r, f }
   }
 
   /** 見る所（ペットのまわり）へカメラを置く。1 ピクセルの格子に吸わせる */

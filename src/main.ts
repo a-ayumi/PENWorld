@@ -434,6 +434,15 @@ chips(document.getElementById('set-motion')!, MOTIONS, () => motion, (id) => {
   applyMotion()
 })
 chips(document.getElementById('set-quality')!, QUALITY_PREFS, () => qualityPref, (id) => setQualityPref(id as QualityPref))
+// あそびかた：のんびり（既定・敵軍が来ない・おそわれない）/ にぎやか（今までどおり）
+const PLAY_MODES = { calm: { name: 'のんびり' }, lively: { name: 'にぎやか' } }
+let playMode = load<'calm' | 'lively'>('pulsar-mode', 'calm', PLAY_MODES)
+world.calm = playMode === 'calm'
+chips(document.getElementById('set-mode')!, PLAY_MODES, () => playMode, (id) => {
+  playMode = id === 'lively' ? 'lively' : 'calm'
+  save('pulsar-mode', playMode)
+  world.calm = playMode === 'calm'
+})
 applyText()
 applyMotion()
 // OS の「視覚効果を減らす」を後から変えた時（自分で選んでいなければ）についていく
@@ -792,6 +801,14 @@ document.getElementById('dex-close')!.addEventListener('click', () => {
 
 // ---------------- おねがい（日替わりミッション・季節・バッジ）----------------
 const missionBtn = document.getElementById('mission-btn') as HTMLButtonElement
+// 「あそび ▸」：おねがい・もくひょう・うんだめし の 3 つを出す / しまう
+const playBtn = document.getElementById('play-btn') as HTMLButtonElement
+playBtn.addEventListener('click', () => {
+  const open = !document.body.classList.contains('play-open')
+  document.body.classList.toggle('play-open', open)
+  playBtn.setAttribute('aria-expanded', String(open))
+  playBtn.textContent = open ? 'あそび ▾' : 'あそび ▸'
+})
 const missionPanel = document.getElementById('mission-panel') as HTMLElement
 function el(tag: string, cls?: string, text?: string) {
   const e = document.createElement(tag)
@@ -957,7 +974,8 @@ function setMode(m: Mode) {
   dressBtn.hidden = m === 'inside'
   dexBtn.hidden = m === 'inside'
   luckyUI.setInside(m === 'inside')
-  roadBtn.hidden = missionBtn.hidden = m === 'inside'
+  roadBtn.hidden = missionBtn.hidden = playBtn.hidden = m === 'inside'
+  syncCamBar()
   enterBtn.hidden = m !== 'device'
   if (m === 'inside') {
     dressPanel.hidden = dexPanel.hidden = missionPanel.hidden = true
@@ -1068,10 +1086,46 @@ function toggleChrome() {
   }
 }
 
+// ---------------- カメラ（画面の中：ついていく / おまかせ / 回す） ----------------
+const camFollow = document.getElementById('cam-follow') as HTMLButtonElement
+const camAuto = document.getElementById('cam-auto') as HTMLButtonElement
+function syncCamBar() {
+  const st = world.camState()
+  camFollow.setAttribute('aria-pressed', String(st.follow))
+  camAuto.setAttribute('aria-pressed', String(st.auto))
+  for (const id of ['cam-left', 'cam-right']) (document.getElementById(id) as HTMLButtonElement).hidden = !st.free
+}
+camFollow.addEventListener('click', () => {
+  world.setFollow(true)
+  syncCamBar()
+})
+camAuto.addEventListener('click', () => {
+  world.setAuto(!world.auto)
+  if (!world.auto) world.setFollow(true)
+  syncCamBar()
+})
+document.getElementById('cam-left')!.addEventListener('click', () => world.rotateView(-1))
+document.getElementById('cam-right')!.addEventListener('click', () => world.rotateView(1))
+window.addEventListener('keydown', (e) => {
+  if (typing(e) || e.repeat || mode !== 'inside') return
+  if (e.code === 'KeyF') camFollow.click()
+  if (e.code === 'KeyO') camAuto.click()
+  if (e.code === 'KeyQ') world.rotateView(-1)
+  if (e.code === 'KeyE') world.rotateView(1)
+})
+// 画面の中で しばらく何もさわらなければ、おまかせカメラに
+setInterval(() => {
+  if (mode !== 'inside' || world.auto || world.view !== 'top') return
+  if (performance.now() - lastInput > 45000) {
+    world.setAuto(true)
+    syncCamBar()
+  }
+}, 2000)
+
 // ---------------- 指の操作 ----------------
 // 1 本指：タップ = 液晶のアイコン / ドラッグ = 本体を傾ける（本体ビュー）
 // 2 本指：ピンチ = 箱庭のカメラを寄せる・引く、ドラッグ = 前後左右に動かす
-const touches = new Map<number, { x: number; y: number; sx: number; sy: number; t: number }>()
+const touches = new Map<number, { x: number; y: number; sx: number; sy: number; t: number; px?: number; py?: number }>()
 let gesture: { dist: number; mx: number; my: number } | null = null
 let gestured = false
 const pinchInfo = () => {
@@ -1112,6 +1166,24 @@ canvas.addEventListener('pointermove', (e) => {
     if (g.dist > 0 && gesture.dist > 0) world.zoomBy(gesture.dist / g.dist)
     world.panBy((g.mx - gesture.mx) / h, (g.my - gesture.my) / h)
     gesture = g
+    syncCamBar()
+    return
+  }
+  // 画面の中：1 本指（マウス）でドラッグ = 景色を自由に動かす
+  if (mode === 'inside' && tp && touches.size === 1 && (e.pointerType !== 'mouse' || e.buttons & 1)) {
+    const total = Math.hypot(tp.x - tp.sx, tp.y - tp.sy)
+    if (total > 10) {
+      if (!gestured) {
+        gestured = true
+        tp.px = tp.x - (e.movementX || 0)
+        tp.py = tp.y - (e.movementY || 0)
+      }
+      const h = window.innerHeight
+      world.panBy((tp.x - (tp.px ?? tp.x)) / h, (tp.y - (tp.py ?? tp.y)) / h)
+      tp.px = tp.x
+      tp.py = tp.y
+      syncCamBar()
+    }
     return
   }
   if (drag && e.pointerId === drag.id) {

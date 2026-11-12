@@ -481,6 +481,19 @@ export class World {
   /** ピクセル・ジオラマの見た目（見本。URL の ?look=diorama の時だけ。みおろし視点で使う） */
   private diorama: DioramaLook | null = null
   private readonly dioLook = new THREE.Vector3()
+  /**
+   * 遊びかた：true = のんびり（敵軍が来ない・野生の敵は おそわない・ペットから けんかしない）/ false = にぎやか
+   * main.ts のせってい（pulsar-mode）から入る
+   */
+  calm = true
+  /** カメラ：ペットについていく / 自分で動かした場所（freeLook）を見る / おまかせ（できごとの場所へ ゆっくり移る） */
+  follow = true
+  auto = false
+  private readonly freeLook = new THREE.Vector3()
+  private readonly autoTo = new THREE.Vector3()
+  private autoT = 0
+  /** 何かが起きた場所（たまご・進化・家や建物の完成・おまつり）。おまかせカメラが見に行く */
+  private marks: { x: number; z: number; w: number; t: number }[] = []
   private readonly dioCenter = new THREE.Vector3()
   /** いま画面を描いているカメラ（タップの当たり判定・頭の上の文字の位置もこれで求める） */
   private get viewCam(): THREE.Camera {
@@ -508,7 +521,7 @@ export class World {
     this.hudTex.magFilter = THREE.NearestFilter
     this.hudTex.minFilter = THREE.NearestFilter
     this.post = makePostMaterial(this.rtScene.texture, this.hudTex)
-    if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('look') === 'diorama') this.diorama = new DioramaLook(this.hudTex)
+    if (typeof location === 'undefined' || new URLSearchParams(location.search).get('look') !== 'ps1') this.diorama = new DioramaLook(this.hudTex)
     this.postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.post))
     this.scene.add(this.hemi, this.sun)
     this.wfx = new WeatherFx()
@@ -1046,14 +1059,14 @@ export class World {
       }
     }
     // 家をこわしたがる敵（ゴウガン）・ひのこの日の敵は家をねらう
-    if (wild && c.energy > 25 && this.peaceT <= 0 && (c.sp.habit === 'raid' || (this.weather === 'ember' && Math.random() < 0.3) || Math.random() < 0.08)) {
+    if (wild && c.energy > 25 && this.peaceT <= 0 && !this.calm && (c.sp.habit === 'raid' || (this.weather === 'ember' && Math.random() < 0.3) || Math.random() < 0.08)) {
       const h = this.nearestHouse(c, (h) => h.level >= 1, c.sp.habit === 'raid' ? 14 : 7)
       if (h) {
         c.raid = h
         return this.setState(c, 'raid', 16)
       }
     }
-    if (wild && c.energy > 25 && this.peaceT <= 0) {
+    if (wild && c.energy > 25 && this.peaceT <= 0 && !this.calm) {
       const range = this.hasItem('charm') ? 2.2 : 4.5
       // 赤ちゃん（1 だんめ）・こどもは、すぐそばに来た時だけ ねらう
       const prey = this.nearest(c, (o) => (this.ally(o) || o.sp.temper === 'calm') && (o.sp.tier >= 2 && o.grow === 0 || Math.hypot(o.x - c.x, o.z - c.z) < 1.8), range)
@@ -1068,7 +1081,7 @@ export class World {
       return this.setState(c, 'assist', 8)
     }
     // ペットから けんかを しかけるのは 2 だんめ（成長期）から
-    if (c.team === 'pet' && c.sp.tier >= 2 && c.hp > c.maxHp * 0.5 && c.energy > 30) {
+    if (c.team === 'pet' && !this.calm && c.sp.tier >= 2 && c.hp > c.maxHp * 0.5 && c.energy > 30) {
       const enemy = this.nearest(c, (o) => o.sp.temper === 'wild', 3)
       if (enemy) {
         c.foe = enemy
@@ -1076,7 +1089,7 @@ export class World {
       }
     }
     // みはり：持ち場の近くの敵は、すこし遠くからでも見つけて追いはらう
-    if (c.role === 'guard' && c.hp > c.maxHp * 0.4 && c.energy > 20) {
+    if (c.role === 'guard' && !this.calm && c.hp > c.maxHp * 0.4 && c.energy > 20) {
       const foe = this.nearest(c, (o) => o.sp.temper === 'wild' && !o.inside, this.guardRange(c))
       if (foe) {
         c.foe = foe
@@ -1640,6 +1653,7 @@ export class World {
   /** 進化がおわった時のメッセージ・コイン（演出のあとに 1 回だけ） */
   private evolved(c: Creature, from: string) {
     const sp = c.sp
+    this.mark(c.x, c.z, this.ally(c) ? 3 : 1)
     this.burst(c.x, this.ground(c) + 0.6, c.z, 'spark', 18, 3)
     const near = Math.hypot(c.x - this.look.x, c.z - this.look.z) < 9
     if (this.ally(c)) {
@@ -2179,6 +2193,7 @@ export class World {
         if (h.level === 4) this.stat('houseExp')
         if (h.level >= 3) {
           this.earn(h.level === 4 ? 15 : 10, h.x, h.z)
+          this.mark(h.x, h.z, 2)
           this.onSfx('built')
         }
       } else if (h.level >= 3 && Math.hypot(h.x - this.look.x, h.z - this.look.z) < 9) this.say(`やせいの ${who}が いえを たてた`)
@@ -2529,6 +2544,7 @@ export class World {
     if (b.kind === 'wall') return void this.earn(1, b.x, b.z)
     this.stat('structs')
     if (b.kind === 'castle') this.stat('castle')
+    this.mark(b.x, b.z, 3)
     this.onSfx('built')
     this.earn(b.kind === 'castle' ? 40 : 10, b.x, b.z)
     if (b.kind === 'castle') {
@@ -3395,6 +3411,51 @@ export class World {
 
   private ageT = 0
 
+  /** できごとの場所を おぼえる（おまかせカメラ用。w = 見に行きたさ） */
+  private mark(x: number, z: number, w: number) {
+    this.marks.push({ x, z, w, t: this.time })
+    if (this.marks.length > 24) this.marks.shift()
+  }
+
+  /** カメラ：ペットについていく */
+  setFollow(on: boolean) {
+    this.follow = on
+    if (on) this.auto = false
+    this.camPan.set(0, 0)
+  }
+  /** カメラ：おまかせ（何か起きた所へ ゆっくり移る。しばらく何もなければ 仲間や村を順に見る） */
+  setAuto(on: boolean) {
+    this.auto = on
+    if (on) {
+      this.follow = false
+      this.freeLook.copy(this.look)
+      this.autoT = 0
+    }
+  }
+  /** カメラを 90° 回す（新しい見た目だけ） */
+  rotateView(d: number) {
+    this.diorama?.setYaw(this.diorama.yaw + d)
+  }
+  /** いまのカメラの状態（ボタンの表示用） */
+  camState() {
+    return { follow: this.follow, auto: this.auto, free: !!this.diorama }
+  }
+
+  /** おまかせ：次に見に行く場所 */
+  private pickAutoSpot() {
+    const recent = this.marks.filter((m) => this.time - m.t < 90)
+    if (recent.length) {
+      const m = recent.reduce((a, b) => (b.w * 2 + (b.t - this.time) / 30 > a.w * 2 + (a.t - this.time) / 30 ? b : a))
+      this.marks.splice(this.marks.indexOf(m), 1)
+      return { x: m.x, z: m.z }
+    }
+    // できごとが無ければ：仲間・家・建物のどれかを のんびり見てまわる
+    const spots: { x: number; z: number }[] = this.creatures.filter((c) => this.ally(c) && !c.inside).map((c) => ({ x: c.x, z: c.z }))
+    for (const h of this.houses) if (h.stage === this.stageIndex) spots.push({ x: h.x, z: h.z })
+    for (const b of this.structs) if (b.stage === this.stageIndex) spots.push({ x: b.x, z: b.z })
+    return spots.length ? spots[Math.floor(Math.random() * spots.length)] : { x: 0, z: 0 }
+  }
+
   /** なかま（と、野生のおとなしい子）が じゅみょうで ねむりにつく。なかまは ときどき 同じ系統の たまごを のこす */
   private retireFriend(c: Creature) {
     const near = Math.hypot(c.x - this.look.x, c.z - this.look.z) < 10
@@ -3744,6 +3805,7 @@ export class World {
     const z = THREE.MathUtils.clamp(c0.z, -HALF + 2.5, HALF - 2.5)
     const dur = 26
     this.festival = { x, z, t: dur, dur, n: 0, tick: 0, fx: 0, ring: 0, rad: fo ? 2.1 : 1.5 }
+    this.mark(x, z, 4)
     this.festivalCd = 300 + Math.random() * 180
     this.say(`${this.villageName()}の おまつりが はじまった！`)
     this.say('みんなが ひろばに あつまる')
@@ -4026,7 +4088,7 @@ export class World {
     if (!a) {
       this.armyCd -= dt
       if (this.armyCd <= 0) {
-        if (this.vScore >= 5 && this.alive(this.pet)) this.callArmy()
+        if (this.vScore >= 5 && this.alive(this.pet) && !this.calm) this.callArmy()
         else this.armyCd = 40
       }
       return
@@ -4360,6 +4422,7 @@ export class World {
         baby.maxHp = Math.round(SPECIES[id].hp * (e.wild ? 1 : 0.6))
         baby.hp = baby.maxHp
         this.burst(e.x, y + 0.3, e.z, 'spark', 14, 2.5)
+        this.mark(e.x, e.z, e.wild ? 1 : 2)
         if (e.luck) this.luckyHatch(baby, e.luck)
         if (e.wild) {
           if (Math.hypot(e.x - this.look.x, e.z - this.look.z) < 10) {
@@ -5472,6 +5535,26 @@ export class World {
       this.camera.position.x += (Math.random() - 0.5) * k
       this.camera.position.y += (Math.random() - 0.5) * k
     }
+    if (this.view === 'top' && this.diorama && !this.follow) {
+      // 自由に動かした場所 / おまかせ
+      if (this.auto) {
+        this.autoT -= dt
+        if (this.autoT <= 0) {
+          const s = this.pickAutoSpot()
+          this.autoTo.set(s.x, 0, s.z)
+          this.autoT = 9 + Math.random() * 5
+        }
+        this.freeLook.lerp(this.autoTo, 1 - Math.exp(-dt * 0.6))
+      }
+      const target = this.dioLook.set(this.freeLook.x, this.stage.heightAt(this.freeLook.x, this.freeLook.z) + 0.4, this.freeLook.z)
+      this.look.lerp(target, 1 - Math.exp(-dt * 6))
+      this.camera.position.copy(this.look).addScaledVector(CAM_OFF, this.camZoom)
+      this.camera.lookAt(this.look)
+      const k = THREE.MathUtils.clamp((this.camZoom - 1) / 0.7, 0, 1)
+      this.diorama.aim(this.dioCenter.copy(this.look).lerp(new THREE.Vector3(0, 0.4, 0), k * 0.5), this.camZoom)
+      jolt()
+      return
+    }
     if (this.view === 'top') {
       const target = new THREE.Vector3(p.x, 0, p.z)
       if (p.state === 'fight' && p.foe) target.set((p.x + p.foe.x) / 2, 0, (p.z + p.foe.z) / 2)
@@ -5531,6 +5614,19 @@ export class World {
 
   /** 2 本指ドラッグ（画面の高さに対する割合） */
   panBy(dx: number, dy: number) {
+    if (this.view === 'top' && this.diorama) {
+      // 新しい見た目：指でつかんだ地面が指についてくるように、見る所を自由に動かす（ついていく・おまかせは止まる）
+      if (this.follow || this.auto) this.freeLook.copy(this.look)
+      this.follow = false
+      this.auto = false
+      const { r, f } = this.diorama.screenAxes()
+      const W = 2 * this.diorama.half * this.camZoom
+      this.freeLook.addScaledVector(r, -dx * W).addScaledVector(f, dy * W * 2)
+      const lim = HALF + 1
+      this.freeLook.x = THREE.MathUtils.clamp(this.freeLook.x, -lim, lim)
+      this.freeLook.z = THREE.MathUtils.clamp(this.freeLook.z, -lim, lim)
+      return
+    }
     if (this.view === 'top') {
       // 指を動かした方向に景色がついてくる
       const k = 9 * this.camZoom
