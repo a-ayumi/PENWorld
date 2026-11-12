@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { SCENE, toonU } from './psx'
 
 /**
- * 「ピクセル・ジオラマ」の見た目（計画 A）。いまは URL に ?look=diorama を付けた時だけ使う見本。
+ * 「ピクセル・ジオラマ」の見た目（計画 A）。すべての視点で使う（みおろしは平行投影の cam、うしろ・めせんは渡された遠近カメラ）。
  *
  * 描き方：
  * 1. 斜め 30°・45° の平行投影カメラで、箱庭を浮島として見る。カメラは 1 ピクセルの格子に合わせて動かす（止まった絵がちらつかない）
@@ -22,7 +22,7 @@ const HEMI_GAIN = 0.5
 export class DioramaLook {
   readonly cam: THREE.OrthographicCamera
   private readonly rt: THREE.WebGLRenderTarget
-  private readonly post: THREE.ShaderMaterial
+  readonly post: THREE.ShaderMaterial
   private readonly postScene = new THREE.Scene()
   private readonly postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
   private readonly dir = new THREE.Vector3()
@@ -90,7 +90,8 @@ export class DioramaLook {
    * 1 フレーム描く。影・霧・背景（空のドーム・デジタル空間）は、ここでだけ切りかえて元に戻す
    * （いまの PS1 風の描き方には何も残さない）。
    */
-  render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, sun: THREE.DirectionalLight, hemi: THREE.HemisphereLight, opt: DioramaFrame, out: THREE.WebGLRenderTarget) {
+  render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, sun: THREE.DirectionalLight, hemi: THREE.HemisphereLight, opt: DioramaFrame, out: THREE.WebGLRenderTarget, camera?: THREE.PerspectiveCamera) {
+    const cam: THREE.Camera = camera ?? this.cam
     // 0.5 秒ごとに、影を落とす・受ける物を決めなおす（スプライトと半透明は落とさない）
     if ((this.shadowT -= opt.dt) <= 0) {
       this.shadowT = 0.5
@@ -153,7 +154,7 @@ export class DioramaLook {
     renderer.setClearColor('#000000', 1)
     renderer.setRenderTarget(this.rt)
     renderer.clear()
-    renderer.render(scene, this.cam)
+    renderer.render(scene, cam)
 
     const u = this.post.uniforms
     u.skyTop.value.set(opt.sky[0])
@@ -162,6 +163,12 @@ export class DioramaLook {
     u.haze.value.set(opt.haze)
     u.flash.value = opt.flash
     u.time.value = opt.time
+    // 遠近のカメラ（うしろ・めせん）：深度を距離に直して使う
+    u.persp.value = camera ? 1 : 0
+    if (camera) {
+      u.near.value = camera.near
+      u.far.value = camera.far
+    }
     renderer.setRenderTarget(out)
     renderer.render(this.postScene, this.postCam)
     renderer.setRenderTarget(prev)
@@ -206,7 +213,8 @@ function makeDioramaPost(scene: THREE.Texture, depth: THREE.DepthTexture, hud: T
       tScene: { value: scene }, tDepth: { value: depth }, tHud: { value: hud },
       res: { value: new THREE.Vector2(SCENE.w, SCENE.h) },
       skyTop: { value: new THREE.Color() }, skyBot: { value: new THREE.Color() }, haze: { value: new THREE.Color() },
-      night: { value: 0 }, flash: { value: 0 }, time: { value: 0 },
+      night: { value: 0 }, flash: { value: 0 }, time: { value: 0 }, glitch: { value: 0 }, heat: { value: 0 },
+      persp: { value: 0 }, near: { value: 0.1 }, far: { value: 160 },
     },
     depthTest: false,
     depthWrite: false,
@@ -214,7 +222,8 @@ function makeDioramaPost(scene: THREE.Texture, depth: THREE.DepthTexture, hud: T
     fragmentShader: /* glsl */ `
       uniform sampler2D tScene; uniform sampler2D tDepth; uniform sampler2D tHud;
       uniform vec2 res; uniform vec3 skyTop; uniform vec3 skyBot; uniform vec3 haze;
-      uniform float night; uniform float flash; uniform float time;
+      uniform float night; uniform float flash; uniform float time; uniform float glitch; uniform float heat;
+      uniform float persp; uniform float near; uniform float far;
       varying vec2 vUv;
       float bayer4(vec2 p) {
         int x = int(mod(p.x, 4.0)); int y = int(mod(p.y, 4.0));
@@ -224,8 +233,30 @@ function makeDioramaPost(scene: THREE.Texture, depth: THREE.DepthTexture, hud: T
       float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
       vec3 toSRGB(vec3 c) { return pow(max(c, 0.0), vec3(1.0 / 2.2)); }
       vec3 toLin(vec3 c) { return pow(max(c, 0.0), vec3(2.2)); }
-      float D(vec2 o) { return texture2D(tDepth, vUv + o / res).x; }
+      vec2 uv;
+      // 深度を 0〜1 の距離に（平行投影はそのまま、遠近は 1/z を直す。遠近は 40 マス先を 1 に）
+      float lin(float z) {
+        if (persp < 0.5) return z;
+        if (z >= 0.9999) return 1.0;
+        float vz = near * far / (far - z * (far - near));
+        return clamp(vz / 40.0, 0.0, 0.9998);
+      }
+      float D(vec2 o) { return lin(texture2D(tDepth, uv + o / res).x); }
       void main() {
+        uv = vUv;
+        float tq = floor(time * 24.0);
+        // ワープのグリッチ（行ごとに横ずれ）
+        if (glitch > 0.0) {
+          float row = floor(uv.y * res.y / 3.0);
+          float gn = hash(vec2(row, tq));
+          uv.x += (gn - 0.5) * 0.3 * glitch * step(1.0 - glitch * 0.8, gn);
+        }
+        // ひのこ：熱でゆらぐ空気（2px の行ごと・下ほど強い）
+        if (heat > 0.0) {
+          float row = floor(vUv.y * res.y * 0.5);
+          float wob = sin(row * 0.9 + time * 3.1) * 0.6 + sin(row * 0.37 - time * 1.9) * 0.4;
+          uv.x += wob * 0.0042 * heat * mix(0.35, 1.0, 1.0 - vUv.y);
+        }
         vec2 px = floor(vUv * res);
         float d = D(vec2(0.0));
         vec3 c;
@@ -237,16 +268,16 @@ function makeDioramaPost(scene: THREE.Texture, depth: THREE.DepthTexture, hud: T
           float st = step(0.996, hash(px)) * night * (0.6 + 0.4 * sin(time * 2.0 + hash(px * 1.7) * 30.0));
           c += vec3(st);
         } else {
-          c = toSRGB(texture2D(tScene, vUv).rgb);
+          c = toSRGB(texture2D(tScene, uv).rgb);
           // 輪郭：まわりにずっと手前の物があれば（＝自分は奥側のふち）暗く
-          float e = 0.0035;
+          float e = persp > 0.5 ? 0.012 + d * 0.06 : 0.0035;
           float n = min(min(D(vec2(1.0, 0.0)), D(vec2(-1.0, 0.0))), min(D(vec2(0.0, 1.0)), D(vec2(0.0, -1.0))));
           if (n < d - e) c = c * vec3(0.42, 0.38, 0.55);
           // ふちの光：左上の隣が ずっと奥なら（＝自分は手前の物の左上のふち）、暖かく明るく
           else if (D(vec2(-1.0, 1.0)) > d + e) c = c * 1.18 + vec3(0.07, 0.05, 0.0);
           // 遠くは空の色へ少しかすむ（奥行き = 平行投影なので d がそのまま距離）
-          float far = smoothstep(0.42, 0.62, d);
-          c = mix(c, mix(haze, skyBot, 0.4), far * 0.35);
+          float fz = persp > 0.5 ? smoothstep(0.35, 0.9, d) : smoothstep(0.42, 0.62, d);
+          c = mix(c, mix(haze, skyBot, 0.4), fz * 0.35);
         }
         // 色の調整：暗い所は紫へ、明るい所は黄色へ。少しだけ鮮やかに
         float l = dot(c, vec3(0.299, 0.587, 0.114));
@@ -258,6 +289,7 @@ function makeDioramaPost(scene: THREE.Texture, depth: THREE.DepthTexture, hud: T
         // 色数をしぼる（1 チャンネル 14 段）+ 4×4 ディザ
         float L = 14.0;
         c = floor(clamp(c, 0.0, 1.0) * L + bayer4(px)) / L;
+        if (glitch > 0.0) c = mix(c, vec3(0.05, 0.1, 0.2), smoothstep(0.85, 1.0, glitch));
         c = mix(c, vec3(1.0), flash);
         vec4 h = texture2D(tHud, vUv);
         c = mix(c, h.rgb, h.a);

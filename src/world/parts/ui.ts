@@ -938,16 +938,8 @@ export function drawShop(this: World) {
 }
 
 export function render(this: World, renderer: THREE.WebGLRenderer) {
-  if (this.diorama && this.view === 'top') {
-    const s = this.stage
-    this.diorama.render(renderer, this.scene, this.sun, this.hemi, {
-      dt: 1 / 30, time: this.time, focus: this.look, span: Math.max(12, 11 * this.camZoom), shadows: true, shadowRes: this.high ? 1024 : 512,
-      sky: this.dioSky(s), night: this.night, haze: s.fog, flash: this.flash,
-    }, this.rtOut)
-    return
-  }
-  const prev = renderer.getRenderTarget()
-  renderer.setRenderTarget(this.rtScene)
+  const s = this.stage
+  const top = this.view === 'top'
   // 目線モードでは自分の体は映さない
   const self = this.pet.anim.sprite
   const was = self.visible
@@ -955,12 +947,13 @@ export function render(this: World, renderer: THREE.WebGLRenderer) {
     self.visible = false
     this.pet.shadow.visible = false
   }
-  renderer.render(this.scene, this.camera)
+  this.diorama.render(renderer, this.scene, this.sun, this.hemi, {
+    dt: 1 / 30, time: this.time, focus: top ? this.look : this.dioLook.set(this.pet.x, this.ground(this.pet), this.pet.z),
+    span: top ? Math.max(12, 11 * this.camZoom) : 14, shadows: true, shadowRes: this.high ? 1024 : 512,
+    sky: this.dioSky(s), night: this.night, haze: s.fog, flash: this.flash,
+  }, this.rtOut, top ? undefined : this.camera)
   self.visible = was
   this.pet.shadow.visible = true
-  renderer.setRenderTarget(this.rtOut)
-  renderer.render(this.postScene, this.postCam)
-  renderer.setRenderTarget(prev)
 }
 
 /** ジオラマの空の色：くもり・あめは灰色へ、ひのこは赤へ */
