@@ -1378,3 +1378,48 @@ export function frolicSlot(this: World, b: Struct) {
   const s = slots[Math.floor(Math.random() * slots.length)]
   return { x: b.x + s[0] + (Math.random() - 0.5) * 0.2, z: b.z + s[1] + (Math.random() - 0.5) * 0.2 }
 }
+
+/**
+ * たからばこ（ステージの treasures）：なかまが そばに来たら あく（コイン・ときどき たまご）。
+ * 8 分たつと 中身がもどって ふたが しまる。ふたは 毎フレーム ゆっくり動かす
+ */
+export function updateTreasures(this: World, dt: number) {
+  const list = this.stage.treasures
+  if (!list) return
+  list.forEach((t, i) => {
+    const lid = t.mesh.getObjectByName('lid')
+    const glow = t.mesh.getObjectByName('glow')
+    const at = this.chestOpen.get(i)
+    const open = at !== undefined && this.time - at < 480
+    if (at !== undefined && !open) this.chestOpen.delete(i)
+    if (lid) lid.rotation.x += ((open ? -1.9 : 0) - lid.rotation.x) * Math.min(1, dt * 4)
+    if (glow) glow.visible = !open
+    if (open) return
+    const finder = this.creatures.find((c) => this.ally(c) && c.state !== 'dead' && Math.hypot(c.x - t.x, c.z - t.z) < 1.35)
+    if (!finder) return
+    this.chestOpen.set(i, this.time)
+    const coins = 30 + Math.floor(Math.random() * 30)
+    this.earn(coins, t.x, t.z)
+    this.burst(t.x, this.stage.heightAt(t.x, t.z) + 0.6, t.z, 'spark', 16, 2.5)
+    this.mark(t.x, t.z, 3)
+    this.onSfx('win')
+    this.say(`${this.nm(finder)}が たからばこを みつけた！ コイン+${coins}`)
+    if (this.eggs.length < 5 && Math.random() < 0.35) {
+      this.layEgg(t.x + 0.7, t.z + 0.4, [], 45, this.stageEggKind(), true)
+      this.say('たからばこの なかに めずらしい たまごが はいっていた')
+    }
+  })
+}
+
+/** ひまな子は ときどき、まだ あいていない たからばこを 見に行く（行き止まりまで 道さがしで歩く） */
+export function wantTreasure(this: World, c: Creature) {
+  const list = this.stage.treasures
+  if (!list || Math.random() > 0.04) return false
+  const i = Math.floor(Math.random() * list.length)
+  const t = list[i]
+  if (this.chestOpen.has(i)) return false
+  c.tx = t.x + 0.3
+  c.tz = t.z + 0.3
+  this.setState(c, 'wander', 16)
+  return true
+}

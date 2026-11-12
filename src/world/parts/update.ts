@@ -12,6 +12,7 @@ import { Creature, FOODS, CARE_NAME, FX_SHEETS, CAM_OFF, HOUSE_STEPS, MAX_FRIEND
 
 export function update(this: World, dt: number) {
   this.obsFrame++
+  this.pathBudget = 6
   const rawDt = dt
   if (this.hitStop > 0) {
     this.hitStop -= dt
@@ -93,6 +94,7 @@ export function update(this: World, dt: number) {
   this.updateFestival(dt)
   this.updateMarket(dt)
   this.updateAge(dt)
+  this.updateTreasures(dt)
   this.updateArmy(dt)
   this.updateItems(dt)
   this.updateSucks(dt)

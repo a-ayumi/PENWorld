@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { OUT, RES } from './psx'
 import { DioramaLook } from './diorama'
+import { NavGrid } from './nav'
 import { SpriteAnim, iconSheet } from './sprites'
 import { EGG_COLORS, NEW_SKILLS, SPECIES, enemyFor, type Care, type EggKind, type MonsterView, type Species, type SpeciesId } from './monsters'
 import { WeatherFx, fxLod } from './fxprops'
@@ -85,6 +86,10 @@ export interface Creature {
   stuck: number
   detourN: number
   detour: { x: number; z: number; t: number } | null
+  /** 道さがしで見つけた道（曲がり角の列）と、その道の目的地・いま向かっている点 */
+  path: { x: number; z: number }[] | null
+  pathTo: { x: number; z: number }
+  pathI: number
   avoid: 1 | -1
   /** 個体の見た目のシード（もよう・色のゆらぎ）と 色ちがい */
   seed: number
@@ -337,6 +342,8 @@ export const TMP = new THREE.Color()
 export const BOW_LEN = 30
 /** なかまの上限（多すぎると眺めにくい・重い）。いっぱいの時は たまごの子は のはらで くらす */
 export const MAX_FRIENDS = 10
+/** モンスターの大きさの倍率（建物と見くらべて ちょうど良いように。種族の height × これ） */
+export const CREATURE_SCALE = 0.7
 /** 敵軍のボス（たおすと実績） */
 export const BOSSES = new WeakSet<object>()
 /** 色ちがいの出やすさ（ふつう 3% / ふしぎなたまご 8%） */
@@ -391,6 +398,8 @@ export class World {
   guardPost = Cr.guardPost
   ageUp = Cr.ageUp
   updateAge = Cr.updateAge
+  updateTreasures = Vi.updateTreasures
+  wantTreasure = Vi.wantTreasure
   friendCount = Cr.friendCount
   mark = Cr.mark
   setFollow = Cr.setFollow
@@ -821,6 +830,9 @@ export class World {
     this.clearPeddler()
     this.stageIndex = i
     this.stage = STAGES[i]()
+    this.nav = new NavGrid(SIZE, this.stage.heightAt)
+    this.chestOpen.clear()
+    this.navKey = ''
     const s = this.stage
     this.scene.add(s.group)
     fxLod(s.group, this.high)
@@ -889,6 +901,13 @@ export class World {
   obsKey = ''
   obsTick = -1
   obsFrame = 0
+  /** 歩ける所の升目（nav.ts）。物の置き方が変わったら作り直す */
+  nav!: NavGrid
+  navKey = ''
+  /** 1 フレームで道さがしをしてよい回数（重くならないように） */
+  pathBudget = 6
+  /** あけた たからばこ（番号 → あけた時刻）。ステージが変わったら 空に */
+  chestOpen = new Map<number, number>()
 
 
 
