@@ -42,6 +42,8 @@ export interface Stage {
   hemi: [string, string, number]
   /** フォグの近さ・遠さ（既定 14〜34）。霧のステージは近く */
   fogRange?: [number, number]
+  /** たからばこの場所（行き止まりの ごほうび。World が あける・しばらくして中身がもどる） */
+  treasures?: { x: number; z: number; mesh: THREE.Object3D }[]
   /** 夜のヤミカゲの数の上限（既定 2） */
   shadows?: number
   update(t: number, night: number): void
@@ -75,12 +77,22 @@ function terrain(heightAt: (x: number, z: number) => number, map: THREE.Texture,
     const z = pos.getZ(i)
     // 土台の上面（y=0.2）より下に地面が沈まないようにする
     pos.setY(i, Math.max(0.24, heightAt(x, z)))
-    const c = a.clone().lerp(b, r())
-    colors.push(c.r, c.g, c.b)
   }
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
-  geo.computeVertexNormals()
-  const mesh = new THREE.Mesh(geo, psx(new THREE.MeshLambertMaterial({ map, vertexColors: true }), { ground: true, snow: snowy }))
+  // 面ごとに色をつける：急な面（崖）は地層の色（高さで 2 色のしま）、ふつうの面は少しずつ ちがう明るさ
+  const flat = geo.toNonIndexed()
+  geo.dispose()
+  flat.computeVertexNormals()
+  const fp = flat.attributes.position
+  const fn = flat.attributes.normal
+  const strata = [new THREE.Color('#8a5a3a'), new THREE.Color('#a8744a'), new THREE.Color('#6e4630')]
+  for (let f = 0; f < fp.count; f += 3) {
+    const ny = (fn.getY(f) + fn.getY(f + 1) + fn.getY(f + 2)) / 3
+    const y = (fp.getY(f) + fp.getY(f + 1) + fp.getY(f + 2)) / 3
+    const c = ny < 0.72 ? strata[Math.floor(y / 0.32) % 3] : a.clone().lerp(b, r())
+    for (let k = 0; k < 3; k++) colors.push(c.r, c.g, c.b)
+  }
+  flat.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
+  const mesh = new THREE.Mesh(flat, psx(new THREE.MeshLambertMaterial({ map, vertexColors: true }), { ground: true, snow: snowy }))
   return mesh
 }
 
@@ -246,21 +258,93 @@ function placer(seed: number, obstacles: Obstacle[], avoid: { x: number; z: numb
   }
 }
 
+/** たからばこ（ふたは 'lid'、中の光は 'glow'。World が あける） */
+function chestModel() {
+  const g = new THREE.Group()
+  const wood = lambert('#a0612f')
+  const band = lambert('#ffd23f')
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.36, 0.42), wood)
+  box.position.y = 0.18
+  const lid = new THREE.Group()
+  lid.name = 'lid'
+  lid.position.set(0, 0.36, -0.21)
+  const top = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.14, 0.44), wood)
+  top.position.set(0, 0.07, 0.21)
+  const strap = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.16, 0.46), band)
+  strap.position.set(0, 0.07, 0.21)
+  lid.add(top, strap)
+  const lock = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 0.04), band)
+  lock.position.set(0, 0.3, 0.23)
+  const glow = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.32), new THREE.MeshBasicMaterial({ color: '#fff2a8' }))
+  glow.name = 'glow'
+  glow.position.y = 0.37
+  g.add(box, lid, lock, glow)
+  return g
+}
+
 // =====================================================================
 // 1. はじまりの森（Seed Grove）
 // =====================================================================
 function seedGrove(): Stage {
   const spring = { x: 4.5, z: -3.5, r: 1.6 }
+  // 入り組んだ地形（計画 D の見本）：北西の高台（まわりは崖・東の坂だけ のぼれる）/ 高台のふもとから南へ流れる川（まんなかに浅瀬）/ 南東の深い森の帯
+  const PX = -2
+  const PZ = -2
+  const PH = 1.35
+  const plateau = (x: number, z: number) => {
+    const out = Math.max(x - PX, z - PZ)
+    // 東がわの z が -6.5〜-4.5 の所だけ、なだらかな坂（ほかは 0.3 で落ちる = 崖）
+    const ramp = smooth(-7.2, -6.2, z) * smooth(-3.8, -4.8, z)
+    const soft = 0.3 + ramp * 2.6 * (x > PX - 0.5 ? 1 : 0)
+    return PH * smooth(soft, 0, out)
+  }
+  const riverX = (z: number) => -4.4 + Math.sin(z * 0.45) * 1.1
+  const RIVER_Z0 = -1.2
+  const FORD_Z = 3.2
+  const river = (x: number, z: number) => (z < RIVER_Z0 ? 0 : smooth(0.95, 0.45, Math.abs(x - riverX(z))))
   const heightAt = (x: number, z: number) => {
-    let h = 0.25 + (Math.sin(x * 0.42) * Math.cos(z * 0.36) * 0.6 + Math.sin(x * 0.9 + z * 0.7) * 0.2 + mounds(x, z, [[-5, -5, 2.6, 1.6], [5.5, 4, 2.2, 1.2], [-6, 5, 1.8, 0.9]])) * edge(x, z)
+    let h = 0.25 + (Math.sin(x * 0.42) * Math.cos(z * 0.36) * 0.35 + Math.sin(x * 0.9 + z * 0.7) * 0.15 + mounds(x, z, [[5.5, 4, 2.2, 1.0], [-7, 6, 1.8, 0.7]])) * edge(x, z)
     const ds = Math.hypot(x - spring.x, z - spring.z)
     h = THREE.MathUtils.lerp(0.24, h, smooth(spring.r, spring.r + 1.2, ds))
+    h += plateau(x, z) * edge(x, z)
+    // 川は少し低く（浅瀬は ほんの少し）
+    h -= river(x, z) * (Math.abs(z - FORD_Z) < 0.8 ? 0.06 : 0.22)
     return Math.max(0.24, h)
   }
   const group = new THREE.Group()
   group.add(terrain(heightAt, Tex.grass(), ['#ffffff', '#d8f0c8']), base('grass'))
   const obstacles: Obstacle[] = [{ ...spring, r: spring.r - 0.2 }]
   const foodSpots: FoodSpot[] = []
+  // 川：水の円を ならべる（浅瀬の所は 通れる）。見た目は 水面の円を重ねる
+  const riverMat = waterSurface({ deep: '#2a86c8', shallow: '#7fe0f0', rings: true })
+  const fordMat = waterSurface({ deep: '#6fc8d8', shallow: '#c8f4f0', rings: true })
+  for (let z = RIVER_Z0; z <= HALF + 0.6; z += 0.6) {
+    const x = riverX(z)
+    const ford = Math.abs(z - FORD_Z) < 0.8
+    const disk = new THREE.Mesh(new THREE.CircleGeometry(0.62, 8).rotateX(-Math.PI / 2), ford ? fordMat : riverMat)
+    disk.position.set(x, heightAt(x, z) + 0.05, z)
+    group.add(disk)
+    if (!ford) obstacles.push({ x, z, r: 0.5, water: true })
+  }
+  // 深い森の帯（南東）：木を すきまなく ならべ、まんなかに 1 本だけ 小道
+  const band: { x: number; z: number }[] = []
+  for (let t = 0; t <= 1.0001; t += 0.07) {
+    const x = THREE.MathUtils.lerp(1.2, HALF + 0.4, t)
+    const z = THREE.MathUtils.lerp(HALF + 0.4, 1.6, t)
+    if (Math.abs(t - 0.5) < 0.06) continue
+    band.push({ x, z })
+    obstacles.push({ x, z, r: 0.42 })
+  }
+  // たからばこ：高台のおく と 森の帯のむこう（行き止まりの ごほうび）
+  const treasures: { x: number; z: number; mesh: THREE.Object3D }[] = []
+  for (const [tx, tz] of [[-HALF + 1.2, -HALF + 1.2], [HALF - 1.0, HALF - 1.0]]) {
+    const ch = chestModel()
+    ch.position.set(tx, heightAt(tx, tz), tz)
+    ch.rotation.y = Math.PI * 0.25
+    group.add(ch)
+    treasures.push({ x: tx, z: tz, mesh: ch })
+    obstacles.push({ x: tx, z: tz, r: 0.3 })
+  }
   const put = placer(11, obstacles)
 
   // データの泉（光る水面。さざ波・泡・きらめきは waterSurface）
@@ -308,6 +392,21 @@ function seedGrove(): Stage {
     obstacles.push({ x: p.x, z: p.z, r: 0.35 * s })
     foodSpots.push({ x: p.x, z: p.z })
   }
+  // 森の帯の木（実はならない・少し小さめ）
+  const leafC = lambert('#2f7d3c')
+  for (const b of band) {
+    const t = new THREE.Group()
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 0.9, 6), bark)
+    trunk.position.y = 0.45
+    const f1 = new THREE.Mesh(new THREE.IcosahedronGeometry(0.72, 0), Math.random() < 0.5 ? leafA : leafC)
+    f1.position.y = 1.3
+    t.add(trunk, f1)
+    swayify(t)
+    t.scale.setScalar(0.85 + Math.random() * 0.35)
+    t.position.set(b.x, heightAt(b.x, b.z) - 0.05, b.z)
+    t.rotation.y = Math.random() * Math.PI
+    group.add(t)
+  }
   // きのこ・岩
   const capMat = psx(new THREE.MeshLambertMaterial({ map: Tex.mushroom() }))
   const stemMat = lambert('#f4ead6')
@@ -354,7 +453,7 @@ function seedGrove(): Stage {
   group.add(sky.mesh, vs.group, mt)
 
   return {
-    id: 0, name: 'はじまりの森', sub: 'SEED GROVE', group, heightAt, obstacles, foodSpots,
+    id: 0, name: 'はじまりの森', sub: 'SEED GROVE', group, heightAt, obstacles, foodSpots, treasures,
     food: { name: 'ほしリンゴ', color: '#ff5a6e', leaf: '#5cc25a' },
     residents: ['noiz', 'togebug'],
     fog: '#bfe6ff', sky: ['#3f7fe0', '#a8dcff', '#1b2a5a'],

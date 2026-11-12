@@ -26,7 +26,7 @@ export function spawn(this: World, id: SpeciesId, team: Team, x: number, z: numb
     phase: Math.random() * 10, affinity: 0, grow,
     xp: 0, care: { power: 0, guard: 0, spirit: 0 }, bias: (['power', 'guard', 'spirit'] as Care[])[Math.floor(Math.random() * 3)],
     spar: false, carry: null, carryMesh: null, res: null, raid: null, inside: false,
-    skillCd: 3 + Math.random() * 5, cheer: false, sleepFrom: null, site: null, army: false, squash: 0, pj: 0, finish: null, role: 'free', tendTo: null, spot: null, dAng: 0, dR: 2, lx: x, lz: z, mvT: 0, stuck: 0, detourN: 0, detour: null, avoid: Math.random() < 0.5 ? 1 : -1,
+    path: null, pathTo: { x, z }, pathI: 0, skillCd: 3 + Math.random() * 5, cheer: false, sleepFrom: null, site: null, army: false, squash: 0, pj: 0, finish: null, role: 'free', tendTo: null, spot: null, dAng: 0, dR: 2, lx: x, lz: z, mvT: 0, stuck: 0, detourN: 0, detour: null, avoid: Math.random() < 0.5 ? 1 : -1,
     seed, rare, evo: null, glint: 1 + Math.random() * 2,
     age: 0, life: sp.temper === 'wild' || team === 'pet' ? 0 : newLife(),
   }
@@ -153,8 +153,28 @@ export function moveTo(this: World, c: Creature, tx: number, tz: number, speed: 
     c.detour.t -= dt
     if (c.detour.t <= 0 || Math.hypot(c.detour.x - c.x, c.detour.z - c.z) < 0.4) c.detour = null
   }
-  const gx = c.detour ? c.detour.x : tx
-  const gz = c.detour ? c.detour.z : tz
+  // 道さがし：まっすぐ行けない時だけ 升目で道を探して、曲がり角を順にたどる
+  const swim = !!c.sp.float
+  if (!c.detour) {
+    if (this.nav.lineClear(c.x, c.z, tx, tz, swim)) c.path = null
+    else if ((!c.path || Math.hypot(c.pathTo.x - tx, c.pathTo.z - tz) > 0.6) && this.pathBudget > 0) {
+      this.pathBudget--
+      c.path = this.nav.findPath(c.x, c.z, tx, tz, swim)
+      c.pathTo = { x: tx, z: tz }
+      c.pathI = 0
+    }
+  }
+  let gx = tx
+  let gz = tz
+  if (c.detour) {
+    gx = c.detour.x
+    gz = c.detour.z
+  } else if (c.path && c.pathI < c.path.length) {
+    const w = c.path[c.pathI]
+    if (c.pathI < c.path.length - 1 && Math.hypot(w.x - c.x, w.z - c.z) < 0.35) c.pathI++
+    gx = c.path[c.pathI].x
+    gz = c.path[c.pathI].z
+  }
   const dx = gx - c.x
   const dz = gz - c.z
   const d = Math.hypot(dx, dz) || 1
@@ -184,15 +204,28 @@ export function moveTo(this: World, c: Creature, tx: number, tz: number, speed: 
     }
   }
   const ul = Math.hypot(ux, uz) || 1
-  c.x += (ux / ul) * step
-  c.z += (uz / ul) * step
+  const nx = c.x + (ux / ul) * step
+  const nz = c.z + (uz / ul) * step
+  // 崖：高さが大きくちがう升目へは のぼり降りしない（浮ける子は 水の上も）
+  const k0 = this.nav.cellOf(c.x, c.z).k
+  const k1 = this.nav.cellOf(nx, nz).k
+  if (k0 === k1 || this.nav.step(k0, k1)) {
+    c.x = nx
+    c.z = nz
+  }
   if (Math.abs(ux) > 0.05) c.anim.facing = ux > 0 ? 1 : -1
   return dReal
 }
 
 export function obstacles(this: World) {
   const key = `${this.obsFrame}|${this.stageIndex}|${this.items.length}|${this.houses.length}|${this.structs.length}|${this.stage.obstacles.length}`
-  if (key === this.obsKey && this.obsTick === this.obsFrame) return this.obsCache
+  if (key === this.obsKey && this.obsTick === this.obsFrame) {
+    if (!this.navKey) {
+      this.navKey = 'cached'
+      this.nav.rebuild(this.obsCache)
+    }
+    return this.obsCache
+  }
   this.obsKey = key
   this.obsTick = this.obsFrame
   const extra = this.items
@@ -204,6 +237,12 @@ export function obstacles(this: World) {
   const land = this.stage.obstacles.filter((o) => !bridged(o))
   const builds = this.structs.filter((b) => b.stage === this.stageIndex && STRUCTS[b.kind].r > 0 && b.mesh).map((b) => ({ x: b.x, z: b.z, r: STRUCTS[b.kind].r, water: false }))
   this.obsCache = [...land, ...extra, ...homes, ...builds]
+  // 物の置き方が変わった時だけ、歩ける所の升目を作り直す
+  const nk = key.slice(key.indexOf('|') + 1) + '|' + builds.length + '|' + land.length
+  if (nk !== this.navKey) {
+    this.navKey = nk
+    this.nav.rebuild(this.obsCache)
+  }
   return this.obsCache
 }
 
@@ -463,6 +502,8 @@ export function think(this: World, c: Creature) {
       return this.setState(c, Math.random() < 0.3 ? 'happy' : 'idle', 2 + Math.random() * 3)
     }
   }
+  // たからばこ（行き止まりのごほうび）を見に行く
+  if (!wild && c.team !== 'wild' && c.grow === 0 && this.wantTreasure(c)) return
   // 仲間はペットのそばを離れすぎない
   if (c.team === 'friend' && Math.hypot(p.x - c.x, p.z - c.z) > 3.5) {
     c.tx = p.x + (Math.random() - 0.5) * 2.5
