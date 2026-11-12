@@ -342,6 +342,8 @@ export const TMP = new THREE.Color()
 export const BOW_LEN = 30
 /** なかまの上限（多すぎると眺めにくい・重い）。いっぱいの時は たまごの子は のはらで くらす */
 export const MAX_FRIENDS = 10
+/** モンスターの大きさの倍率（建物と見くらべて ちょうど良いように。種族の height × これ） */
+export const CREATURE_SCALE = 0.7
 /** 敵軍のボス（たおすと実績） */
 export const BOSSES = new WeakSet<object>()
 /** 色ちがいの出やすさ（ふつう 3% / ふしぎなたまご 8%） */

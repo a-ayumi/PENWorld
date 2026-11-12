@@ -84,11 +84,14 @@ function terrain(heightAt: (x: number, z: number) => number, map: THREE.Texture,
   flat.computeVertexNormals()
   const fp = flat.attributes.position
   const fn = flat.attributes.normal
-  const strata = [new THREE.Color('#8a5a3a'), new THREE.Color('#a8744a'), new THREE.Color('#6e4630')]
+  // 地面のテクスチャ（草など）と かけ合わせるので、明るめの色にしておく
+  const strata = [new THREE.Color('#e0b48a'), new THREE.Color('#f4d0a0'), new THREE.Color('#c8946a')]
+  const rockC = [new THREE.Color('#d8d4cc'), new THREE.Color('#bfb8ae')]
   for (let f = 0; f < fp.count; f += 3) {
     const ny = (fn.getY(f) + fn.getY(f + 1) + fn.getY(f + 2)) / 3
     const y = (fp.getY(f) + fp.getY(f + 1) + fp.getY(f + 2)) / 3
-    const c = ny < 0.72 ? strata[Math.floor(y / 0.32) % 3] : a.clone().lerp(b, r())
+    // 高い所の急な面は 岩はだ、低い所の急な面は 地層のしま
+    const c = ny < 0.72 ? (y > 2.6 ? rockC[Math.floor(y / 0.5) % 2] : strata[Math.floor(y / 0.32) % 3]) : a.clone().lerp(b, r())
     for (let k = 0; k < 3; k++) colors.push(c.r, c.g, c.b)
   }
   flat.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
@@ -244,13 +247,15 @@ function lambert(color: string, extra: THREE.MeshLambertMaterialParameters = {})
 }
 
 /** 小物の置き場所を選ぶ（中央と既存の物を避ける） */
-function placer(seed: number, obstacles: Obstacle[], avoid: { x: number; z: number; r: number }[] = []) {
+function placer(seed: number, obstacles: Obstacle[], avoid: { x: number; z: number; r: number }[] = [], heightAt?: (x: number, z: number) => number) {
   const r = rng(seed)
+  // 急な坂（山・崖・壁）には置かない（heightAt を渡した時だけ）
+  const steep = (x: number, z: number) => !!heightAt && Math.max(Math.abs(heightAt(x + 0.5, z) - heightAt(x - 0.5, z)), Math.abs(heightAt(x, z + 0.5) - heightAt(x, z - 0.5))) > 0.7
   return (rad: number, minCenter = 2.5) => {
     for (let i = 0; i < 300; i++) {
       const x = (r() * 2 - 1) * (HALF - 0.6)
       const z = (r() * 2 - 1) * (HALF - 0.6)
-      if (Math.hypot(x, z) < minCenter) continue
+      if (Math.hypot(x, z) < minCenter || steep(x, z)) continue
       if ([...obstacles, ...avoid].some((o) => Math.hypot(o.x - x, o.z - z) < o.r + rad + 0.9)) continue
       return { x, z, r }
     }
@@ -288,25 +293,48 @@ function chestModel() {
 function seedGrove(): Stage {
   const spring = { x: 4.5, z: -3.5, r: 1.6 }
   // 入り組んだ地形（計画 D の見本）：北西の高台（まわりは崖・東の坂だけ のぼれる）/ 高台のふもとから南へ流れる川（まんなかに浅瀬）/ 南東の深い森の帯
-  const PX = -2
-  const PZ = -2
-  const PH = 1.35
-  const plateau = (x: number, z: number) => {
-    const out = Math.max(x - PX, z - PZ)
-    // 東がわの z が -6.5〜-4.5 の所だけ、なだらかな坂（ほかは 0.3 で落ちる = 崖）
-    const ramp = smooth(-7.2, -6.2, z) * smooth(-3.8, -4.8, z)
-    const soft = 0.3 + ramp * 2.6 * (x > PX - 0.5 ? 1 : 0)
-    return PH * smooth(soft, 0, out)
+  // 入り組んだ地形（計画 D の見本）：
+  //  奥（北と西のふち）= のぼれない山なみ / 北西 = 2 段の高台（東の坂 → 南の坂の つづら折り）
+  //  西 = くねる岩の壁（まんなかに切り通し 1 つ）と、その西の谷を 蛇行する川（浅瀬 1 つ）/ 手前 = なだらかな丘
+  const B = -HALF + 2.8 // 山なみの内がわの線
+  const borderDrop = (x: number, z: number) => smooth(SIZE / 2, SIZE / 2 - 0.7, Math.max(Math.abs(x), Math.abs(z)))
+  const mountains = (x: number, z: number) => {
+    const north = smooth(B, B - 2.0, z)
+    const west = smooth(B, B - 2.0, x) * smooth(1.6, -0.4, z)
+    const m = Math.max(north, west)
+    if (m <= 0) return 0
+    const ridge = Math.abs(Math.sin(x * 0.55 + 0.7) + 0.6 * Math.sin(x * 1.35 + z * 0.8) + 0.45 * Math.sin(z * 1.15 - 0.4))
+    return m * (2.4 + 2.4 * ridge) * borderDrop(x, z)
   }
-  const riverX = (z: number) => -4.4 + Math.sin(z * 0.45) * 1.1
-  const RIVER_Z0 = -1.2
-  const FORD_Z = 3.2
+  // 段々の高台：1 段目（x, z < -1.2・高さ 1.2・東の z -4.8〜-3.0 だけ坂）/ 2 段目（x, z < -3.8・高さ 2.4・南の x -5.9〜-4.6 だけ坂）
+  const step = (out: number, soft: number) => smooth(soft, 0, out)
+  const terraces = (x: number, z: number) => {
+    const r1 = smooth(-5.4, -4.6, z) * smooth(-2.4, -3.2, z) * (x > -2.2 ? 1 : 0)
+    const t1 = 1.2 * step(Math.max(x + 1.2, z + 1.2), 0.3 + r1 * 2.4)
+    const r2 = smooth(-6.5, -5.7, x) * smooth(-4.0, -4.8, x) * (z > -4.4 ? 1 : 0)
+    const t2 = 1.2 * step(Math.max(x + 3.8, z + 3.8), 0.3 + r2 * 2.4)
+    return t1 + t2
+  }
+  // 岩の壁：くねりながら南へ。z 3.6〜4.8 は切り通し（通れる）
+  const wallX = (z: number) => -3.4 + Math.sin(z * 0.55) * 0.9
+  const wall = (x: number, z: number) => {
+    if (z < 0) return 0
+    const gap = smooth(0.0, 0.5, Math.abs(z - 4.2) - 0.6)
+    return 1.8 * smooth(0.8, 0.32, Math.abs(x - wallX(z))) * gap * smooth(0, 1.2, z) * borderDrop(x, z)
+  }
+  const riverX = (z: number) => -6.4 + Math.sin(z * 0.6 + 0.5) * 1.0
+  const RIVER_Z0 = -0.6
+  const FORD_Z = 3.0
   const river = (x: number, z: number) => (z < RIVER_Z0 ? 0 : smooth(0.95, 0.45, Math.abs(x - riverX(z))))
   const heightAt = (x: number, z: number) => {
-    let h = 0.25 + (Math.sin(x * 0.42) * Math.cos(z * 0.36) * 0.35 + Math.sin(x * 0.9 + z * 0.7) * 0.15 + mounds(x, z, [[5.5, 4, 2.2, 1.0], [-7, 6, 1.8, 0.7]])) * edge(x, z)
+    let h = 0.25 + (Math.sin(x * 0.42) * Math.cos(z * 0.36) * 0.25 + mounds(x, z, [[5.6, 4.2, 2.6, 1.2], [2.2, 7.2, 2.2, 0.9], [7.2, -1.2, 2.0, 0.8]])) * edge(x, z)
     const ds = Math.hypot(x - spring.x, z - spring.z)
     h = THREE.MathUtils.lerp(0.24, h, smooth(spring.r, spring.r + 1.2, ds))
-    h += plateau(x, z) * edge(x, z)
+    // 村を建てる まんなかは 平らに
+    h = THREE.MathUtils.lerp(0.3, h, smooth(2.6, 4.2, Math.hypot(x - 1.5, z - 0.5)))
+    h += terraces(x, z) * borderDrop(x, z)
+    h = Math.max(h, mountains(x, z) + 0.25)
+    h += wall(x, z)
     // 川は少し低く（浅瀬は ほんの少し）
     h -= river(x, z) * (Math.abs(z - FORD_Z) < 0.8 ? 0.06 : 0.22)
     return Math.max(0.24, h)
@@ -331,13 +359,13 @@ function seedGrove(): Stage {
   for (let t = 0; t <= 1.0001; t += 0.07) {
     const x = THREE.MathUtils.lerp(1.2, HALF + 0.4, t)
     const z = THREE.MathUtils.lerp(HALF + 0.4, 1.6, t)
-    if (Math.abs(t - 0.5) < 0.06) continue
+    if (Math.abs(t - 0.5) < 0.1) continue
     band.push({ x, z })
     obstacles.push({ x, z, r: 0.42 })
   }
   // たからばこ：高台のおく と 森の帯のむこう（行き止まりの ごほうび）
   const treasures: { x: number; z: number; mesh: THREE.Object3D }[] = []
-  for (const [tx, tz] of [[-HALF + 1.2, -HALF + 1.2], [HALF - 1.0, HALF - 1.0]]) {
+  for (const [tx, tz] of [[-5.2, -5.2], [HALF - 1.0, HALF - 1.0], [-HALF + 1.0, HALF - 1.4]]) {
     const ch = chestModel()
     ch.position.set(tx, heightAt(tx, tz), tz)
     ch.rotation.y = Math.PI * 0.25
@@ -345,7 +373,7 @@ function seedGrove(): Stage {
     treasures.push({ x: tx, z: tz, mesh: ch })
     obstacles.push({ x: tx, z: tz, r: 0.3 })
   }
-  const put = placer(11, obstacles)
+  const put = placer(11, obstacles, [], heightAt)
 
   // データの泉（光る水面。さざ波・泡・きらめきは waterSurface）
   const springMat = waterSurface({ deep: '#1f8fd8', shallow: '#78f0ff', rings: true })

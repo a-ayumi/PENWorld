@@ -1395,7 +1395,7 @@ export function updateTreasures(this: World, dt: number) {
     if (lid) lid.rotation.x += ((open ? -1.9 : 0) - lid.rotation.x) * Math.min(1, dt * 4)
     if (glow) glow.visible = !open
     if (open) return
-    const finder = this.creatures.find((c) => this.ally(c) && c.state !== 'dead' && Math.hypot(c.x - t.x, c.z - t.z) < 0.95)
+    const finder = this.creatures.find((c) => this.ally(c) && c.state !== 'dead' && Math.hypot(c.x - t.x, c.z - t.z) < 1.35)
     if (!finder) return
     this.chestOpen.set(i, this.time)
     const coins = 30 + Math.floor(Math.random() * 30)
@@ -1414,7 +1414,7 @@ export function updateTreasures(this: World, dt: number) {
 /** ひまな子は ときどき、まだ あいていない たからばこを 見に行く（行き止まりまで 道さがしで歩く） */
 export function wantTreasure(this: World, c: Creature) {
   const list = this.stage.treasures
-  if (!list || Math.random() > 0.05) return false
+  if (!list || Math.random() > 0.04) return false
   const i = Math.floor(Math.random() * list.length)
   const t = list[i]
   if (this.chestOpen.has(i)) return false

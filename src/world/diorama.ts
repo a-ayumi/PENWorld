@@ -14,7 +14,7 @@ const AZIMUTH = Math.PI / 4
 const ELEVATION = THREE.MathUtils.degToRad(30)
 const DIST = 60
 /** 太陽の高さ（低いほど影が長い） */
-const SUN_ELEV = THREE.MathUtils.degToRad(34)
+const SUN_ELEV = THREE.MathUtils.degToRad(47)
 /** 太陽とまわりの光の強さ（いまの見た目に対する倍率） */
 const SUN_GAIN = 2.4
 const HEMI_GAIN = 0.5
@@ -276,7 +276,7 @@ function makeDioramaPost(scene: THREE.Texture, depth: THREE.DepthTexture, hud: T
           // ふちの光：左上の隣が ずっと奥なら（＝自分は手前の物の左上のふち）、暖かく明るく
           else if (D(vec2(-1.0, 1.0)) > d + e) c = c * 1.18 + vec3(0.07, 0.05, 0.0);
           // 遠くは空の色へ少しかすむ（奥行き = 平行投影なので d がそのまま距離）
-          float fz = persp > 0.5 ? smoothstep(0.35, 0.9, d) : smoothstep(0.42, 0.62, d);
+          float fz = persp > 0.5 ? smoothstep(0.35, 0.9, d) : smoothstep(0.48, 0.68, d);
           c = mix(c, mix(haze, skyBot, 0.4), fz * 0.35);
         }
         // 色の調整：暗い所は紫へ、明るい所は黄色へ。少しだけ鮮やかに

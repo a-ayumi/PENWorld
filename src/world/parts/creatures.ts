@@ -9,14 +9,14 @@ import { STRUCTS, type StructKind } from '../structures'
 import { ITEM_SPEC, type ItemKind } from '../items'
 import { SEASON_INFO, type Season } from '../../missions'
 import type { World } from '../World'
-import { Team, State, Creature, Evo, Skill, SKILLS, Struct, Role, ROLE_NAME, LIFESPAN, newLife, Item, DECO_SHEET, houseMaxHp, MAX_FRIENDS, BOSSES, RARE_RATE, RARE_RATE_LUCKY } from '../World'
+import { Team, State, Creature, Evo, Skill, SKILLS, Struct, Role, ROLE_NAME, LIFESPAN, newLife, Item, DECO_SHEET, houseMaxHp, MAX_FRIENDS, BOSSES, RARE_RATE, RARE_RATE_LUCKY, CREATURE_SCALE } from '../World'
 
 export function spawn(this: World, id: SpeciesId, team: Team, x: number, z: number, grow = 0, look?: { seed: number; rare: boolean }): Creature {
   const sp = SPECIES[id]
   // 個体差：もようと色のゆらぎのシード。なかまになれる種族は約 3% で色ちがい（ボスは いつもの姿）
   const seed = sp.boss ? 0 : look?.seed ?? newSeed()
   const rare = sp.tier > 0 && (look ? look.rare : Math.random() < RARE_RATE)
-  const anim = this.makeView(id, sp.height, variantOf(seed, rare))
+  const anim = this.makeView(id, sp.height * CREATURE_SCALE, variantOf(seed, rare))
   const shadow = new THREE.Mesh(this.shadowGeo, this.shadowMat)
   this.scene.add(anim.sprite, shadow)
   const c: Creature = {
@@ -83,7 +83,7 @@ export function ally(this: World, c: Creature) {
 }
 
 export function size(this: World, c: Creature) {
-  return c.sp.height * (c.grow > 0 ? 0.55 + 0.45 * c.grow : 1) * (c.boss ? 1.7 : 1)
+  return c.sp.height * CREATURE_SCALE * (c.grow > 0 ? 0.55 + 0.45 * c.grow : 1) * (c.boss ? 1.7 : 1)
 }
 
 export function ground(this: World, c: Creature) {
@@ -263,7 +263,7 @@ export function collide(this: World, c: Creature) {
     const dx = c.x - o.x
     const dz = c.z - o.z
     const d = Math.hypot(dx, dz)
-    const min = c.state === 'fight' && o === c.foe ? 0.55 : 0.7
+    const min = c.state === 'fight' && o === c.foe ? 0.42 : 0.52
     if (d < min && d > 0) {
       c.x += (dx / d) * (min - d) * 0.5
       c.z += (dz / d) * (min - d) * 0.5
@@ -356,6 +356,8 @@ export function think(this: World, c: Creature) {
     c.inside = true
     return this.setState(c, 'rest', 10)
   }
+  // たからばこ（行き止まりのごほうび）を見に行く
+  if (!wild && c.team !== 'wild' && c.grow === 0 && c.energy > 40 && c.hunger > 40 && this.wantTreasure(c)) return
   // じゃれあいバトル：おとなしい子どうしも、ときどき勝手に力くらべをする
   if (!wild && c.grow === 0 && c.energy > 55 && c.hp > c.maxHp * 0.7 && Math.random() < (c.team === 'pet' ? 0.03 : 0.08)) {
     const rival = this.nearest(
@@ -502,8 +504,6 @@ export function think(this: World, c: Creature) {
       return this.setState(c, Math.random() < 0.3 ? 'happy' : 'idle', 2 + Math.random() * 3)
     }
   }
-  // たからばこ（行き止まりのごほうび）を見に行く
-  if (!wild && c.team !== 'wild' && c.grow === 0 && this.wantTreasure(c)) return
   // 仲間はペットのそばを離れすぎない
   if (c.team === 'friend' && Math.hypot(p.x - c.x, p.z - c.z) > 3.5) {
     c.tx = p.x + (Math.random() - 0.5) * 2.5
