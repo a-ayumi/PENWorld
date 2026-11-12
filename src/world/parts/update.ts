@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { RES } from '../psx'
 import { SpriteAnim } from '../sprites'
 import { SPECIES, enemyFor, type Face } from '../monsters'
-import { HALF, STAGES } from '../stages'
+import { HALF, SIZE, STAGES } from '../stages'
 import { STRUCTS } from '../structures'
 import { slidePath } from '../items'
 import { SHOP, catIndexes, catOf, shopTap } from '../shop'
@@ -954,7 +954,8 @@ export function updateCamera(this: World, dt: number) {
 
 /** ピンチ：f < 1 で寄る、f > 1 で引く */
 export function zoomBy(this: World, f: number) {
-  this.camZoom = THREE.MathUtils.clamp(this.camZoom * f, 0.45, 2.3)
+  // 島が広いほど 大きく引ける（島ぜんたいが見えるまで）
+  this.camZoom = THREE.MathUtils.clamp(this.camZoom * f, 0.45, 2.3 * Math.max(1, SIZE / 20))
 }
 
 /** 2 本指ドラッグ（画面の高さに対する割合） */
@@ -1068,6 +1069,9 @@ export function farPos(this: World, min: number) {
     const [x, z] = Math.random() < 0.5 ? [edge, along] : [along, edge]
     if (allies.some((a) => Math.hypot(a.x - x, a.z - z) < (a === this.pet ? min : min - 2))) continue
     if (this.obstacles().some((o) => Math.hypot(o.x - x, o.z - z) < o.r + 0.6)) continue
+    // 山・崖・壁の急な坂は えらばない（家や建物が平らな所に建つように。歩く先も）
+    const h = this.stage.heightAt
+    if (Math.max(Math.abs(h(x + 0.6, z) - h(x - 0.6, z)), Math.abs(h(x, z + 0.6) - h(x, z - 0.6))) > 0.45) continue
     return { x, z }
   }
   return this.freePos(min)
@@ -1079,6 +1083,9 @@ export function freePos(this: World, minFromPet: number, cx = 0, cz = 0, radius 
     const z = THREE.MathUtils.clamp(cz + (Math.random() * 2 - 1) * Math.min(radius, HALF), -HALF, HALF)
     if (this.pet && Math.hypot(x - this.pet.x, z - this.pet.z) < minFromPet) continue
     if (this.obstacles().some((o) => Math.hypot(o.x - x, o.z - z) < o.r + 0.6)) continue
+    // 山・崖・壁の急な坂は えらばない（家や建物が平らな所に建つように。歩く先も）
+    const h = this.stage.heightAt
+    if (Math.max(Math.abs(h(x + 0.6, z) - h(x - 0.6, z)), Math.abs(h(x, z + 0.6) - h(x, z - 0.6))) > 0.45) continue
     return { x, z }
   }
   return { x: 0, z: 0 }
