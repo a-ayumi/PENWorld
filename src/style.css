@@ -29,6 +29,18 @@ kbd { display: inline-block; min-width: 18px; margin: 0 2px; padding: 0 4px; bor
   color: #3a2a00; background: radial-gradient(circle at 35% 30%, #ffe08a, #f2b134 60%, #c98a14); box-shadow: 0 4px 0 rgba(0,0,0,.35); cursor: pointer; }
 .pad-btns button:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0,0,0,.35); }
 .pad-btns button:focus-visible, .pad-exit:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.cam-bar { position: fixed; bottom: calc(env(safe-area-inset-bottom) + 30px); left: calc(env(safe-area-inset-left) + 12px); flex-wrap: wrap; max-width: calc(100vw - 230px); display: flex; gap: 6px; pointer-events: auto; }
+.cam-bar button { border: 0; border-radius: 999px; padding: 8px 12px; min-width: 40px; font-size: calc(12px * var(--ts)); color: var(--ink); background: var(--chip); backdrop-filter: blur(6px); cursor: pointer; }
+.cam-bar button[aria-pressed="true"] { background: #f2b134; color: #3a2a00; font-weight: 700; }
+.cam-bar button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* あそび（おねがい・もくひょう・うんだめし）は 1 つのボタンにまとめる */
+#play-btn { position: fixed; top: calc(env(safe-area-inset-top) + 96px); left: calc(env(safe-area-inset-left) + 12px);
+  border: 0; border-radius: 999px; padding: 8px 14px; font-size: calc(12px * var(--ts)); font-weight: 700; color: var(--ink);
+  background: var(--chip); backdrop-filter: blur(6px); cursor: pointer; }
+#play-btn[aria-expanded="true"] { background: #f2b134; color: #3a2a00; }
+#play-btn[hidden] { display: none; }
+body:not(.play-open) #mission-btn, body:not(.play-open) #road-btn, body:not(.play-open) #lucky-btn { display: none !important; }
+body.clean #play-btn { display: none !important; }
 
 #hint { transition: opacity .8s; }
 #hint.fade { opacity: 0; }
@@ -111,7 +123,7 @@ body.clean #toolbar, body.clean #dress, body.clean #dress-panel, body.clean #dex
 body.clean #enter-btn { display: none !important; }
 
 /* うんだめし（ラッキー要素） */
-#lucky-btn { position: fixed; top: calc(env(safe-area-inset-top) + 180px); left: calc(env(safe-area-inset-left) + 12px); border: 0; border-radius: 999px;
+#lucky-btn { position: fixed; top: calc(env(safe-area-inset-top) + 264px); left: calc(env(safe-area-inset-left) + 12px); border: 0; border-radius: 999px;
   padding: 8px 14px; font-size: 12px; font-weight: 700; color: var(--ink); background: var(--chip); backdrop-filter: blur(6px); cursor: pointer; z-index: 3; }
 #lucky-panel { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; max-height: 88%; overflow: auto; touch-action: pan-y; width: min(100%, 640px); margin: 0 auto;
   padding: 14px max(16px, env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 18px) max(16px, env(safe-area-inset-left));
@@ -182,7 +194,7 @@ body.clean #enter-btn { display: none !important; }
 #bb-info { margin: 4px 0 0; color: var(--muted); }
 body.clean #lucky-btn, body.clean #lucky-panel, body.clean #bet-bar { display: none !important; }
 /* もくひょう（章立ての長い目標） */
-#road-btn { top: calc(env(safe-area-inset-top) + 138px); }
+#road-btn { top: calc(env(safe-area-inset-top) + 222px); }
 #road-panel { max-height: 72%; }
 #road-title { margin: 10px 0 6px; font-size: 13px; }
 #road-title b { color: #ffe27a; }
@@ -216,7 +228,7 @@ body.clean #lucky-btn, body.clean #lucky-panel, body.clean #bet-bar { display: n
 .road-goals .pg i { display: block; height: 100%; background: #f2b134; }
 .road-reward { margin: 0; font-size: 11px; color: #ffe27a; }
 /* おねがい（日替わりミッション・季節・バッジ）：ずかんと同じ見た目 */
-#mission-btn { position: fixed; top: calc(env(safe-area-inset-top) + 96px); left: calc(env(safe-area-inset-left) + 12px);
+#mission-btn { position: fixed; top: calc(env(safe-area-inset-top) + 180px); left: calc(env(safe-area-inset-left) + 12px);
   border: 0; border-radius: 999px; padding: 8px 14px; font-size: 12px; font-weight: 700; color: var(--ink);
   background: var(--chip); backdrop-filter: blur(6px); cursor: pointer; }
 #mission-btn.ready { background: #f2b134; color: #3a2a00; }

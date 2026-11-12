@@ -69,6 +69,7 @@
     </div>
     <button id="dress" aria-expanded="false" aria-controls="dress-panel">きせかえ</button>
     <button id="dex-btn" aria-expanded="false" aria-controls="dex-panel">ずかん</button>
+    <button id="play-btn" aria-expanded="false" title="おねがい・もくひょう・うんだめし">あそび ▸</button>
     <button id="lucky-btn" aria-expanded="false" aria-controls="lucky-panel">うんだめし</button>
     <section id="lucky-panel" hidden aria-label="うんだめし">
       <div class="dress-head"><h2>うんだめし</h2><span id="lucky-coins"></span><button id="lucky-close" aria-label="閉じる">とじる</button></div>
@@ -139,6 +140,7 @@
       <div class="setrow"><span class="setlabel" id="set-text-l">もじの おおきさ</span><div id="set-text" class="chips" role="group" aria-labelledby="set-text-l"></div></div>
       <div class="setrow"><span class="setlabel" id="set-motion-l">うごき</span><div id="set-motion" class="chips" role="group" aria-labelledby="set-motion-l"></div></div>
       <div class="setrow"><span class="setlabel" id="set-quality-l">画質</span><div id="set-quality" class="chips" role="group" aria-labelledby="set-quality-l"></div></div>
+      <div class="setrow"><span class="setlabel" id="set-mode-l">あそびかた</span><div id="set-mode" class="chips" role="group" aria-labelledby="set-mode-l"></div></div>
       <div id="settings-extra"></div>
       <div class="setrow"><span class="setlabel" id="set-help-l">あそびかた</span><div class="chips"><button type="button" class="chip" id="tips-open">もういちど みる</button></div></div>
       <h3>データ</h3>
@@ -169,6 +171,12 @@
     </section>
     <div id="pad" hidden>
       <button id="pad-exit" class="pad-exit" aria-label="本体にもどる">本体にもどる</button>
+      <div class="cam-bar" role="group" aria-label="カメラ">
+        <button type="button" id="cam-follow" aria-pressed="true" title="ペットに ついていく（F）">ついていく</button>
+        <button type="button" id="cam-auto" aria-pressed="false" title="おまかせ：できごとの場所へ ゆっくり（O）">おまかせ</button>
+        <button type="button" id="cam-left" aria-label="左に回す（Q）">⟲</button>
+        <button type="button" id="cam-right" aria-label="右に回す（E）">⟳</button>
+      </div>
       <div class="pad-btns">
         <button data-key="A" aria-label="A ボタン">A</button>
         <button data-key="B" aria-label="B ボタン">B</button>
