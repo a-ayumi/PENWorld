@@ -36,7 +36,7 @@ export interface Species {
 }
 
 /** 進化に必要な経験値（段階ごと） */
-export const XP_NEED: Record<1 | 2 | 3, number> = { 1: 15, 2: 45, 3: 110 }
+export const XP_NEED: Record<1 | 2 | 3, number> = { 1: 25, 2: 70, 3: 135 }
 
 /** 進化分岐：育て方の傾向（ちから / まもり / こころ）でつぎの姿が決まる */
 export type Care = 'power' | 'guard' | 'spirit'

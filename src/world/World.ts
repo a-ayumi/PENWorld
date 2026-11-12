@@ -92,6 +92,11 @@ interface Creature {
   evo: Evo | null
   /** 色ちがいのキラキラを出す間隔 */
   glint: number
+  /** 生きた秒数と じゅみょう（秒）。0 = としを とらない（敵）。ペットは stats.petAge と LIFESPAN を使う */
+  age: number
+  life: number
+  /** じゅみょうで ねむりについた（たおれた時とちがう、しずかな消え方） */
+  retired?: boolean
 }
 /** 進化の演出：t = 経過秒 / from = 元の種族 / h0 = 元の大きさ / shown = いま出している絵 */
 interface Evo { t: number; from: SpeciesId; to: SpeciesId; h0: number; shown: 'old' | 'white-old' | 'white-new' | 'new'; said: boolean }
@@ -148,7 +153,12 @@ type Role = 'free' | 'builder' | 'farmer' | 'guard' | 'carer' | 'seller'
 const ROLE_NAME: Record<Role, string> = { free: 'じゆう', builder: 'だいく', farmer: 'はたけがかり', guard: 'みはり', carer: 'おせわ', seller: 'うりこ' }
 const ROLE_COLOR: Record<Role, string> = { free: '#ffffff', builder: '#ffb84d', farmer: '#7cf29b', guard: '#6fd6ff', carer: '#ff8fc8', seller: '#d8a8ff' }
 /** ペットの じゅみょう（あそんでいる時間・秒） */
-const LIFESPAN = 3 * 3600
+const LIFESPAN = 40 * 60
+/** なかま・野生のおとなしい子の じゅみょう（秒）。1 匹ずつ この間でばらつく */
+const FRIEND_LIFE: [number, number] = [25 * 60, 35 * 60]
+const newLife = () => FRIEND_LIFE[0] + Math.random() * (FRIEND_LIFE[1] - FRIEND_LIFE[0])
+/** はじめ（新しいゲーム・ステージに入った直後）は、敵がおそってこない秒数 */
+const PEACE_TIME = 90
 interface Item {
   kind: ItemKind; stage: number; x: number; z: number; grow: number; vx: number; vz: number; mesh: THREE.Group | null
   /** 置いた向き（ラジアン） */
@@ -461,6 +471,10 @@ export class World {
   private dexMsgT = 6
   private oldWarned = false
   private retiring = false
+  /** 敵がおそってこない のこり秒数（PEACE_TIME） */
+  private peaceT = 0
+  /** 留守の早送り中は、なかまは としを とらない */
+  private noAging = false
   private roleT = 0
   /** 視点：top = 見下ろし / behind = ペットの少し後ろ / eye = ペットの目線 */
   view: 'top' | 'behind' | 'eye' = 'top'
@@ -575,11 +589,6 @@ export class World {
     this.villageSeen = this.vLv
     for (let k = 0; k < 5; k++) this.spawnResource()
     this.setWeather(this.pickWeather(), true)
-    s.residents.forEach((id) => {
-      if (id === 'noiz' && this.hasItem('charm') && Math.random() < 0.7) return
-      const p = this.freePos(3)
-      this.spawn(enemyFor(id, i), 'wild', p.x, p.z)
-    })
     for (let k = 0; k < 3; k++) this.dropFood()
     let k = 0
     for (const c of this.creatures) {
@@ -590,6 +599,13 @@ export class World {
       this.setState(c, 'happy', 1.5)
       k++
     }
+    // 敵は ペットたちから はなれた所（島のはし）に置く。はじめの しばらくは おそってこない
+    s.residents.forEach((id) => {
+      if (id === 'noiz' && this.hasItem('charm') && Math.random() < 0.7) return
+      const p = this.farPos(8)
+      this.spawn(enemyFor(id, i), 'wild', p.x, p.z)
+    })
+    this.peaceT = PEACE_TIME
     this.makeAmbient()
     this.buildSeasonDeco()
     this.banner = 3.5
@@ -783,6 +799,7 @@ export class World {
       spar: false, carry: null, carryMesh: null, res: null, raid: null, inside: false,
       skillCd: 3 + Math.random() * 5, cheer: false, sleepFrom: null, site: null, army: false, squash: 0, pj: 0, finish: null, role: 'free', tendTo: null, spot: null, dAng: 0, dR: 2, lx: x, lz: z, mvT: 0, stuck: 0, detourN: 0, detour: null, avoid: Math.random() < 0.5 ? 1 : -1,
       seed, rare, evo: null, glint: 1 + Math.random() * 2,
+      age: 0, life: sp.temper === 'wild' || team === 'pet' ? 0 : newLife(),
     }
     this.creatures.push(c)
     this.burst(x, this.ground(c) + 0.5, z, 'cube', 8, 2)
@@ -1029,16 +1046,17 @@ export class World {
       }
     }
     // 家をこわしたがる敵（ゴウガン）・ひのこの日の敵は家をねらう
-    if (wild && c.energy > 25 && (c.sp.habit === 'raid' || (this.weather === 'ember' && Math.random() < 0.3) || Math.random() < 0.08)) {
+    if (wild && c.energy > 25 && this.peaceT <= 0 && (c.sp.habit === 'raid' || (this.weather === 'ember' && Math.random() < 0.3) || Math.random() < 0.08)) {
       const h = this.nearestHouse(c, (h) => h.level >= 1, c.sp.habit === 'raid' ? 14 : 7)
       if (h) {
         c.raid = h
         return this.setState(c, 'raid', 16)
       }
     }
-    if (wild && c.energy > 25) {
+    if (wild && c.energy > 25 && this.peaceT <= 0) {
       const range = this.hasItem('charm') ? 2.2 : 4.5
-      const prey = this.nearest(c, (o) => this.ally(o) || o.sp.temper === 'calm', range)
+      // 赤ちゃん（1 だんめ）・こどもは、すぐそばに来た時だけ ねらう
+      const prey = this.nearest(c, (o) => (this.ally(o) || o.sp.temper === 'calm') && (o.sp.tier >= 2 && o.grow === 0 || Math.hypot(o.x - c.x, o.z - c.z) < 1.8), range)
       if (prey) {
         c.foe = prey
         return this.setState(c, 'hunt', 6)
@@ -1049,7 +1067,8 @@ export class World {
       c.foe = p.foe
       return this.setState(c, 'assist', 8)
     }
-    if (c.team === 'pet' && c.hp > c.maxHp * 0.5 && c.energy > 30) {
+    // ペットから けんかを しかけるのは 2 だんめ（成長期）から
+    if (c.team === 'pet' && c.sp.tier >= 2 && c.hp > c.maxHp * 0.5 && c.energy > 30) {
       const enemy = this.nearest(c, (o) => o.sp.temper === 'wild', 3)
       if (enemy) {
         c.foe = enemy
@@ -2967,6 +2986,7 @@ export class World {
         bars.push(['たいりょく', c.hp / c.maxHp, '#7cf29b'])
         if (c.team === 'wild' && c.sp.temper === 'calm') bars.push(['なかよし', Math.min(1, c.affinity / 100), '#ff7eb6'])
         else if (this.ally(c) && c.sp.tier >= 1 && c.sp.tier <= 3) bars.push(['しんか', Math.min(1, (c === this.pet ? this.xp : c.xp) / XP_NEED[c.sp.tier as 1 | 2 | 3]), '#c9a8ff'])
+        if (c !== this.pet && c.life > 0) bars.push(['じゅみょう', Math.max(0, 1 - c.age / c.life), '#9be28a'])
         return { title: (c.rare ? '★' : '') + c.sp.name + (c === this.pet ? ' ★' : ''), sub: c.sp.kind, lines, bars, del: null }
       }
       case 'house': {
@@ -3348,6 +3368,21 @@ export class World {
   }
 
   private updateAge(dt: number) {
+    this.peaceT = Math.max(0, this.peaceT - dt)
+    // 1 秒ごと：なかまの としと、進化のし忘れ（たたかい中に経験値がたまった など）を見る
+    this.ageT += dt
+    if (this.ageT >= 1) {
+      const step = this.ageT
+      this.ageT = 0
+      for (const c of [...this.creatures]) {
+        if (c === this.pet || c.state === 'dead') continue
+        if (c.life > 0 && !this.noAging) {
+          c.age += step
+          if (c.age >= c.life && c.grow === 0 && c.state !== 'fight' && !c.evo) this.retireFriend(c)
+        }
+      }
+      for (const c of this.creatures) if (c.state !== 'dead' && c.sp.tier >= 1 && c.sp.tier <= 3) this.gainXp(c, 0)
+    }
     if (this.retiring || !this.alive(this.pet)) return
     this.stats.petAge += dt
     const life = this.stats.petAge / LIFESPAN
@@ -3356,6 +3391,22 @@ export class World {
       this.say(`${this.pet.sp.name}も ずいぶん としを とった… そろそろ じゅみょうが ちかい`)
     }
     if (life >= 1 && this.pet.state !== 'fight' && this.pet.grow === 0) this.retirePet()
+  }
+
+  private ageT = 0
+
+  /** なかま（と、野生のおとなしい子）が じゅみょうで ねむりにつく。なかまは ときどき 同じ系統の たまごを のこす */
+  private retireFriend(c: Creature) {
+    const near = Math.hypot(c.x - this.look.x, c.z - this.look.z) < 10
+    if (c.team === 'friend' || near) this.say(`${this.nm(c)}は じゅみょうを むかえ… しずかに ねむりについた`)
+    this.burst(c.x, this.ground(c) + 0.8, c.z, 'heart', 5, 1.6)
+    if (c.team === 'friend' && this.eggs.length < 5 && Math.random() < 0.6) {
+      this.layEgg(c.x + 0.6, c.z + 0.3, [c.sp.id], 30)
+      this.say(`${c.sp.name}の いたところに たまごが のこっていた`)
+    }
+    c.retired = true
+    c.foe = null
+    this.setState(c, 'dead', 1.8)
   }
 
   /** ペットが ねんれいで ねむり、たまごから 次の代が うまれる */
@@ -4609,7 +4660,7 @@ export class World {
       r.t -= dt
       if (r.t <= 0) {
         this.respawn.splice(this.respawn.indexOf(r), 1)
-        const p = this.freePos(4)
+        const p = this.farPos(7)
         this.spawn(r.id, 'wild', p.x, p.z)
       }
     }
@@ -5246,9 +5297,16 @@ export class World {
         }
         break
       case 'dead':
-        anim = 'hurt'
-        c.anim.sprite.visible = Math.floor(c.t * 16) % 2 === 0
-        if (Math.random() < 0.5) this.burst(c.x, this.ground(c) + Math.random() * this.size(c), c.z, 'cube', 1, 1.5, 1)
+        if (c.retired) {
+          // じゅみょう：ねむったまま ゆっくり ちいさくなって、光の粒になる
+          anim = 'sleep'
+          c.anim.setHeight(this.size(c) * Math.max(0.05, Math.min(1, c.t / 1.6)))
+          if (Math.random() < 0.3) this.burst(c.x, this.ground(c) + Math.random() * this.size(c), c.z, 'spark', 1, 1, 1)
+        } else {
+          anim = 'hurt'
+          c.anim.sprite.visible = Math.floor(c.t * 16) % 2 === 0
+          if (Math.random() < 0.5) this.burst(c.x, this.ground(c) + Math.random() * this.size(c), c.z, 'cube', 1, 1.5, 1)
+        }
         if (c.t <= 0) {
           this.remove(c)
           this.creatures.splice(this.creatures.indexOf(c), 1)
@@ -5557,6 +5615,21 @@ export class World {
       return true
     }
     return false
+  }
+
+  /** 敵の出てくる場所：ペットと仲間から min マス以上はなれた所（なるべく島のはし）。見つからなければ freePos */
+  private farPos(min: number) {
+    const allies = this.creatures.filter((c) => this.ally(c))
+    for (let i = 0; i < 120; i++) {
+      // はしに寄せる：片方の座標を外側 3 割から選ぶ
+      const edge = (Math.random() < 0.5 ? -1 : 1) * (HALF * (0.7 + Math.random() * 0.3))
+      const along = (Math.random() * 2 - 1) * HALF
+      const [x, z] = Math.random() < 0.5 ? [edge, along] : [along, edge]
+      if (allies.some((a) => Math.hypot(a.x - x, a.z - z) < (a === this.pet ? min : min - 2))) continue
+      if (this.obstacles().some((o) => Math.hypot(o.x - x, o.z - z) < o.r + 0.6)) continue
+      return { x, z }
+    }
+    return this.freePos(min)
   }
 
   private freePos(minFromPet: number, cx = 0, cz = 0, radius = 99) {
@@ -5980,7 +6053,7 @@ export class World {
     if (!this.pet || this.saveLocked) return
     const c2 = (c: Creature) => ({
       sp: c.sp.id, hp: Math.round(c.hp), maxHp: c.maxHp, atk: c.atk, hunger: Math.round(c.hunger), energy: Math.round(c.energy), grow: c.grow,
-      xp: c.xp, care: c.care, bias: c.bias, seed: c.seed, rare: c.rare,
+      xp: c.xp, care: c.care, bias: c.bias, seed: c.seed, rare: c.rare, age: Math.round(c.age), life: Math.round(c.life),
     })
     const friends = this.creatures.filter((c) => c.team === 'friend')
     const ownerKey = (h: House) => (h.owner === this.pet ? 'pet' : h.owner && friends.includes(h.owner) ? `f${friends.indexOf(h.owner)}` : '')
@@ -6068,7 +6141,7 @@ export class World {
           }
         })
       this.loadStage(Math.min(STAGES.length - 1, Math.round(num(d.stage, 0, STAGES.length - 1))))
-      type Saved = { sp: SpeciesId; hp: number; maxHp: number; atk: number; hunger: number; energy: number; grow: number; xp?: number; care?: Record<Care, number>; bias?: Care; seed?: number; rare?: boolean }
+      type Saved = { sp: SpeciesId; hp: number; maxHp: number; atk: number; hunger: number; energy: number; grow: number; xp?: number; care?: Record<Care, number>; bias?: Care; seed?: number; rare?: boolean; age?: number; life?: number }
       /** 見た目のシード（古いセーブには無いので、その時は新しく決める）。色ちがいは 保存されたものだけ */
       const lookOfSaved = (s: Saved) => ({ seed: Math.round(num(s.seed, 0, 0x7fffffff, newSeed())), rare: s.rare === true && SPECIES[s.sp].tier > 0 })
       const apply = (c: Creature, s: Saved) => {
@@ -6076,6 +6149,11 @@ export class World {
         if (s.xp !== undefined) c.xp = s.xp
         if (s.care) c.care = Object.assign({ power: 0, guard: 0, spirit: 0 }, s.care)
         if (s.bias) c.bias = s.bias
+        // じゅみょう（古いセーブには無い：その時は今から数える）
+        if (c.team !== 'pet' && c.sp.temper !== 'wild') {
+          c.life = num(s.life, FRIEND_LIFE[0] * 0.5, FRIEND_LIFE[1] * 2, newLife())
+          c.age = num(s.age, 0, c.life, 0)
+        }
         c.anim.setHeight(this.size(c))
       }
       this.pet = this.spawn(d.pet.sp, 'pet', 0, 1.5, 0, lookOfSaved(d.pet))
@@ -6136,6 +6214,7 @@ export class World {
     const armyCd = this.armyCd
     this.onSfx = () => {}
     this.armyCd = 1e9
+    this.noAging = true
     // 早送りのあいだに寿命が来て世代交代しないように、年齢だけ手前に留める
     this.stats.petAge = Math.min(petAge, LIFESPAN - 1000)
     let i = 0
@@ -6161,6 +6240,7 @@ export class World {
         this.stats.petAge = petAge
         this.armyCd = Math.max(armyCd, 60)
         this.onSfx = sfx
+        this.noAging = false
         this.messages.length = 0
         this.msgT = 0
         return true
