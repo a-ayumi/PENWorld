@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { OUT, RES, SCENE, makePostMaterial } from './psx'
+import { OUT, RES } from './psx'
 import { DioramaLook } from './diorama'
 import { SpriteAnim, iconSheet } from './sprites'
 import { EGG_COLORS, NEW_SKILLS, SPECIES, enemyFor, type Care, type EggKind, type MonsterView, type Species, type SpeciesId } from './monsters'
@@ -587,14 +587,14 @@ export class World {
   freePos = Up.freePos
   readonly scene = new THREE.Scene()
   readonly camera = new THREE.PerspectiveCamera(42, RES.w / RES.h, 0.1, 160)
-  readonly rtScene = new THREE.WebGLRenderTarget(SCENE.w, SCENE.h, { magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter })
   readonly rtOut = new THREE.WebGLRenderTarget(OUT.w, OUT.h, { magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter })
   readonly hud = document.createElement('canvas')
   readonly hudCtx: CanvasRenderingContext2D
   readonly hudTex: THREE.CanvasTexture
-  readonly post: THREE.ShaderMaterial
-  readonly postScene = new THREE.Scene()
-  readonly postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
+  /** 仕上げのシェーダー（diorama.ts。ワープのグリッチ・フラッシュ・ひのこの熱ゆらぎの uniform もここ） */
+  get post() {
+    return this.diorama.post
+  }
 
   readonly hemi = new THREE.HemisphereLight()
   readonly sun = new THREE.DirectionalLight()
@@ -721,8 +721,8 @@ export class World {
   roleT = 0
   /** 視点：top = 見下ろし / behind = ペットの少し後ろ / eye = ペットの目線 */
   view: 'top' | 'behind' | 'eye' = 'top'
-  /** ピクセル・ジオラマの見た目（見本。URL の ?look=diorama の時だけ。みおろし視点で使う） */
-  diorama: DioramaLook | null = null
+  /** 見た目：ピクセル・ジオラマ（diorama.ts）。みおろしは平行投影、うしろ・めせんは this.camera（遠近）で同じ仕上げ */
+  diorama!: DioramaLook
   readonly dioLook = new THREE.Vector3()
   /**
    * 遊びかた：true = のんびり（敵軍が来ない・野生の敵は おそわない・ペットから けんかしない）/ false = にぎやか
@@ -740,7 +740,7 @@ export class World {
   readonly dioCenter = new THREE.Vector3()
   /** いま画面を描いているカメラ（タップの当たり判定・頭の上の文字の位置もこれで求める） */
   get viewCam(): THREE.Camera {
-    return this.diorama && this.view === 'top' ? this.diorama.cam : this.camera
+    return this.view === 'top' ? this.diorama.cam : this.camera
   }
   /** ピンチで寄る・引く（1 = ふつう） */
   camZoom = 1
@@ -763,9 +763,7 @@ export class World {
     this.hudTex = new THREE.CanvasTexture(this.hud)
     this.hudTex.magFilter = THREE.NearestFilter
     this.hudTex.minFilter = THREE.NearestFilter
-    this.post = makePostMaterial(this.rtScene.texture, this.hudTex)
-    if (typeof location === 'undefined' || new URLSearchParams(location.search).get('look') !== 'ps1') this.diorama = new DioramaLook(this.hudTex)
-    this.postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.post))
+    this.diorama = new DioramaLook(this.hudTex)
     this.scene.add(this.hemi, this.sun)
     this.wfx = new WeatherFx()
     this.scene.add(this.wfx.group)
