@@ -17,7 +17,8 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - `src/places.ts` — 本体の後ろの「人間側」の場所 6 種（机・電車・通学路・教室・バーガーショップ・公園）。実在の店や施設は描かない
 - `src/world/items.ts` — 置き物 13 種（なえ・ボール・たき火・おまもり・だいくどうぐ・まもりのさく・おはか・ベンチ・ランタン・ぬいぐるみ・おうえんばた・はなだん・ミニすべりだい）の説明 `ITEM_INFO`・上限 `ITEM_SPEC`・モデル `buildItem()`・見た目のアニメ `tickItem()`。効果は World.ts（`think()` / `updateItems()`）
 - `src/world/shop.ts` — ショップの商品 `SHOP`（カテゴリ別・安い順）・タブ式の画面 `drawShop()`・タップ判定 `shopTap()`・9×9 のアイコン
-- `src/world/World.ts` — 箱庭本体：生き物の AI・バトル・食べ物・置き物・仲間・たまご・進化・コイン/ショップ・セーブ・HUD・描画パイプライン
+- `src/world/World.ts` — 箱庭本体のクラス：フィールド・コンストラクタ・ステージの読み込み・カメラ。メソッドの中身は役割ごとに `src/world/parts/` に分けてある（`creatures`：生き物・技・進化・役割・世代交代・たまご・ずかん / `village`：食べ物・置き物・家・建物・村・おまつり・いちば / `events`：敵軍・天気・ひみつ・もくひょう・ミッション・うんだめし・季節 / `ui`：タップ・ボタン・HUD・描画 / `save`：セーブ・るすばん / `update`：毎フレームの更新・エフェクト）。各ファイルの関数は `export function 名前(this: World, …)` で、World のクラスの頭の `名前 = Cr.名前` の行からつながる。新しいメソッドは役割の合うファイルに同じ形で足し、クラスの頭に 1 行足す。先頭の型と定数は World.ts から export している
+- `tools/test/` — 確認用の Playwright スクリプト（早送り・セーブ→リロード・液晶の絵の撮影）。使い方は `tools/test/README.md`
 - `src/world/stages2.ts` — 追加ステージ 2 種（ほむらのかざん / こだいのいせき）。`STAGES2` を `stages.ts` の `STAGES` の後ろにつなぐ。共通の道具（`terrain` / `skyDome` / `placer` / `dens` など）は `stages.ts` から export したものを使う。かざんの溶岩は `water: true, lava: true` の障害物（浮く種族だけ越えられる。はしも架けられる）、いせきは `Stage.shadows`（夜のヤミカゲの数）と `Stage.fogRange`（霧の近さ）で雰囲気を出す。ステージ番号で引く表は `WEATHER_W` / `STAGE_EGGS` / `STYLES` / `villageName()`（ステージを足したら 4 つとも足す）
 - `src/world/stages.ts` — ステージ 5 種（はじまりの森 / ガラスの砂丘 / さんごの入り江 / わたゆきの原 / こおりの回路峰）。水場は `water: true` の障害物（浮く種族だけ入れる）
 - `src/world/monsters.ts` — 進化分岐 `BRANCH`（ちから/まもり/こころ、4 段階）、必要経験値 `XP_NEED`、モンスター 14 種（仲間になれる 10 種：メブ / ピコリ / ゴロタ / モフル / ギアル / ヒレル / フワリ / ガルドラ / シオリュウ / ホシクジラ、敵 4 種：ノイズ / トゲバグ / ヤミカゲ（夜だけ）/ ゴウガン（家をこわす））
