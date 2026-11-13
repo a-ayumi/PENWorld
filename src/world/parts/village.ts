@@ -3,7 +3,8 @@ import * as THREE from 'three'
 import { psx } from '../psx'
 import { SpriteAnim } from '../sprites'
 import { Tex } from '../textures'
-import { HALF, LAND_SIZES, setLandSize } from '../stages'
+import { HALF, LAND_SIZES, SIZE, setLandSize } from '../stages'
+import { buildDecor, disposeDecor } from '../decor'
 import { STRUCTS, buildScaffold, buildStructModel, styleOf, type StructKind } from '../structures'
 import { ITEM_SPEC, buildItem, disposeItem, tickItem, type ItemKind } from '../items'
 import type { World } from '../World'
@@ -1449,4 +1450,27 @@ export function sendToChest(this: World, t: { x: number; z: number }) {
   if (!best) return
   this.goToChest(best, t)
   this.say(`${this.nm(best)}が たからばこを あけに いった`)
+}
+
+/** 村の かざり（飛び石の道・石段・小物）：家と建物の ならびが かわったら 作りなおす（1.5 秒ごとに見る） */
+export function updateDecor(this: World, dt: number) {
+  if ((this.decorT -= dt) > 0) return
+  this.decorT = 1.5
+  const here = this.stageIndex
+  const nodes = [
+    ...this.houses.filter((h) => h.stage === here && h.level >= 1).map((h) => ({ x: h.x, z: h.z, r: 0.85, house: true })),
+    ...this.structs.filter((b) => b.stage === here && b.mats >= STRUCTS[b.kind].need && b.kind !== 'wall' && b.kind !== 'bridge').map((b) => ({ x: b.x, z: b.z, r: Math.max(0.5, STRUCTS[b.kind].r), house: false })),
+  ]
+  const key = here + '|' + (this.high ? 1 : 0) + '|' + SIZE + '|' + nodes.map((n) => n.x.toFixed(1) + ',' + n.z.toFixed(1)).join(';')
+  if (key === this.decorKey) return
+  this.decorKey = key
+  if (this.decor) {
+    this.scene.remove(this.decor)
+    disposeDecor(this.decor)
+    this.decor = null
+  }
+  if (!nodes.length) return
+  this.obstacles()
+  this.decor = buildDecor({ heightAt: this.stage.heightAt, nav: this.nav, nodes, high: this.high })
+  this.scene.add(this.decor)
 }

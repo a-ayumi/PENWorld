@@ -400,6 +400,7 @@ export class World {
   updateAge = Cr.updateAge
   updateTreasures = Vi.updateTreasures
   wantTreasure = Vi.wantTreasure
+  updateDecor = Vi.updateDecor
   goToChest = Vi.goToChest
   sendToChest = Vi.sendToChest
   friendCount = Cr.friendCount
@@ -643,6 +644,10 @@ export class World {
   banner = 0
   night = 0
   nightTarget = 0
+  /** 村の かざり（道・石段・小物。decor.ts） */
+  decor: THREE.Group | null = null
+  decorKey = ''
+  decorT = 0
   time = 0
   foodT = 0
   breedT = 0
@@ -835,6 +840,8 @@ export class World {
     this.nav = new NavGrid(SIZE, this.stage.heightAt)
     this.chestOpen.clear()
     this.navKey = ''
+    this.decorKey = ''
+    this.decorT = 0
     const s = this.stage
     this.scene.add(s.group)
     fxLod(s.group, this.high)
