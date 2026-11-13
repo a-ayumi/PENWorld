@@ -911,9 +911,148 @@ const FOE_GEOM: Record<FoeId, (p: Pose) => Geom> = {
   sangogani: (p) => ({ bx: 15 + p.lean, by: 22 + p.bob * 0.5, rx: 13, ry: 8, hx: 22 + p.lean, hy: 13 + p.bob * 0.5, hr: 6, mx: 21 + p.lean, my: 23 + p.bob * 0.5, cols: ['#e0604a', '#9a2e20', '#ff9e86'] }),
 }
 
+// ---------- ねこ系統（描きなおし・見本）----------
+/** しなる しっぽ：2 次の曲線に そって 丸を ならべる。先は tip の色、ring があれば しま */
+function tailCurve(g: G, x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, r0: number, r1: number, col: string, tip: string, ring?: string) {
+  const N = 16
+  for (let i = 0; i <= N; i++) {
+    const t = i / N
+    const x = (1 - t) * (1 - t) * x0 + 2 * (1 - t) * t * x1 + t * t * x2
+    const y = (1 - t) * (1 - t) * y0 + 2 * (1 - t) * t * y1 + t * t * y2
+    const r = r0 + (r1 - r0) * t
+    ell(g, i > N - 4 ? tip : ring && i % 5 >= 3 ? ring : col, x, y, r, r)
+  }
+}
+/** ねこの あたま（ななめ向き・両目が顔の中）。口の位置を返す */
+function catHead(g: G, p: Pose, L: Look, hx: number, hy: number, hr: number) {
+  const [B, S, H] = L.c
+  const dark = L.eye ?? '#1a1530'
+  const belly = L.b ?? H
+  const hy2 = hr * 0.9
+  // みみ（奥 → 手前）。内がわは もも色
+  poly(g, S, [hx + hr * 0.12, hy - hy2 * 0.7, hx + hr * 0.66, hy - hy2 * 1.82, hx + hr * 0.95, hy - hy2 * 0.4])
+  poly(g, '#f29ab8', [hx + hr * 0.36, hy - hy2 * 0.8, hx + hr * 0.66, hy - hy2 * 1.5, hx + hr * 0.82, hy - hy2 * 0.62])
+  poly(g, B, [hx - hr * 0.9, hy - hy2 * 0.35, hx - hr * 0.62, hy - hy2 * 1.86, hx + hr * 0.02, hy - hy2 * 0.8])
+  poly(g, '#f29ab8', [hx - hr * 0.7, hy - hy2 * 0.62, hx - hr * 0.58, hy - hy2 * 1.5, hx - hr * 0.2, hy - hy2 * 0.82])
+  // あたま：かげ → 本体。ほおの毛を 左右に
+  ell(g, S, hx, hy, hr, hy2)
+  poly(g, S, [hx - hr * 0.9, hy + hy2 * 0.05, hx - hr * 1.28, hy + hy2 * 0.62, hx - hr * 0.5, hy + hy2 * 0.8])
+  poly(g, S, [hx + hr * 0.78, hy + hy2 * 0.25, hx + hr * 1.2, hy + hy2 * 0.66, hx + hr * 0.5, hy + hy2 * 0.86])
+  ell(g, B, hx - 0.5, hy - 0.6, hr - 0.9, hy2 - 0.9)
+  poly(g, B, [hx - hr * 0.88, hy, hx - hr * 1.16, hy + hy2 * 0.52, hx - hr * 0.5, hy + hy2 * 0.66])
+  poly(g, B, [hx + hr * 0.72, hy + hy2 * 0.2, hx + hr * 1.08, hy + hy2 * 0.56, hx + hr * 0.5, hy + hy2 * 0.72])
+  ell(g, H, hx - hr * 0.38, hy - hy2 * 0.55, hr * 0.3, hy2 * 0.16)
+  // ひたいの しま
+  if (L.stripe) for (const dx of [-0.28, 0.08, 0.44]) rect(g, L.stripe, hx + dx * hr - 0.5, hy - hy2 * 0.98 + Math.abs(dx - 0.08) * 1.4, 1, hy2 * (dx === 0.08 ? 0.3 : 0.2))
+  if (L.gem) poly(g, L.gem, [hx + hr * 0.2, hy - hy2 * 0.82, hx + hr * 0.2 + 1.5, hy - hy2 * 0.82 + 1.5, hx + hr * 0.2, hy - hy2 * 0.82 + 3, hx + hr * 0.2 - 1.5, hy - hy2 * 0.82 + 1.5])
+  // 口もと（白っぽい ふくらみ）と はな
+  const mzx = hx + hr * 0.36
+  const mzy = hy + hy2 * 0.46
+  ell(g, belly, mzx, mzy, hr * 0.5, hy2 * 0.34)
+  poly(g, '#e8708e', [mzx - 1, mzy - hy2 * 0.28, mzx + 1, mzy - hy2 * 0.28, mzx, mzy - hy2 * 0.28 + 1])
+  eyes(g, [hx - hr * 0.26, hx + hr * 0.64], hy - hy2 * 0.02, p.eye, dark)
+  // ほおの 赤み
+  if (p.eye === 'happy' || p.eye === 'hungry') ell(g, '#ffb0c0', hx - hr * 0.5, hy + hy2 * 0.42, 1.2, 0.7)
+  const mx = mzx - 1.2
+  const my = mzy
+  if (p.mouth) mouthShape(g, p.mouth, mx, my, dark, false)
+  else {
+    // とじた口：ちいさな「ω」
+    rect(g, dark, mzx - 0.25, mzy - 0.2, 0.5, 1)
+    rect(g, dark, mzx - 1.25, mzy + 0.8, 1, 0.5)
+    rect(g, dark, mzx + 0.25, mzy + 0.8, 1, 0.5)
+  }
+  if (L.fang) poly(g, '#ffffff', [mzx + 0.8, mzy + 0.6, mzx + 2, mzy + 0.6, mzx + 1.4, mzy + 2.4])
+  return { mx, my }
+}
+/** 四つあしの ねこ（右むき、足もとは y=30） */
+function cat(g: G, p: Pose, f: number, L: Look): Geom {
+  const s = L.s
+  const [B, S, H] = L.c
+  const belly = L.b ?? H
+  const cx = 13 - (s - 1) * 1.5 + p.lean
+  const bob = p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
+  const rx = 6.2 * s + p.sq * 0.5
+  const ry = 4.2 * s - p.sq * 0.4
+  const ty = 30 - (4.2 + s) - ry * 0.55 + bob
+  const hr = 5.4 * s
+  const hx = cx + 5.6 * s
+  const hy = ty - 3.5 * s + p.sq * 0.3
+  const wag = Math.sin(f * 1.7) * 1.6
+  const w = 1.9 + s * 0.5
+  const legY = ty + ry * 0.35
+  const leg = (x: number, col: string, paw: string) => {
+    rect(g, col, x - w / 2, legY, w, 29.6 - legY)
+    ell(g, paw, x + 0.5, 29.3, w * 0.72, 1.2)
+  }
+  // しっぽ（ふたまたは 2 本）
+  const tails = L.tails ?? 1
+  for (let t = 0; t < tails; t++)
+    tailCurve(g, cx - rx + 1.2, ty - 0.4, cx - rx - 4.2 * s - t * 1.2, ty + 0.5 * s - t * 1.5, cx - rx - 1.2 * s + wag * (t ? -1 : 1) - t * 2.6, ty - 8.2 * s + t * 2.2, 1.3 + s * 0.35, 1.0 + s * 0.25, B, L.stripe ?? S, L.stripe)
+  // 奥の足
+  leg(cx - rx * 0.62 - p.step * 0.9, S, S)
+  leg(cx + rx * 0.55 + p.step * 0.9, S, S)
+  // 胴：おしり（ふともも）を 少し高く、むねを ふくらませる
+  ell(g, S, cx, ty, rx, ry)
+  ell(g, S, cx - rx * 0.46, ty - 0.2, rx * 0.64, ry * 1.1)
+  ell(g, B, cx - 0.4, ty - 0.7, rx - 1, ry - 1)
+  ell(g, B, cx - rx * 0.46 - 0.3, ty - 0.9, rx * 0.64 - 0.9, ry * 1.1 - 0.9)
+  ell(g, belly, cx + rx * 0.2, ty + ry * 0.52, rx * 0.62, ry * 0.4)
+  ell(g, H, cx - rx * 0.32, ty - ry * 0.6, rx * 0.4, ry * 0.18)
+  // せなかの しま（上が太く、下へ とがる）
+  if (L.stripe)
+    for (const i of [-0.62, -0.24, 0.14]) {
+      const yt = ty - ry * Math.sqrt(1 - i * i) * (i < -0.3 ? 1.08 : 1) + 0.8
+      poly(g, L.stripe, [cx + i * rx - 1, yt, cx + i * rx + 1, yt, cx + i * rx + 0.3, yt + ry * 1.05])
+    }
+  if (L.spot) for (const [dx, dy, r] of [[-0.55, -0.25, 1.6], [-0.2, 0.15, 1.2], [0.15, -0.35, 1.3]] as const) ell(g, L.spot, cx + dx * rx, ty + dy * ry, r * Math.sqrt(s), r * Math.sqrt(s))
+  // 手前の足（ふともも つき）。おなかの色が あれば くつした
+  ell(g, B, cx - rx * 0.36, ty + ry * 0.3, rx * 0.34, ry * 0.62)
+  leg(cx - rx * 0.3 + p.step * 0.9, B, L.b ?? H)
+  leg(cx + rx * 0.84 - p.step * 0.9, B, L.b ?? H)
+  // むねの毛
+  ell(g, belly, cx + rx * 0.82, ty + ry * 0.05, rx * 0.26, ry * 0.7)
+  // たてがみ：首のまわりの ふさ
+  if (L.mane)
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2 + 0.3
+      ell(g, L.mane, hx - 1 + Math.cos(a) * (hr + 0.3), hy + 0.8 + Math.sin(a) * (hr * 0.9 + 0.3), 1.6 + s * 0.5, 1.6 + s * 0.5)
+    }
+  const { mx, my } = catHead(g, p, L, hx, hy, hr)
+  return { bx: cx, by: ty, rx, ry, hx, hy, hr, mx, my, cols: [B, S, H] }
+}
+/** すわった こねこ（赤ちゃん）：大きな頭・ちいさな体・まえ足を そろえる */
+function kitten(g: G, p: Pose, f: number, L: Look): Geom {
+  const s = L.s
+  const [B, S, H] = L.c
+  const belly = L.b ?? H
+  const cx = 14 + p.lean
+  const bob = p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
+  const rx = 5.6 * s + p.sq * 0.5
+  const ry = 4.8 * s - p.sq * 0.5
+  const ty = 30 - ry - 0.4 + bob
+  const hr = 6.6 * s
+  const hx = cx + 2.2
+  const hy = ty - ry * 0.55 - hr * 0.62 + p.sq * 0.4
+  const wag = Math.sin(f * 1.7) * 1.4
+  tailCurve(g, cx - rx + 1.5, ty + ry * 0.4, cx - rx - 4.5, ty + ry * 0.6, cx - rx - 2 + wag, ty - ry * 1.3, 1.6, 1.2, B, S)
+  ell(g, S, cx, ty, rx, ry)
+  ell(g, B, cx - 0.4, ty - 0.6, rx - 0.9, ry - 0.9)
+  ell(g, belly, cx + rx * 0.3, ty + ry * 0.25, rx * 0.5, ry * 0.6)
+  // まえ足
+  for (const dx of [0.1, 0.62]) {
+    rect(g, B, cx + dx * rx - 1.1 + (dx > 0.3 ? -p.step : p.step) * 0.6, ty + ry * 0.1, 2.2, ry * 0.9 - 0.4)
+    ell(g, belly, cx + dx * rx + 0.3 + (dx > 0.3 ? -p.step : p.step) * 0.6, 29.3, 1.7, 1.2)
+  }
+  const { mx, my } = catHead(g, p, L, hx, hy, hr)
+  return { bx: cx, by: ty, rx, ry, hx, hy, hr, mx, my, cols: [B, S, H] }
+}
+
 // ---------- 系統の仲間（パーツ指定で描く）----------
 /** families.ts の Look（パーツの指定）から 1 コマ描く。右むき、足もとは y=30 */
 function critter(g: G, p: Pose, f: number, L: Look): Geom {
+  // ねこ（耳も しっぽも ねこ）は 専用の描き方（見本）
+  if (L.ear === 'cat' && L.tail === 'cat') return L.f === 'quad' ? cat(g, p, f, L) : kitten(g, p, f, L)
   const s = L.s
   const [B, S, H] = L.c
   const dark = L.eye ?? '#1a1530'
