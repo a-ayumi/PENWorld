@@ -6,7 +6,7 @@ import { EGG_COLORS, FAMILY_NAME, armyBoss, armyMember, familyOf, type Care, typ
 import { Tex } from '../textures'
 import { fxU } from '../fx'
 import { fxLod } from '../fxprops'
-import { HALF, STAGES } from '../stages'
+import { HALF, SIZE, STAGES } from '../stages'
 import { EAT_KEYS, EVENT_IDS, SECRET_EVENTS, SECRET_FORMS, hintLines, hintMask, isSecretId, secretById, secretForm, type EventCtx, type EventFx, type SecretCtx, type SecretEvent } from '../secrets'
 import { STRUCTS, type StructKind } from '../structures'
 import { SHOP } from '../shop'
@@ -752,6 +752,33 @@ export function updateWeather(this: World, dt: number) {
   this.post.uniforms.heat.value = this.high ? wx.ember : 0
   const fog = this.scene.fog as THREE.Fog
   this.wfx.update(this.look, this.stage.heightAt(this.look.x, this.look.z), { rain: wx.rain, snow: wx.snow, ember: wx.ember, mist: wx.mist }, fog.color)
+  // 空：雲・さしこむ 陽の光（晴れた昼。朝のもや・雨あがりの にじ の時は 強く）・雷（雨が強い時）
+  const storm = Math.max(wx.rain, wx.snow * 0.7, wx.grey * 0.6)
+  const sunny = Math.max(0, 1 - this.night * 1.4) * Math.max(0, 1 - wx.grey * 1.3) * (1 - storm)
+  this.skyfx.update(dt, this.time, SIZE, storm, sunny, Math.min(1, wx.mist + wx.bow), this.high)
+  if (wx.rain > 0.65) {
+    this.boltT -= dt
+    if (this.boltT <= 0) {
+      this.boltT = 7 + Math.random() * 14
+      // 見ている所の 少し奥の 高い所へ（生き物には あたらない・音と光だけ）
+      let bx = this.look.x
+      let bz = this.look.z
+      let bh = -1
+      for (let i = 0; i < 8; i++) {
+        const x = THREE.MathUtils.clamp(this.look.x + (Math.random() - 0.5) * 22, -HALF, HALF)
+        const z = THREE.MathUtils.clamp(this.look.z - 3 - Math.random() * 12, -HALF, HALF)
+        const h = this.stage.heightAt(x, z)
+        if (h > bh) {
+          bh = h
+          bx = x
+          bz = z
+        }
+      }
+      this.skyfx.strike(bx, bh, bz)
+      this.flash = Math.max(this.flash, this.reducedMotion ? 0.08 : 0.3)
+      this.after(0.35 + Math.random() * 0.5, () => this.onSfx('boom'))
+    }
+  } else this.boltT = Math.min(this.boltT, 6)
 }
 
 export function noteEaten(this: World, c: Creature, kind: FoodKind) {

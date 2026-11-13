@@ -9,7 +9,7 @@ import { STRUCTS, type StructKind } from '../structures'
 import { ITEM_SPEC, type ItemKind } from '../items'
 import { SEASON_INFO, type Season } from '../../missions'
 import type { World } from '../World'
-import { Team, State, Creature, Evo, Skill, SKILLS, Struct, Role, ROLE_NAME, LIFESPAN, newLife, Item, DECO_SHEET, houseMaxHp, MAX_FRIENDS, BOSSES, RARE_RATE, RARE_RATE_LUCKY, CREATURE_SCALE } from '../World'
+import { Team, State, Creature, Evo, Skill, SKILLS, Struct, Role, ROLE_NAME, LIFESPAN, newLife, Item, DECO_SHEET, houseMaxHp, MAX_FRIENDS, MAX_KIDS, MAX_WILD_CALM, BOSSES, RARE_RATE, RARE_RATE_LUCKY, CREATURE_SCALE } from '../World'
 
 export function spawn(this: World, id: SpeciesId, team: Team, x: number, z: number, grow = 0, look?: { seed: number; rare: boolean }): Creature {
   const sp = SPECIES[id]
@@ -1183,6 +1183,14 @@ export function updateAge(this: World, dt: number) {
   if (life >= 1 && this.pet.state !== 'fight' && this.pet.grow === 0) this.retirePet()
 }
 
+/** そだちきっていない なかま + かえる前の（のはらのでない）たまご */
+export function kidCount(this: World) {
+  return this.creatures.filter((c) => c.team === 'friend' && c.grow > 0 && c.state !== 'dead').length + this.eggs.filter((e) => !e.wild).length
+}
+/** のはらで くらす おとなしい子の数 */
+export function calmWildCount(this: World) {
+  return this.creatures.filter((c) => c.team === 'wild' && c.sp.temper === 'calm' && c.state !== 'dead').length
+}
 export function friendCount(this: World) {
   return this.creatures.filter((c) => c.team === 'friend' && c.state !== 'dead').length
 }
@@ -1240,13 +1248,18 @@ export function retireFriend(this: World, c: Creature) {
   const near = Math.hypot(c.x - this.look.x, c.z - this.look.z) < 10
   if (c.team === 'friend' || near) this.say(`${this.nm(c)}は じゅみょうを むかえ… しずかに ねむりについた`)
   this.burst(c.x, this.ground(c) + 0.8, c.z, 'heart', 5, 1.6)
-  if (c.team === 'friend' && this.eggs.length < 5 && this.friendCount() + this.eggs.filter((e) => !e.wild).length <= MAX_FRIENDS && Math.random() < 0.6) {
+  if (c.team === 'friend' && this.eggs.length < 5 && this.kidCount() < MAX_KIDS && this.friendCount() + this.eggs.filter((e) => !e.wild).length <= MAX_FRIENDS && Math.random() < 0.6) {
     this.layEgg(c.x + 0.6, c.z + 0.3, [c.sp.id], 30)
     this.say(`${c.sp.name}の いたところに たまごが のこっていた`)
   }
   c.retired = true
   c.foe = null
-  this.setState(c, 'dead', 1.8)
+  // 天に のぼる：光の柱が おりて、ゆっくり うかんで 光の粒に
+  this.skyfx.ascend(c.x, this.stage.heightAt(c.x, c.z), c.z, 5)
+  this.ring(c.x, c.z, '#fff3c4', 2.2, 1.2)
+  this.mark(c.x, c.z, 3)
+  c.vy = 0
+  this.setState(c, 'dead', 4.6)
 }
 
 /** ペットが ねんれいで ねむり、たまごから 次の代が うまれる */
@@ -1260,6 +1273,10 @@ export function retirePet(this: World) {
   this.setState(p, 'sleep', 4)
   this.placeMemorial(p.x, p.z)
   this.burst(p.x, this.ground(p) + 0.8, p.z, 'heart', 8, 2)
+  // 天に のぼる 光の柱と、のぼっていく 光の粒
+  this.skyfx.ascend(p.x, this.stage.heightAt(p.x, p.z), p.z, 4.2)
+  this.ring(p.x, p.z, '#fff3c4', 2.6, 1.4)
+  for (let i = 1; i <= 8; i++) this.after(i * 0.38, () => this.burst(p.x + (Math.random() - 0.5) * 0.6, this.ground(p) + 0.4 + i * 0.5, p.z, 'spark', 3, 0.8, -2.5))
   this.after(3.4, () => this.rebirth(old))
 }
 
@@ -1361,6 +1378,8 @@ export function tryBreed(this: World, dt: number) {
   if (!mate) return
   // なかまと（かえる前の）たまごで いっぱいなら、もう たまごは できない
   if (this.friendCount() + this.eggs.filter((e) => !e.wild).length >= MAX_FRIENDS) return
+  // こどもが 多すぎない ように：そだちきっていない子 + たまご は MAX_KIDS まで
+  if (this.kidCount() >= MAX_KIDS) return
   const fire = this.item('fire')
   const nearFire = fire && Math.hypot(fire.x - p.x, fire.z - p.z) < 3
   const chance = 0.22 * (nearFire ? 2 : 1) * (this.night > 0.5 ? 1.5 : 1) * (cradle ? 1.8 : 1)
@@ -1399,7 +1418,7 @@ export function updateWildEgg(this: World, dt: number) {
   this.wildEggT -= dt
   if (this.wildEggT > 0) return
   this.wildEggT = 150 + Math.random() * 100
-  if (this.eggs.length >= 3) return
+  if (this.eggs.length >= 3 || this.calmWildCount() >= MAX_WILD_CALM) return
   const q = this.freePos(3)
   const kind = this.stageEggKind()
   this.layEgg(q.x, q.z, [], 60, kind, true)
@@ -1416,6 +1435,11 @@ export function updateEggs(this: World, dt: number) {
     // 生まれそうになると揺れる
     e.anim.material.rotation = e.t < 8 ? Math.sin(this.time * (e.t < 3 ? 30 : 14)) * 0.25 : 0
     if (e.luck && Math.random() < dt * 2) this.burst(e.x, y + 0.5, e.z, 'spark', 1, 0.8)
+    // のはらの子が いっぱいの時は、うまれるのを まつ（のはらが 子だらけに ならないように）
+    if (e.t <= 0 && (e.wild || this.friendCount() >= MAX_FRIENDS) && this.calmWildCount() >= MAX_WILD_CALM) {
+      e.t = 20
+      continue
+    }
     if (e.t <= 0) {
       this.scene.remove(e.anim.sprite, e.shadow)
       e.anim.dispose()

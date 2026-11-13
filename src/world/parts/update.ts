@@ -709,9 +709,21 @@ export function updateCreature(this: World, c: Creature, dt: number) {
     case 'dead':
       if (c.retired) {
         // じゅみょう：ねむったまま ゆっくり ちいさくなって、光の粒になる
+        // じゅみょう：光の柱の中を ねむったまま ゆっくり うかび、白く かがやいて 光の粒になる（天に のぼる）
         anim = 'sleep'
-        c.anim.setHeight(this.size(c) * Math.max(0.05, Math.min(1, c.t / 1.6)))
-        if (Math.random() < 0.3) this.burst(c.x, this.ground(c) + Math.random() * this.size(c), c.z, 'spark', 1, 1, 1)
+        const u = 1 - Math.max(0, c.t) / 4.6
+        const rise = Math.max(0, u - 0.18) / 0.82
+        c.vy = 0
+        c.jy = rise * rise * 5.2
+        c.anim.setHeight(this.size(c) * (1 - rise * 0.55) * (u > 0.92 ? Math.max(0.05, (1 - u) / 0.08) : 1))
+        const sm = (c.anim as { material?: THREE.SpriteMaterial }).material
+        if (sm) {
+          sm.color.setScalar(1 + rise * 1.6)
+          sm.rotation = Math.sin(this.time * 2.2) * 0.12 * rise
+        }
+        c.shadow.visible = rise < 0.3
+        if (Math.random() < 0.35) this.burst(c.x + (Math.random() - 0.5) * 0.7, this.ground(c) + c.jy + Math.random() * this.size(c), c.z, 'spark', 1, 0.7, -1.6)
+        if (c.t <= 0) this.burst(c.x, this.ground(c) + c.jy + 0.3, c.z, 'spark', 14, 2.2, -0.5)
       } else {
         anim = 'hurt'
         c.anim.sprite.visible = Math.floor(c.t * 16) % 2 === 0
