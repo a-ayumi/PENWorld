@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { OUT, RES } from './psx'
 import { DioramaLook } from './diorama'
 import { NavGrid } from './nav'
+import { SkyFx } from './sky'
 import { SpriteAnim, iconSheet } from './sprites'
 import { EGG_COLORS, NEW_SKILLS, SPECIES, enemyFor, type Care, type EggKind, type MonsterView, type Species, type SpeciesId } from './monsters'
 import { WeatherFx, fxLod } from './fxprops'
@@ -159,9 +160,9 @@ export type Role = 'free' | 'builder' | 'farmer' | 'guard' | 'carer' | 'seller'
 export const ROLE_NAME: Record<Role, string> = { free: 'じゆう', builder: 'だいく', farmer: 'はたけがかり', guard: 'みはり', carer: 'おせわ', seller: 'うりこ' }
 export const ROLE_COLOR: Record<Role, string> = { free: '#ffffff', builder: '#ffb84d', farmer: '#7cf29b', guard: '#6fd6ff', carer: '#ff8fc8', seller: '#d8a8ff' }
 /** ペットの じゅみょう（あそんでいる時間・秒） */
-export const LIFESPAN = 40 * 60
+export const LIFESPAN = 25 * 60
 /** なかま・野生のおとなしい子の じゅみょう（秒）。1 匹ずつ この間でばらつく */
-export const FRIEND_LIFE: [number, number] = [25 * 60, 35 * 60]
+export const FRIEND_LIFE: [number, number] = [12 * 60, 18 * 60]
 export const newLife = () => FRIEND_LIFE[0] + Math.random() * (FRIEND_LIFE[1] - FRIEND_LIFE[0])
 /** はじめ（新しいゲーム・ステージに入った直後）は、敵がおそってこない秒数 */
 export const PEACE_TIME = 90
@@ -342,6 +343,9 @@ export const TMP = new THREE.Color()
 export const BOW_LEN = 30
 /** なかまの上限（多すぎると眺めにくい・重い）。いっぱいの時は たまごの子は のはらで くらす */
 export const MAX_FRIENDS = 10
+/** こども（そだちきっていない なかま）と かえる前の たまご の合計の上限 / のはらで くらす おとなしい子の上限 */
+export const MAX_KIDS = 2
+export const MAX_WILD_CALM = 3
 /** モンスターの大きさの倍率（建物と見くらべて ちょうど良いように。種族の height × これ） */
 export const CREATURE_SCALE = 0.7
 /** 敵軍のボス（たおすと実績） */
@@ -404,6 +408,8 @@ export class World {
   goToChest = Vi.goToChest
   sendToChest = Vi.sendToChest
   friendCount = Cr.friendCount
+  kidCount = Cr.kidCount
+  calmWildCount = Cr.calmWildCount
   mark = Cr.mark
   setFollow = Cr.setFollow
   setAuto = Cr.setAuto
@@ -646,6 +652,9 @@ export class World {
   nightTarget = 0
   /** 村の かざり（道・石段・小物。decor.ts） */
   decor: THREE.Group | null = null
+  /** 空の えんしゅつ（雲・陽の光・雷・光の柱。sky.ts） */
+  readonly skyfx = new SkyFx()
+  boltT = 20
   decorKey = ''
   decorT = 0
   time = 0
@@ -783,6 +792,7 @@ export class World {
     this.scene.add(this.hemi, this.sun)
     this.wfx = new WeatherFx()
     this.scene.add(this.wfx.group)
+    this.scene.add(this.skyfx.group)
     syncSeasonShop(this.season)
     if (!this.load()) {
       this.loadStage(0)

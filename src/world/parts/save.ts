@@ -111,7 +111,7 @@ export function load(this: World): boolean {
       if (s.bias) c.bias = s.bias
       // じゅみょう（古いセーブには無い：その時は今から数える）
       if (c.team !== 'pet' && c.sp.temper !== 'wild') {
-        c.life = num(s.life, FRIEND_LIFE[0] * 0.5, FRIEND_LIFE[1] * 2, newLife())
+        c.life = num(s.life, FRIEND_LIFE[0] * 0.5, FRIEND_LIFE[1], newLife())
         c.age = num(s.age, 0, c.life, 0)
       }
       c.anim.setHeight(this.size(c))
