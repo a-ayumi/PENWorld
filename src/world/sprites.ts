@@ -31,20 +31,59 @@ export function pixelSprite(w: number, h: number, draw: Draw, outline = '#1a1530
   }
   const S = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H && solid[y * W + x] === 1
   if (opts.shade) {
+    // 立体の陰影：ふちからの距離で「ふくらみ」を作り、左上の光で 4 段にぬる。
+    // 影は 色相を 寒色（青むらさき）へ、光は 暖色へ ずらす（ただ暗く・明るくするより ドット絵らしい）
+    const R = 7
+    const D = new Float32Array(W * H)
+    for (let i = 0; i < W * H; i++) D[i] = solid[i] ? 99 : 0
+    const relax = (x: number, y: number, ox: number, oy: number, c: number) => {
+      const xx = x + ox
+      const yy = y + oy
+      const v = (xx < 0 || yy < 0 || xx >= W || yy >= H ? 0 : D[yy * W + xx]) + c
+      if (v < D[y * W + x]) D[y * W + x] = v
+    }
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        if (!solid[y * W + x]) continue
+        relax(x, y, -1, 0, 1); relax(x, y, 0, -1, 1); relax(x, y, -1, -1, 1.414); relax(x, y, 1, -1, 1.414)
+      }
+    for (let y = H - 1; y >= 0; y--)
+      for (let x = W - 1; x >= 0; x--) {
+        if (!solid[y * W + x]) continue
+        relax(x, y, 1, 0, 1); relax(x, y, 0, 1, 1); relax(x, y, 1, 1, 1.414); relax(x, y, -1, 1, 1.414)
+      }
+    const dAt = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= H ? 0 : Math.min(R, D[y * W + x]))
     const src = new Uint8ClampedArray(d)
+    const LX = -0.6
+    const LY = -0.8
     for (let y = 0; y < H; y++)
       for (let x = 0; x < W; x++) {
         const i = y * W + x
         if (!solid[i]) continue
-        let k = 1
-        // 左上のふち = 光が当たる
-        if (!S(x - 1, y - 1) || !S(x - 2, y - 2)) k *= 1.16
-        // 右下のふち = 影（2px）、その内側は網点で影をぼかす
-        if (!S(x + 1, y + 1) || !S(x + 2, y + 2)) k *= 0.74
-        else if ((!S(x + 3, y + 3) || !S(x + 4, y + 4)) && (x + y) % 2 === 0) k *= 0.84
+        const gx = (dAt(x + 2, y) - dAt(x - 2, y)) / 4
+        const gy = (dAt(x, y + 2) - dAt(x, y - 2)) / 4
+        // 光の当たりぐあい（+ = 光の側のふち、- = 影の側のふち、まんなかは 0）
+        const v = -(gx * LX + gy * LY)
+        const dist = D[i]
+        let r = src[i * 4]
+        let gch = src[i * 4 + 1]
+        let b = src[i * 4 + 2]
+        const dark = r + gch + b < 150
+        if (v > 0.42 && dist <= 3.2 && !dark) {
+          // ふちの光（あたたかく）
+          r = r * 1.14 + 12; gch = gch * 1.1 + 8; b = b * 0.98 + 2
+        } else if (v < -0.62 && dist <= 3.4) {
+          // 深い影（寒色へ）
+          r *= 0.58; gch *= 0.56; b = b * 0.74 + 6
+        } else if (v < -0.3 && (dist <= 5.2 || (x + y) % 2 === 0)) {
+          // 影（外がわは べた・内がわは 網点で ぼかす）
+          r *= 0.78; gch *= 0.76; b = b * 0.88 + 3
+        }
         // 足元の暗がり
-        if (!S(x, y + 2) && S(x, y - 2)) k *= 0.88
-        if (k !== 1) for (let ch = 0; ch < 3; ch++) d[i * 4 + ch] = src[i * 4 + ch] * k
+        if (!S(x, y + 2) && S(x, y - 2)) { r *= 0.88; gch *= 0.86; b *= 0.92 }
+        d[i * 4] = r
+        d[i * 4 + 1] = gch
+        d[i * 4 + 2] = b
       }
   }
   if (outline) {
@@ -60,9 +99,14 @@ export function pixelSprite(w: number, h: number, draw: Draw, outline = '#1a1530
         if (nb === undefined) continue
         if (opts.shade) {
           // 色付きの輪郭：隣の色を暗くして基本の輪郭色と混ぜる
-          d[i * 4] = d[nb * 4] * 0.3 + or * 0.5
-          d[i * 4 + 1] = d[nb * 4 + 1] * 0.3 + og * 0.5
-          d[i * 4 + 2] = d[nb * 4 + 2] * 0.3 + ob * 0.5
+          // 輪郭の強弱：光の側（左・上）は 体の色に近く うすく、影の側（右・下）は こく
+          const q = [i - 1, i + 1, i - W, i + W].indexOf(nb)
+          const lit = q === 1 || q === 3
+          const kn = lit ? 0.5 : 0.24
+          const ko = lit ? 0.34 : 0.56
+          d[i * 4] = d[nb * 4] * kn + or * ko
+          d[i * 4 + 1] = d[nb * 4 + 1] * kn + og * ko
+          d[i * 4 + 2] = d[nb * 4 + 2] * kn + ob * ko
         } else {
           d[i * 4] = or
           d[i * 4 + 1] = og

@@ -1381,6 +1381,8 @@ renderer.setAnimationLoop((t) => {
 // テスト用
 ;(window as unknown as { __pulsar: object }).__pulsar = {
   press,
+  /** 確認用：種族のドット絵（1 コマ目） */
+  portrait: portraitFor,
   state: () => ({ mode, quality, mood: currentMood, world: world.debug() }),
   world,
   get device() {
