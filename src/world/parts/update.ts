@@ -95,6 +95,7 @@ export function update(this: World, dt: number) {
   this.updateMarket(dt)
   this.updateAge(dt)
   this.updateTreasures(dt)
+  this.updateDecor(dt)
   this.updateArmy(dt)
   this.updateItems(dt)
   this.updateSucks(dt)

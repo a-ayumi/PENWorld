@@ -28,6 +28,7 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - `src/world/structures.ts` — 家のほかの建物 13 種（はたけ・いど・みはりとう・ゆりかごごや・へい・おしろ・はし・ふんすい・ふうしゃ・とうだい・いちば・あそびば・いしのとりで）の定義 `STRUCTS`（必要資材・HP・当たり判定・村の点数）と 3D モデル、建設中の足場 `buildScaffold`、高さの表 `STRUCT_H`、ステージごとの建物の色 `STYLES`（水の色 `water` も）
 - `src/world/diorama.ts` — 見た目「ピクセル・ジオラマ」（すべての視点。みおろしは平行投影の `cam`、うしろ・めせんは World の遠近カメラを渡し、仕上げで深度を距離に直す）：平行投影 30°・45° のカメラ（1 ピクセルの格子に合わせる）・左上からの長い影・仕上げ（奥行きの輪郭・ふちの光・空・かすみ・色の調整・減色ディザ）。材質のトゥーン 3 段は `psx.ts` の `toonU`（0 の間は PS1 風のまま）。空のドームとデジタル空間は `userData.backdrop` で隠す。PS1 風の最終版は `archive/ps1-style` ブランチ
 - `src/world/flora.ts` — ふさふさの木（計画 E2）：`tree(kind, seed, palette)`（round まるい木 / bloom 花の木 / conifer 針葉樹 / bush しげみ）。葉のかたまりを 1 つの形に まとめ、面ごとに 上は明るく 色をつける。色の組は `FLORA`
+- `src/world/decor.ts` — 村の かざり（計画 E3）：家と建物を いちばん短い つながりで むすぶ 飛び石の道（`nav.findPath`）・坂の石段・家のまわりの小物（がいとう・木箱・たる・植木ばち・まき・さく）。セーブせず、`World.updateDecor()` が 建物の ならびが かわった時に作りなおす。当たり判定なし
 - `src/world/psx.ts` — 材質の包み `psx()`（頂点スナップ・天気の見た目・ジオラマのトゥーン `toonU`）と解像度の定数
 - `src/world/structures.ts` — 家のほかの建物 7 種（はたけ・いど・みはりとう・ゆりかごごや・へい・おしろ・はし）の定義 `STRUCTS`（必要資材・HP・当たり判定・村の点数）と 3D モデル、ステージごとの建物の色 `STYLES`
 - `src/world/psx.ts` — PS1 風の表現（頂点スナップ・ディザ・15bit カラー・グリッチ・ひのこの熱ゆらぎ）
