@@ -121,11 +121,11 @@ export const FAMILIES: Record<Exclude<Family, 'plain' | 'water'>, FamilySpec[]> 
   ],
   bird: [
     { id: 'piyo', name: 'ピヨ', kind: 'ひよこ型', look: { f: 'bird', s: 0.7, c: m('#fff27a', '#d9b800', '#fffbd0'), beak: true, tail: 'bird', wing: 'bird', ear: 'tuft' }, skill: ['ひよこつつき', 'shot', '#fff27a', 1.5] },
-    { id: 'habataki', name: 'ハバタキ', kind: 'はばたき鳥型', look: { f: 'bird', s: 0.82, c: m('#5ec8ff', '#2a7fb8', '#c8eeff'), beak: true, tail: 'bird', wing: 'bird', ear: 'tuft', crest: '#ffd23f' }, skill: ['かぜきりのはね', 'shot', '#c8eeff', 1.9] },
-    { id: 'utaru', name: 'ウタル', kind: 'うたどり型', look: { f: 'bird', s: 0.82, c: m('#ff9ecb', '#c25a8e', '#ffd8ea'), beak: true, tail: 'bird', wing: 'bird', crest: '#ffffff' }, skill: ['いやしのうた', 'heal', '#ffd8ea', 0] },
-    { id: 'hayate', name: 'ハヤテ', kind: 'はやぶさ型', look: { f: 'bird', s: 1.2, c: m('#4a5a8a', '#2a3558', '#8a9ac8'), beak: true, tail: 'bird', wing: 'bird', crest: '#ff5e4a', raptor: true, b: '#d8dcf0' }, skill: ['きゅうこうか', 'dash', '#8a9ac8', 2.4] },
-    { id: 'hoshiro', name: 'ホシロー', kind: 'ほしふくろう型', look: { f: 'bird', s: 1.2, c: m('#a88b5a', '#6a5230', '#e8d4a8'), beak: true, tail: 'bird', wing: 'bird', ear: 'tuft', gem: '#ffe27a', spot: '#ffe27a', owl: true, b: '#e8d4a8' }, skill: ['ほしのまなざし', 'rain', '#ffe27a', 2.2] },
-    { id: 'hikaritori', name: 'ヒカリドリ', kind: 'ひかりのとり型', look: { f: 'bird', s: 1.45, c: m('#fff3b0', '#e8a82a', '#ffffff'), beak: true, tail: 'bird', wing: 'bird', crest: '#ff9a3d', gem: '#ff5e4a', plume: '#ff9a3d', halo: '#fff3b0', spread: true }, skill: ['ひかりのはばたき', 'burst', '#fff3b0', 2.7] },
+    { id: 'habataki', name: 'ハバタキ', kind: 'はばたき鳥型', float: true, look: { f: 'bird', s: 0.82, c: m('#5ec8ff', '#2a7fb8', '#c8eeff'), beak: true, tail: 'bird', wing: 'bird', ear: 'tuft', crest: '#ffd23f' }, skill: ['かぜきりのはね', 'shot', '#c8eeff', 1.9] },
+    { id: 'utaru', name: 'ウタル', kind: 'うたどり型', float: true, look: { f: 'bird', s: 0.82, c: m('#ff9ecb', '#c25a8e', '#ffd8ea'), beak: true, tail: 'bird', wing: 'bird', crest: '#ffffff' }, skill: ['いやしのうた', 'heal', '#ffd8ea', 0] },
+    { id: 'hayate', name: 'ハヤテ', kind: 'はやぶさ型', float: true, look: { f: 'bird', s: 1.2, c: m('#4a5a8a', '#2a3558', '#8a9ac8'), beak: true, tail: 'bird', wing: 'bird', crest: '#ff5e4a', raptor: true, b: '#d8dcf0' }, skill: ['きゅうこうか', 'dash', '#8a9ac8', 2.4] },
+    { id: 'hoshiro', name: 'ホシロー', kind: 'ほしふくろう型', float: true, look: { f: 'bird', s: 1.2, c: m('#a88b5a', '#6a5230', '#e8d4a8'), beak: true, tail: 'bird', wing: 'bird', ear: 'tuft', gem: '#ffe27a', spot: '#ffe27a', owl: true, b: '#e8d4a8' }, skill: ['ほしのまなざし', 'rain', '#ffe27a', 2.2] },
+    { id: 'hikaritori', name: 'ヒカリドリ', kind: 'ひかりのとり型', float: true, look: { f: 'bird', s: 1.45, c: m('#fff3b0', '#e8a82a', '#ffffff'), beak: true, tail: 'bird', wing: 'bird', crest: '#ff9a3d', gem: '#ff5e4a', plume: '#ff9a3d', halo: '#fff3b0', spread: true }, skill: ['ひかりのはばたき', 'burst', '#fff3b0', 2.7] },
   ],
   monster: [
     { id: 'gabuko', name: 'ガブコ', kind: 'ちびおばけ型', look: { f: 'blob', s: 0.85, c: m('#a86bd8', '#6a3a9a', '#dcb8ff'), fang: true, ear: 'horn' }, skill: ['ガブッ', 'dash', '#dcb8ff', 1.5] },

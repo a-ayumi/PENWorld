@@ -15,7 +15,7 @@ import { SHAPES, SKINS, type ShapeId, type SkinId } from './device'
 import { Beeper, VOLUME_NAMES, createChain } from './beep'
 import { Music, describeSong } from './music'
 import { exportCode, importCode, requestPersist, widgetCode } from './backup'
-import { portraitFor, type SpeciesId } from './world/monsters'
+import { portraitFor, sheetFor, type SpeciesId } from './world/monsters'
 import { hideSplash, initTips, NO_WEBGL, showFatal, showOfflineReady, showUpdateBar, tipsSeen, watchContextLoss } from './shell'
 import { initJournal } from './journalui'
 import { initLuckyUI } from './luckyPanel'
@@ -1383,6 +1383,8 @@ renderer.setAnimationLoop((t) => {
   press,
   /** 確認用：種族のドット絵（1 コマ目） */
   portrait: portraitFor,
+  /** 確認用：全コマの ならんだ絵 */
+  sheetOf: (id: SpeciesId) => sheetFor(id).texture.image as HTMLCanvasElement,
   state: () => ({ mode, quality, mood: currentMood, world: world.debug() }),
   world,
   get device() {

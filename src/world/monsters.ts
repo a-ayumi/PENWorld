@@ -1222,145 +1222,208 @@ function chick(g: G, p: Pose, f: number, L: Look): Geom {
   } else poly(g, '#ff9f43', [mx - 1.4, my - 0.2, mx + 1.4, my - 0.2, mx, my + 1.8])
   return { bx: hx, by: hy, rx: r, ry: r * 0.9, hx, hy, hr: r, mx, my, cols: [B, S, H] }
 }
-/** とり（右むき・足もとは y=30）。up で 体が立ち、足が長く。はやぶさ・ふくろう・ひかりの鳥は 専用の部品 */
+/** なめらかな形：曲線で かこんで ぬる（丸や三角を かさねない） */
+const shape = (g: G, c: string, d: (g: G) => void) => {
+  fill(g, c)
+  g.beginPath()
+  d(g)
+  g.closePath()
+  g.fill()
+}
+/** はね 1 まい（木の葉の形）：(x0,y0) から (x1,y1) へ、はば w */
+const leaf = (g: G, c: string, x0: number, y0: number, x1: number, y1: number, w: number) => {
+  const mx = (x0 + x1) / 2
+  const my = (y0 + y1) / 2
+  const d = Math.hypot(x1 - x0, y1 - y0) || 1
+  const nx = (-(y1 - y0) / d) * w
+  const ny = ((x1 - x0) / d) * w
+  shape(g, c, (g) => {
+    g.moveTo(x0, y0)
+    g.quadraticCurveTo(mx + nx, my + ny, x1, y1)
+    g.quadraticCurveTo(mx - nx, my - ny, x0, y0)
+  })
+}
+/**
+ * つばさ：かた (sx,sy) から 向き ang へ 長さ len。うでの線に そって はねを 1 まいずつ ならべる。
+ * trail = はねが たれる向き（+1 / -1）。pointed = 先が とがる（はやぶさ）、まるい（ふくろう）は false
+ */
+function featherWing(g: G, sx: number, sy: number, len: number, ang: number, trail: number, cols: [string, string, string], pointed: boolean, n = 7) {
+  const ax = Math.cos(ang)
+  const ay = Math.sin(ang)
+  const tip = { x: sx + ax * len, y: sy + ay * len }
+  // はねを 根もと → 先へ。先ほど うでの向きに そろう（風切り羽）
+  for (let i = 0; i < n; i++) {
+    const t = (i + 0.6) / n
+    const bx = sx + ax * len * t * 0.92
+    const by = sy + ay * len * t * 0.92
+    const sweep = ang + trail * (1.25 - t * (pointed ? 1.0 : 0.75))
+    const fl = len * (pointed ? 0.38 + t * 0.34 : 0.5 - Math.abs(t - 0.55) * 0.3)
+    leaf(g, i % 2 ? cols[1] : cols[0], bx, by, bx + Math.cos(sweep) * fl, by + Math.sin(sweep) * fl, len * 0.085 + 0.5)
+  }
+  // うで（上の かたい ふち）と かたの 小さな はね
+  leaf(g, cols[0], sx, sy, tip.x, tip.y, len * 0.11 + 0.4)
+  for (let i = 0; i < 4; i++) {
+    const t = (i + 0.5) / 5
+    const bx = sx + ax * len * t * 0.8
+    const by = sy + ay * len * t * 0.8
+    const sweep = ang + trail * 1.2
+    leaf(g, cols[2], bx, by, bx + Math.cos(sweep) * len * 0.17, by + Math.sin(sweep) * len * 0.17, len * 0.05 + 0.4)
+  }
+}
+/**
+ * とぶ鳥（右むき）。成長期から 上は 地面に立たず、はばたいて うかぶ（種族の float）。
+ * 体は ひとつづきの なめらかな形（むね → 首 → 頭）。進化するほど つばさが大きく・体が ほそく するどく。
+ * はやぶさ = とがった長い つばさ・かぎの くちばし / ふくろう = まるい顔と 広い つばさ / ひかりの鳥 = 大きな つばさ・ながれる おばね・光の輪
+ */
 function bird(g: G, p: Pose, f: number, L: Look): Geom {
   const s = L.s
   const [B, S, H] = L.c
   const dark = L.eye ?? '#1a1530'
   const belly = L.b ?? H
   const up = Math.min(1, Math.max(0, (s - 0.82) / 0.63))
-  const cx = 15 + (L.spread ? 1.5 : 0) + p.lean
-  const bob = p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
-  const rx = (5.2 + up * 0.5) * s + p.sq * 0.5
-  const ry = (5.4 + up * 1.2) * s - p.sq * 0.5
-  const leg = 2.4 + up * 2.2
-  const ty = 30 - leg - ry + 0.6 + bob
-  const hr = (L.owl ? 5.0 : 4.6 - up * 1.0) * s
-  const hx = cx + (L.owl ? rx * 0.15 : rx * 0.5)
-  const hy = ty - ry * (L.owl ? 0.85 : 0.8) - hr * 0.3
-  const wag = Math.sin(f * 1.7) * 1.2
+  const u = 0.62 + up * 0.5
+  const bob = p.bob * 0.6 + (p.bob < 0 ? p.bob : 0)
+  const asleep = p.eye === 'closed'
+  // はばたき：コマごとに 上げる / 下ろす。ねむる時は たたむ
+  const down = f % 2 === 1
+  const cx = 17 + p.lean
+  const cy = 18 + bob + (down ? -0.8 : 0.6) + (asleep ? 3 : 0)
   const beakC = L.raptor ? '#f0b030' : '#ff9f43'
-  // 長い おばね（ひかりの鳥）：3 本が うしろへ ながれて、先に たま
+  const bl = (L.owl ? 6.2 : 7.4) * u // 体の 半分の長さ
+  const bw = (L.owl ? 5.0 : 4.0 - up * 0.5) * u // 体の ふとさ
+  const tilt = L.owl ? -0.5 : -0.28 - up * 0.1 // 前が上がる
+  const tx = cx - Math.cos(tilt) * bl // おしり
+  const tyy = cy - Math.sin(tilt) * bl
+  const fx = cx + Math.cos(tilt) * bl // むね
+  const fy = cy + Math.sin(tilt) * bl
+  const hr = (L.owl ? 4.6 : 3.6 - up * 0.3) * u
+  const hx = fx + (L.owl ? -hr * 0.2 : hr * 0.25)
+  const hy = fy - hr * (L.owl ? 0.75 : 0.55)
+  const sx = cx + Math.cos(tilt) * bl * 0.25
+  const sy = cy + Math.sin(tilt) * bl * 0.25 - bw * 0.45
+  const wl = (L.raptor ? 13.5 : L.owl ? 13 : L.spread ? 14 : 8.5) * u
+  // ふくろうは 横へ 大きく ひろげる
+  const a = asleep ? 2.5 : down ? (L.owl ? 2.95 : 2.62) - p.flap * 0.1 : (L.owl ? -2.7 : -2.18) - p.flap * 0.08
+  const tr = asleep || down ? -1 : 1
+  const pointed = !!L.raptor
+  // ながれる 長い おばね（ひかりの鳥）
   if (L.plume)
     for (let i = 0; i < 3; i++) {
-      const ex = cx - rx - (6.5 - i * 1.2) * s * 0.9 + wag * (i - 1) * 0.6
-      const ey = ty + ry * 0.2 - (i - 1) * 5.2 * s * 0.9
-      tailCurve(g, cx - rx * 0.6, ty + ry * 0.35, cx - rx - 3 * s, ty + ry * 1.0 - i * 2.2 * s, ex, ey, 1.2 + s * 0.3, 0.8, i === 1 ? B : S, L.plume)
-      ell(g, L.gem ?? L.plume, ex, ey, 1.6, 1.6)
+      const ex = tx - (9.5 - Math.abs(i - 1) * 2) * u + Math.sin(f * 1.3 + i) * 1.2
+      const ey = tyy + (i - 1) * 4.6 * u + 1.5
+      tailCurve(g, tx + 1, tyy, tx - 4 * u, tyy + (i - 1) * 1.5 * u - 2, ex, ey, 1.1 + u * 0.3, 0.7, i === 1 ? B : S, L.plume)
+      ell(g, L.gem ?? L.plume, ex, ey, 1.5, 1.5)
       rect(g, '#ffffff', ex - 0.6, ey - 0.7, 0.8, 0.8)
     }
-  // おばね（おうぎ形に 3 まい）
-  const tl = (3.4 + up * 3.4) * s
-  for (const [dy, c] of [[-0.35, S], [0.1, B], [0.5, S]] as const)
-    poly(g, c, [cx - rx * 0.55, ty + ry * 0.15, cx - rx * 0.5 - tl, ty + ry * 0.35 + dy * tl * 0.7 + wag * 0.5, cx - rx * 0.5 - tl * 0.8, ty + ry * 0.75 + dy * tl * 0.5 + wag * 0.5, cx - rx * 0.3, ty + ry * 0.7])
-  // 奥の つばさ（ひろげた時だけ）
-  const fl = p.flap
-  const wingUp = (dark2: boolean, ox: number, a0: number, da: number) => {
-    const c0 = dark2 ? S : B
-    const sx = cx + ox
-    const sy = ty - ry * 0.35
-    for (let i = 0; i < 5; i++) {
-      const a = a0 + i * da - fl * 0.12 * Math.sign(da)
-      const len = (9.5 - Math.abs(i - 1.5) * 1.3) * s * 0.92
-      const tx2 = sx + Math.cos(a) * len
-      const ty2 = sy + Math.sin(a) * len
-      poly(g, i % 2 ? c0 : dark2 ? B : H, [sx - 1.4 * s, sy + 1, tx2, ty2, sx + 1.6 * s, sy - 0.5])
+  // おばね（おうぎ）
+  const tn = L.owl ? 4 : 5
+  for (let i = 0; i < tn; i++) {
+    const ta = Math.PI + tilt + (i - (tn - 1) / 2) * (L.raptor ? 0.16 : 0.26)
+    const tl = (L.raptor ? 6.5 : 4.6) * u * (1 - Math.abs(i - (tn - 1) / 2) * 0.1)
+    leaf(g, i % 2 ? S : B, tx + 1.2, tyy, tx + Math.cos(ta) * tl, tyy + Math.sin(ta) * tl, 1.1 * u + 0.3)
+  }
+  // 奥の つばさ（少し ずらして 暗く）
+  if (!asleep) featherWing(g, sx + 1.2, sy + 0.3, wl * 0.92, a + (down ? -0.22 : 0.26), tr, [S, S, S], pointed)
+  // あし（からだに 引きよせる）。はやぶさは つめ
+  if (!asleep) {
+    for (const k of [0.1, -0.35]) {
+      const lx = cx + Math.cos(tilt) * bl * k
+      const ly = cy + Math.sin(tilt) * bl * k + bw * 0.75
+      rect(g, beakC, lx, ly, 1, 2.2 * u)
+      rect(g, beakC, lx - 0.6, ly + 2.2 * u, 2.6, 0.8)
+      if (L.raptor) rect(g, dark, lx + 1.8, ly + 2.2 * u, 0.8, 1)
     }
-    ell(g, c0, sx - 0.5, sy, 2.4 * s, 2 * s)
   }
-  // 奥の つばさは 手前より 少し立てて、うしろから のぞかせる
-  if (L.spread) wingUp(true, rx * 0.05, -2.3, 0.3)
-  // あし（はやぶさは ふとももの はね と するどい つめ）
-  const lx0 = cx - rx * 0.25 + p.step
-  const lx1 = cx + rx * 0.35 - p.step
-  for (const lx of [lx0, lx1]) {
-    rect(g, beakC, lx - 0.5, 30 - leg - 0.8, 1 + up * 0.5, leg + 0.4)
-    rect(g, beakC, lx - 1.5, 29.4, 3.6 + up, 0.8)
-    if (L.raptor || up > 0.9) rect(g, dark, lx + 2 + up, 29.4, 0.8, 0.8)
+  // 体：おしり → せなか → 首 → 頭 → のど → むね → おなか を ひとつづきに
+  const nx = -Math.sin(tilt)
+  const ny = Math.cos(tilt)
+  const body = (c: string, k: number, o: number) =>
+    shape(g, c, (g) => {
+      g.moveTo(tx + o, tyy + o)
+      g.bezierCurveTo(tx + (cx - tx) * 0.5 - nx * bw * 1.25 * k, tyy + (cy - tyy) * 0.5 - ny * bw * 1.25 * k, cx + (fx - cx) * 0.3 - nx * bw * 1.1 * k, cy + (fy - cy) * 0.3 - ny * bw * 1.1 * k, hx - hr * 0.8 * k, hy - hr * 0.5 * k)
+      g.bezierCurveTo(hx - hr * 0.5 * k, hy - hr * 1.35 * k, hx + hr * 1.15 * k, hy - hr * 1.1 * k, hx + hr * k, hy + hr * 0.15 * k)
+      g.bezierCurveTo(hx + hr * 0.85 * k, hy + hr * 1.1 * k, fx + nx * bw * 0.9 * k + 1, fy + ny * bw * 0.9 * k, cx + nx * bw * 1.15 * k, cy + ny * bw * 1.15 * k)
+      g.bezierCurveTo(cx + (tx - cx) * 0.5 + nx * bw * 0.9 * k, cy + (tyy - cy) * 0.5 + ny * bw * 0.9 * k, tx + (cx - tx) * 0.15 + nx * bw * 0.3, tyy + ny * bw * 0.3, tx + o, tyy + o)
+    })
+  body(S, 1, 0)
+  body(B, 0.86, 0.4)
+  // おなか と のどの 明るい色（体の下がわに そわせる）
+  shape(g, belly, (g) => {
+    g.moveTo(hx + hr * 0.55, hy + hr * 0.35)
+    g.bezierCurveTo(hx + hr * 0.5, hy + hr * 1.0, fx + nx * bw * 0.7, fy + ny * bw * 0.7, cx + nx * bw * 0.92, cy + ny * bw * 0.92)
+    g.bezierCurveTo(cx + nx * bw * 0.3, cy + ny * bw * 0.3, fx - 1, fy, hx + hr * 0.55, hy + hr * 0.35)
+  })
+  // むねの はねの もよう（みじかい 曲線の 列）
+  for (let i = 0; i < 3; i++) leaf(g, S, cx + Math.cos(tilt) * bl * (0.05 + i * 0.22) + nx * bw * 0.45, cy + Math.sin(tilt) * bl * (0.05 + i * 0.22) + ny * bw * 0.45, cx + Math.cos(tilt) * bl * (0.2 + i * 0.22) + nx * bw * 0.62, cy + Math.sin(tilt) * bl * (0.2 + i * 0.22) + ny * bw * 0.62, 0.35)
+  if (L.owl && L.spot) for (const [k, q] of [[0.3, 0.45], [0.55, 0.3], [0.05, 0.6]] as const) {
+    const px = cx + Math.cos(tilt) * bl * k + nx * bw * q
+    const py = cy + Math.sin(tilt) * bl * k + ny * bw * q
+    rect(g, L.spot, px - 0.4, py - 1.2, 0.8, 2.4)
+    rect(g, L.spot, px - 1.2, py - 0.4, 2.4, 0.8)
   }
-  // 胴
-  ell(g, S, cx, ty, rx, ry)
-  ell(g, B, cx - 0.4, ty - 0.6, rx - 0.9, ry - 0.9)
-  ell(g, belly, cx + rx * 0.32, ty + ry * 0.18, rx * 0.58, ry * 0.68)
-  // むねの はねの うろこ もよう
-  for (let i = 0; i < 3; i++) for (let k = 0; k < 2 + (i % 2); k++) rect(g, S, cx + rx * 0.05 + k * rx * 0.3 + (i % 2 ? -rx * 0.12 : 0), ty - ry * 0.1 + i * ry * 0.26, rx * 0.16, 0.5)
-  if (up > 0.3 && !L.owl) for (const lx of [lx0, lx1]) ell(g, B, lx + 0.3, 30 - leg - 0.6, 1.8 * s, 2 * s)
-  // ふくろう：むねの ほし
-  if (L.owl && L.spot) for (const [dx, dy] of [[0.15, 0.0], [0.5, 0.25], [0.2, 0.5], [0.55, -0.2]] as const) {
-    rect(g, L.spot, cx + dx * rx - 0.5, ty + dy * ry - 1.5, 1, 3)
-    rect(g, L.spot, cx + dx * rx - 1.5, ty + dy * ry - 0.5, 3, 1)
-  }
-  // 手前の つばさ：たたんだ はね（3 だん）/ ひろげた つばさ
-  if (L.spread) wingUp(false, -rx * 0.3, -2.95, 0.24)
-  else {
-    const wl = (1.0 + up * 0.55 + (L.raptor ? 0.25 : 0)) * rx
-    const sx = cx + rx * 0.05
-    const sy = ty - ry * 0.55
-    const tx2 = cx - wl - rx * 0.1
-    const ty2 = ty + ry * (0.45 + up * 0.3) - fl * 2.6
-    poly(g, S, [sx, sy, sx - rx * 0.9, sy + ry * 0.2 - fl, tx2, ty2, cx - rx * 0.1, ty + ry * 0.55, sx + rx * 0.35, ty])
-    poly(g, B, [sx - 0.3, sy + 0.8, sx - rx * 0.75, sy + ry * 0.3 - fl, cx - rx * 0.55, ty + ry * 0.35 - fl, sx + rx * 0.15, ty - ry * 0.05])
-    for (let i = 0; i < 3; i++) rect(g, H, sx - rx * (0.5 + i * 0.16), ty - ry * 0.1 + i * ry * 0.16 - fl * (0.5 + i * 0.5), rx * 0.42, 0.5)
-  }
-  // あたま
-  const hy2 = hr * 0.92
-  // かんむりの はね（はやぶさは うしろへ ながす）
+  // 手前の つばさ（ねむる時は 体に たたむ）
+  if (asleep) {
+    leaf(g, S, sx + 1, sy + bw * 0.5, tx - 1, tyy + 1, bw * 0.75)
+    leaf(g, B, sx + 0.5, sy + bw * 0.4, tx + 1.5, tyy + 0.6, bw * 0.5)
+  } else featherWing(g, sx, sy + 0.8, wl, a, tr, [B, L.spread ? H : S, H], pointed)
+  // かんむりの はね（うしろへ ながす）
   if (L.crest)
     for (let i = 0; i < 3; i++) {
-      const bx0 = hx - hr * 0.35 + i * hr * 0.32
-      const h = (3 + (i === 1 ? 1.6 : 0) + up * (L.halo ? 0.4 : 2.2)) * Math.sqrt(s)
-      const back = L.raptor ? -h * 0.9 : -h * 0.15 + (i - 1) * 0.8
-      poly(g, L.crest, [bx0 - 1, hy - hy2 * 0.75, bx0 + back, hy - hy2 * 0.75 - h * (L.raptor ? 0.55 : 1), bx0 + 1, hy - hy2 * 0.75])
+      const cl = (2.6 + i * 1.1 + up * 1.6) * (L.halo ? 0.8 : 1)
+      leaf(g, L.crest, hx - hr * 0.2 + i * 0.5, hy - hr * 0.8, hx - hr * 0.2 - cl * (0.8 - i * 0.15), hy - hr * 0.8 - cl * (0.5 + i * 0.25), 0.9)
     }
   if (L.ear === 'tuft' || L.owl) {
-    // みみの はね（ふくろうは 左右に ぴんと）
-    poly(g, S, [hx - hr * 0.85, hy - hy2 * 0.4, hx - hr * (L.owl ? 1.05 : 0.6), hy - hy2 * (L.owl ? 1.55 : 1.4), hx - hr * 0.25, hy - hy2 * 0.8])
-    poly(g, S, [hx + hr * 0.3, hy - hy2 * 0.8, hx + hr * (L.owl ? 1.05 : 0.7), hy - hy2 * (L.owl ? 1.55 : 1.4), hx + hr * 0.85, hy - hy2 * 0.4])
+    leaf(g, S, hx - hr * 0.5, hy - hr * 0.6, hx - hr * (L.owl ? 1.0 : 0.7), hy - hr * (L.owl ? 1.6 : 1.4), 0.9)
+    leaf(g, S, hx + hr * 0.45, hy - hr * 0.65, hx + hr * (L.owl ? 0.95 : 0.6), hy - hr * (L.owl ? 1.6 : 1.45), 0.9)
   }
-  ell(g, S, hx, hy, hr, hy2)
-  ell(g, B, hx - 0.4, hy - 0.5, hr - 0.9, hy2 - 0.9)
-  ell(g, H, hx - hr * 0.38, hy - hy2 * 0.55, hr * 0.28, hy2 * 0.15)
-  if (L.gem) poly(g, L.gem, [hx + hr * 0.15, hy - hy2 * 0.85, hx + hr * 0.15 + 1.4, hy - hy2 * 0.85 + 1.4, hx + hr * 0.15, hy - hy2 * 0.85 + 2.8, hx + hr * 0.15 - 1.4, hy - hy2 * 0.85 + 1.4])
-  let e0 = hx + hr * 0.02
-  let e1 = hx + hr * 0.62
-  const ey = hy - hy2 * 0.08
-  if (L.owl) {
-    // 顔の 円ばん（目のまわりの 明るい まる）
-    e0 = hx - hr * 0.36
-    e1 = hx + hr * 0.42
-    for (const ex of [e0, e1]) {
-      ell(g, S, ex, ey, hr * 0.44, hy2 * 0.46)
-      ell(g, belly, ex, ey, hr * 0.37, hy2 * 0.39)
-    }
-  } else if (L.raptor) {
-    // 目を とおる 黒い すじ と ほおの 白
-    ell(g, belly, hx + hr * 0.35, hy + hy2 * 0.4, hr * 0.5, hy2 * 0.35)
-    // 目の うしろへ のびる 黒い すじ・目の下の「なみだ」もよう・金色の 目のふち
-    rect(g, S, hx - hr * 0.85, ey - 0.2, hr * 0.8, 1.6)
-    poly(g, S, [hx + hr * 0.5, ey + 1.6, hx + hr * 0.62, ey + 4.2, hx + hr * 0.8, ey + 1.6])
-    for (const ex of [e0, e1]) ell(g, '#f0b030', ex, ey + 0.5, 1.9, 2.1)
-  } else ell(g, '#ffb0c0', hx - hr * 0.35, hy + hy2 * 0.38, 1.1, 0.7)
-  eyes(g, [e0, e1], ey, p.eye === 'open' && L.raptor ? 'angry' : p.eye, dark)
-  // くちばし
-  const bx = L.owl ? (e0 + e1) / 2 : hx + hr * 0.92
-  const byk = L.owl ? ey + hy2 * 0.42 : hy + hy2 * 0.22
+  if (L.gem) poly(g, L.gem, [hx - hr * 0.1, hy - hr * 0.95, hx - hr * 0.1 + 1.2, hy - hr * 0.95 + 1.2, hx - hr * 0.1, hy - hr * 0.95 + 2.4, hx - hr * 0.1 - 1.2, hy - hr * 0.95 + 1.2])
+  // かお
+  const ey = hy - hr * 0.08
+  let bxk = hx + hr * 0.95
+  let byk = hy + hr * 0.2
   const open = p.mouth === 1 || p.mouth === 4
-  if (L.owl) poly(g, beakC, [bx - 1, byk - 0.6, bx + 1, byk - 0.6, bx, byk + 2])
-  else if (L.raptor) {
-    poly(g, beakC, [bx - 1.6, byk - 1.4, bx + 2.6, byk - 0.6, bx + 2.2, byk + 1.6 + (open ? 0.6 : 0), bx - 1.6, byk + 0.6])
-    poly(g, dark, [bx + 1.8, byk + 0.6, bx + 2.8, byk + 0.2, bx + 2.3, byk + 2.4 + (open ? 0.6 : 0)])
-    if (open) rect(g, '#7a1f3d', bx - 1.2, byk + 1, 2.6, 0.9)
-  } else if (open) {
-    poly(g, beakC, [bx - 1.2, byk - 1.2, bx + 3.2 + up, byk - 1.6, bx - 1.2, byk + 0.2])
-    poly(g, '#e8662a', [bx - 1.2, byk + 1.2, bx + 2.8 + up, byk + 2.4, bx - 1.2, byk + 2.8])
-  } else poly(g, beakC, [bx - 1.2, byk - 0.9, bx + 3.2 + up, byk + 0.5, bx - 1.2, byk + 2])
-  // 頭の上の 光の輪（つぶを 輪に ならべる）
+  if (L.owl) {
+    const e0 = hx - hr * 0.38
+    const e1 = hx + hr * 0.42
+    for (const ex of [e0, e1]) {
+      ell(g, S, ex, ey, hr * 0.46, hr * 0.46)
+      ell(g, belly, ex, ey, hr * 0.38, hr * 0.38)
+    }
+    eyes(g, [e0, e1], ey, p.eye, dark)
+    bxk = (e0 + e1) / 2
+    byk = ey + hr * 0.45
+    poly(g, beakC, [bxk - 1, byk - 0.6, bxk + 1, byk - 0.6, bxk, byk + 1.8])
+  } else {
+    if (L.raptor) {
+      // 目の うしろへ のびる すじ と、目の下の しるし
+      leaf(g, S, hx + hr * 0.3, ey, hx - hr * 0.9, ey + hr * 0.25, 0.9)
+      leaf(g, S, hx + hr * 0.35, ey + 1, hx + hr * 0.2, ey + hr * 0.95, 0.6)
+      ell(g, '#f0b030', hx + hr * 0.35, ey + 0.4, 1.6, 1.7)
+    } else if (up < 0.5) ell(g, '#ffb0c0', hx - hr * 0.1, hy + hr * 0.45, 1.1, 0.7)
+    // 横顔：目は 1 つ（小鳥は 2 つ見せて かわいく）
+    eyes(g, up < 0.3 ? [hx - hr * 0.05, hx + hr * 0.55] : [hx + hr * 0.35], ey, p.eye === 'open' && L.raptor ? 'angry' : p.eye, dark)
+    // くちばし：なめらかな くさび形（はやぶさは 先が かぎ）
+    const bk = (2.6 + up * 1.4) * (L.raptor ? 1.1 : 1)
+    shape(g, beakC, (g) => {
+      g.moveTo(bxk - 1.2, byk - 1.3)
+      g.quadraticCurveTo(bxk + bk * 0.7, byk - 1.4, bxk + bk, byk + (L.raptor ? 1.6 : 0.3) - (open ? 0.6 : 0))
+      g.quadraticCurveTo(bxk + bk * 0.4, byk + 0.4, bxk - 1.2, byk + 0.6)
+    })
+    if (open)
+      shape(g, '#e8662a', (g) => {
+        g.moveTo(bxk - 1.2, byk + 1)
+        g.quadraticCurveTo(bxk + bk * 0.5, byk + 1.4, bxk + bk * 0.8, byk + 2.6)
+        g.quadraticCurveTo(bxk + bk * 0.2, byk + 2.6, bxk - 1.2, byk + 2.2)
+      })
+    if (L.raptor) rect(g, dark, bxk + bk - 0.9, byk + 1.2, 0.8, 0.9)
+  }
+  // 頭の上の 光の輪
   if (L.halo)
     for (let i = 0; i < 12; i++) {
-      const a = (i / 12) * Math.PI * 2 + f * 0.3
-      rect(g, i % 3 ? L.halo : '#ffffff', hx + Math.cos(a) * hr * 0.95 - 0.5, hy - hy2 * 1.42 + Math.sin(a) * 1.2 - 0.5, 1.2, 1)
+      const q = (i / 12) * Math.PI * 2 + f * 0.3
+      rect(g, i % 3 ? L.halo : '#ffffff', hx + Math.cos(q) * hr * 1.0 - 0.5, hy - hr * 1.75 + Math.sin(q) * 1.2 - 0.5, 1.2, 1)
     }
-  return { bx: cx, by: ty, rx, ry, hx, hy, hr, mx: bx, my: byk, cols: [B, S, H] }
+  return { bx: cx, by: cy, rx: bl * 0.8, ry: bw, hx, hy, hr, mx: bxk, my: byk, cols: [B, S, H] }
 }
 
 // ---------- 系統の仲間（パーツ指定で描く）----------
