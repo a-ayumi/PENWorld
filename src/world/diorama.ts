@@ -14,10 +14,10 @@ const AZIMUTH = Math.PI / 4
 const ELEVATION = THREE.MathUtils.degToRad(30)
 const DIST = 60
 /** 太陽の高さ（低いほど影が長い） */
-const SUN_ELEV = THREE.MathUtils.degToRad(47)
+const SUN_ELEV = THREE.MathUtils.degToRad(58)
 /** 太陽とまわりの光の強さ（いまの見た目に対する倍率） */
-const SUN_GAIN = 2.4
-const HEMI_GAIN = 0.5
+const SUN_GAIN = 1.9
+const HEMI_GAIN = 0.85
 
 export class DioramaLook {
   readonly cam: THREE.OrthographicCamera
@@ -272,22 +272,27 @@ function makeDioramaPost(scene: THREE.Texture, depth: THREE.DepthTexture, hud: T
           // 輪郭：まわりにずっと手前の物があれば（＝自分は奥側のふち）暗く
           float e = persp > 0.5 ? 0.012 + d * 0.06 : 0.0035;
           float n = min(min(D(vec2(1.0, 0.0)), D(vec2(-1.0, 0.0))), min(D(vec2(0.0, 1.0)), D(vec2(0.0, -1.0))));
-          if (n < d - e) c = c * vec3(0.42, 0.38, 0.55);
+          if (n < d - e) c = c * vec3(0.66, 0.6, 0.56);
           // ふちの光：左上の隣が ずっと奥なら（＝自分は手前の物の左上のふち）、暖かく明るく
-          else if (D(vec2(-1.0, 1.0)) > d + e) c = c * 1.18 + vec3(0.07, 0.05, 0.0);
+          else if (D(vec2(-1.0, 1.0)) > d + e) c = c * 1.07 + vec3(0.03, 0.02, 0.0);
           // 遠くは空の色へ少しかすむ（奥行き = 平行投影なので d がそのまま距離）
           float fz = persp > 0.5 ? smoothstep(0.35, 0.9, d) : smoothstep(0.48, 0.68, d);
           c = mix(c, mix(haze, skyBot, 0.4), fz * 0.35);
         }
-        // 色の調整：暗い所は紫へ、明るい所は黄色へ。少しだけ鮮やかに
+        // 色の調整（計画 E：あたたかい村）：くすんだ色・ひかえめな明暗。陰は 茶〜オリーブ、光は あたたかく
         float l = dot(c, vec3(0.299, 0.587, 0.114));
-        c = mix(c, c * vec3(0.8, 0.74, 1.08) + vec3(0.02, 0.0, 0.05), smoothstep(0.42, 0.08, l) * 0.75);
-        c = mix(c, c * vec3(1.07, 1.02, 0.86), smoothstep(0.55, 0.95, l) * 0.6);
-        c = mix(vec3(l), c, 1.14);
+        c = mix(vec3(l), c, 0.74);
+        // 緑は オリーブへ寄せる（緑が ほかより強い所ほど）
+        float gr = clamp((c.g - max(c.r, c.b)) * 3.0, 0.0, 1.0);
+        c = mix(c, c * vec3(1.08, 0.9, 0.78), gr * 0.55);
+        c = mix(c, c * vec3(0.9, 0.84, 0.82) + vec3(0.02, 0.012, 0.0), smoothstep(0.42, 0.08, l) * 0.7);
+        c = mix(c, c * vec3(1.05, 1.0, 0.88), smoothstep(0.55, 0.95, l) * 0.6);
+        // 明暗を しぼる（まっ白・まっ黒を つくらない）
+        c = mix(vec3(0.36, 0.33, 0.28), c, 0.86) * vec3(1.02, 0.99, 0.94);
         // 夜は全体を青く
         c = mix(c, c * vec3(0.55, 0.62, 0.95), night * 0.5);
-        // 色数をしぼる（1 チャンネル 14 段）+ 4×4 ディザ
-        float L = 14.0;
+        // 色数をしぼる（1 チャンネル 20 段）+ 4×4 ディザ
+        float L = 20.0;
         c = floor(clamp(c, 0.0, 1.0) * L + bayer4(px)) / L;
         if (glitch > 0.0) c = mix(c, vec3(0.05, 0.1, 0.2), smoothstep(0.85, 1.0, glitch));
         c = mix(c, vec3(1.0), flash);

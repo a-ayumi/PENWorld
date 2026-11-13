@@ -5,6 +5,7 @@ import { fxU } from './fx'
 import { floaters, grass, swayify, waterSurface } from './fxprops'
 import type { SpeciesId } from './monsters'
 import { STAGES2 } from './stages2'
+import { FLORA, tree } from './flora'
 
 /**
  * オリジナルのステージ 5 種。どれも「デジタル空間に浮かぶ四角い箱庭」。
@@ -388,7 +389,7 @@ function seedGrove(): Stage {
     return Math.max(0.24, h)
   }
   const group = new THREE.Group()
-  group.add(terrain(heightAt, Tex.grass(), ['#ffffff', '#d8f0c8']), base('grass'))
+  group.add(terrain(heightAt, Tex.grass(), ['#b4c898', '#96b07c']), base('grass'))
   const obstacles: Obstacle[] = [{ ...spring, r: spring.r - 0.2 }]
   const foodSpots: FoodSpot[] = []
   // 川：水の円を ならべる（浅瀬の所は 通れる）。見た目は 水面の円を重ねる
@@ -445,28 +446,21 @@ function seedGrove(): Stage {
 
   // 木（実がなる）
   const bark = lambert('#6d4c41', { map: Tex.bark() })
-  const leafA = lambert('#3f9e4a')
-  const leafB = lambert('#5cc25a')
+  // 木（実がなる）：まるい木と、ときどき 花の咲く木（計画 E2）
+  const fruitMat = lambert('#d8483e')
   for (let i = 0; i < dens(7); i++) {
     const p = put(0.6)
     if (!p) break
     const s = 0.9 + p.r() * 0.5
-    const t = new THREE.Group()
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.22, 1.1, 6), bark)
-    trunk.position.y = 0.55
-    const f1 = new THREE.Mesh(new THREE.IcosahedronGeometry(0.85, 0), leafA)
-    f1.position.y = 1.55
-    const f2 = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 0), leafB)
-    f2.position.set(0.25, 2.05, 0.1)
-    t.add(trunk, f1, f2)
+    const bloom = p.r() < 0.28
+    const t = tree(bloom ? 'bloom' : 'round', 100 + i, bloom ? FLORA[p.r() < 0.5 ? 'bloom' : 'bloomPink'] : FLORA[p.r() < 0.5 ? 'round' : 'roundB'])
     // 実（飾り）
-    for (let k = 0; k < 3; k++) {
-      const fr = new THREE.Mesh(new THREE.IcosahedronGeometry(0.11, 0), lambert('#ff5a6e'))
-      const a = k * 2.1 + p.r()
-      fr.position.set(Math.cos(a) * 0.7, 1.4 + k * 0.15, Math.sin(a) * 0.7)
+    for (let k = 0; k < 4; k++) {
+      const fr = new THREE.Mesh(new THREE.IcosahedronGeometry(0.1, 0), fruitMat)
+      const a = k * 1.7 + p.r()
+      fr.position.set(Math.cos(a) * 0.95, 1.35 + k * 0.16, Math.sin(a) * 0.95)
       t.add(fr)
     }
-    swayify(t)
     t.scale.setScalar(s)
     t.position.set(p.x, heightAt(p.x, p.z) - 0.05, p.z)
     t.rotation.y = p.r() * Math.PI
@@ -474,19 +468,31 @@ function seedGrove(): Stage {
     obstacles.push({ x: p.x, z: p.z, r: 0.35 * s })
     foodSpots.push({ x: p.x, z: p.z })
   }
-  // 森の帯の木（実はならない・少し小さめ）
-  const leafC = lambert('#2f7d3c')
-  for (const b of band) {
-    const t = new THREE.Group()
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 0.9, 6), bark)
-    trunk.position.y = 0.45
-    const f1 = new THREE.Mesh(new THREE.IcosahedronGeometry(0.72, 0), Math.random() < 0.5 ? leafA : leafC)
-    f1.position.y = 1.3
-    t.add(trunk, f1)
-    swayify(t)
-    t.scale.setScalar(0.85 + Math.random() * 0.35)
+  // 森の帯の木（実はならない）：針葉樹と まるい木を まぜる
+  const br = rng(77)
+  band.forEach((b, i) => {
+    const t = tree(br() < 0.6 ? 'conifer' : 'round', 300 + i)
+    t.scale.setScalar(0.8 + br() * 0.35)
     t.position.set(b.x, heightAt(b.x, b.z) - 0.05, b.z)
-    t.rotation.y = Math.random() * Math.PI
+    t.rotation.y = br() * Math.PI
+    group.add(t)
+  })
+  // 大きな針葉樹（北がわに ぽつぽつ）と、花のしげみ（当たり判定なし）
+  for (let i = 0; i < dens(3); i++) {
+    const p = put(0.6)
+    if (!p) break
+    const t = tree('conifer', 500 + i)
+    t.scale.setScalar(1.15 + p.r() * 0.4)
+    t.position.set(p.x, heightAt(p.x, p.z) - 0.05, p.z)
+    group.add(t)
+    obstacles.push({ x: p.x, z: p.z, r: 0.4 })
+  }
+  for (let i = 0; i < dens(12); i++) {
+    const p = put(0.2, 1.5)
+    if (!p) break
+    const t = tree('bush', 700 + i)
+    t.scale.setScalar(0.8 + p.r() * 0.6)
+    t.position.set(p.x, heightAt(p.x, p.z) - 0.03, p.z)
     group.add(t)
   }
   // きのこ・岩
