@@ -51,11 +51,12 @@ export function psx<T extends THREE.Material>(m: T, fx?: FxOpt): T {
           '#include <lights_fragment_end>',
           `#include <lights_fragment_end>
           if (uToon > 0.5) {
-            // 太陽の光の量（影も入る）を 0〜1 にそろえて、3 段（かげ・半かげ・ひなた）に丸める
+            // 太陽の光の量（影も入る）を 0〜1 にそろえて、段に丸める
             float dl = dot(reflectedLight.directDiffuse, vec3(0.333));
             float dc = dot(diffuseColor.rgb, vec3(0.333)) * uSunLum * RECIPROCAL_PI + 1e-4;
             float a = dl / dc;
-            float q = a < 0.12 ? 0.0 : a < 0.55 ? 0.5 : 1.0;
+            // 4 段（かげも まっ黒にしない：やわらかい光）
+            float q = a < 0.1 ? 0.14 : a < 0.38 ? 0.45 : a < 0.72 ? 0.76 : 1.0;
             reflectedLight.directDiffuse *= a > 1e-3 ? q / a : 0.0;
           }`,
         )
