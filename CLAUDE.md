@@ -4,6 +4,7 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 人は直接操作せず「環境」を用意して見守る（ショップで食べ物・置き物を買う、きせかえで本体と場所を選ぶ）。
 作成技法の解説は `docs/TECHNIQUES.md`、作業手順はスキル `.claude/skills/retro-diorama-threejs/` を参照。
 **これからの計画・未マージの PR・作業の手順は `docs/PLAN.md`**（新しいセッションは最初に読む）。
+ほかのプロジェクトでも使える 進め方・確かめ方・見た目・地形・キャラのノウハウは `docs/KNOWHOW.md`。
 
 ## コマンド
 - `npm run dev` — 開発サーバー（`--host` 付き）
