@@ -60,6 +60,12 @@ export interface Look {
   scarf?: string
   helm?: boolean
   tiara?: string
+  /** 完成期・成熟期の かざり：光る もよう / うかぶ たま / せなかの けっしょうの はね / かたと足の よろい / しっぽの先の ほし */
+  rune?: string
+  orbs?: string
+  blade?: string
+  plate?: string
+  star?: string
 }
 
 export interface FamilySpec {
@@ -93,19 +99,19 @@ export const FAMILIES: Record<Exclude<Family, 'plain' | 'water'>, FamilySpec[]> 
   ],
   cat: [
     { id: 'mimiko', name: 'ミミコ', kind: 'ちびねこ型', look: { f: 'blob', s: 0.85, c: m('#ffd9a8', '#c99a60', '#fff3dc'), ear: 'cat', tail: 'cat', b: '#ffffff' }, skill: ['ねこパンチ', 'dash', '#fff3dc', 1.5] },
-    { id: 'tsumeru', name: 'ツメル', kind: 'つめねこ型', look: { f: 'quad', s: 0.95, c: m('#ff9a4a', '#b8561a', '#ffd0a0'), ear: 'cat', tail: 'cat', stripe: '#6a2a10', fang: true }, skill: ['ひっかきラッシュ', 'dash', '#ffb08a', 1.9] },
-    { id: 'yoruna', name: 'ヨルナ', kind: 'よるねこ型', look: { f: 'quad', s: 0.95, c: m('#6a5aa8', '#3d3270', '#b8a8f0'), ear: 'cat', tail: 'cat', gem: '#ffe27a', b: '#d8cfff' }, skill: ['つきあかり', 'heal', '#d8cfff', 0] },
+    { id: 'tsumeru', name: 'ツメル', kind: 'つめねこ型', look: { f: 'quad', s: 0.82, c: m('#ff9a4a', '#b8561a', '#ffd0a0'), ear: 'cat', tail: 'cat', stripe: '#6a2a10', fang: true }, skill: ['ひっかきラッシュ', 'dash', '#ffb08a', 1.9] },
+    { id: 'yoruna', name: 'ヨルナ', kind: 'よるねこ型', look: { f: 'quad', s: 0.82, c: m('#6a5aa8', '#3d3270', '#b8a8f0'), ear: 'cat', tail: 'cat', gem: '#ffe27a', b: '#d8cfff' }, skill: ['つきあかり', 'heal', '#d8cfff', 0] },
     { id: 'torahime', name: 'トラヒメ', kind: 'とらねこ型', look: { f: 'quad', s: 1.2, c: m('#ffb02e', '#b8700a', '#ffe09a'), ear: 'cat', tail: 'cat', stripe: '#3d2210', fang: true, b: '#fff0c8' }, skill: ['とらのほうこう', 'burst', '#ffd23f', 2.3] },
-    { id: 'tsukineko', name: 'ツキネコ', kind: 'つきねこ型', look: { f: 'quad', s: 1.2, c: m('#e8eaff', '#9aa0d8', '#ffffff'), ear: 'cat', tail: 'cat', moon: '#ffd23f', spot: '#b8c0ff', tiara: '#ffd23f' }, skill: ['ほしのしずく', 'rain', '#e8eaff', 2.2] },
-    { id: 'nekomata', name: 'ネコマタ', kind: 'ふたおねこ型', look: { f: 'quad', s: 1.4, c: m('#5a3aa0', '#33206a', '#a88be8'), ear: 'cat', tail: 'cat', tails: 2, gem: '#ff7ad9', mane: '#ff9ecb', fang: true, wisp: '#ff7ad9' }, skill: ['おにびのまい', 'wave', '#ff7ad9', 2.7] },
+    { id: 'tsukineko', name: 'ツキネコ', kind: 'つきねこ型', look: { f: 'quad', s: 1.2, c: m('#e8eaff', '#9aa0d8', '#ffffff'), ear: 'cat', tail: 'cat', moon: '#ffd23f', spot: '#b8c0ff', tiara: '#ffd23f', star: '#ffd23f' }, skill: ['ほしのしずく', 'rain', '#e8eaff', 2.2] },
+    { id: 'nekomata', name: 'ネコマタ', kind: 'ふたおねこ型', look: { f: 'quad', s: 1.45, c: m('#5a3aa0', '#33206a', '#a88be8'), ear: 'cat', tail: 'cat', tails: 2, gem: '#ff7ad9', mane: '#ff9ecb', fang: true, wisp: '#ff7ad9', rune: '#ff9ecb', orbs: '#ff7ad9' }, skill: ['おにびのまい', 'wave', '#ff7ad9', 2.7] },
   ],
   dog: [
     { id: 'wanko', name: 'ワンコ', kind: 'ちびいぬ型', look: { f: 'blob', s: 0.85, c: m('#d9a46a', '#9a6a3a', '#f6dcb8'), ear: 'dog', tail: 'dog', b: '#fff0d8', spot: '#7a4a22' }, skill: ['じゃれつき', 'dash', '#f6dcb8', 1.5] },
-    { id: 'kibaru', name: 'キバル', kind: 'きばいぬ型', look: { f: 'quad', s: 0.95, c: m('#8a6a4a', '#523a24', '#c8a888'), ear: 'dog', tail: 'dog', fang: true, collar: '#ff5e4a' }, skill: ['かみつきラッシュ', 'dash', '#ffd0b0', 1.9] },
-    { id: 'fuwan', name: 'フワン', kind: 'もふいぬ型', look: { f: 'quad', s: 1.0, c: m('#fff0dc', '#c8b090', '#ffffff'), ear: 'dog', tail: 'dog', mane: '#fffaf0', collar: '#7fd1ff' }, skill: ['もふもふはどう', 'heal', '#ffffff', 0] },
+    { id: 'kibaru', name: 'キバル', kind: 'きばいぬ型', look: { f: 'quad', s: 0.82, c: m('#8a6a4a', '#523a24', '#c8a888'), ear: 'dog', tail: 'dog', fang: true, collar: '#ff5e4a' }, skill: ['かみつきラッシュ', 'dash', '#ffd0b0', 1.9] },
+    { id: 'fuwan', name: 'フワン', kind: 'もふいぬ型', look: { f: 'quad', s: 0.86, c: m('#fff0dc', '#c8b090', '#ffffff'), ear: 'dog', tail: 'dog', mane: '#fffaf0', collar: '#7fd1ff' }, skill: ['もふもふはどう', 'heal', '#ffffff', 0] },
     { id: 'garufu', name: 'ガルフ', kind: 'おおかみ型', look: { f: 'quad', s: 1.2, c: m('#7a8aa8', '#4a566e', '#c0cce0'), ear: 'cat', tail: 'dog', fang: true, mane: '#e8f0ff', b: '#e8f0ff', scarf: '#d8483a' }, skill: ['とおぼえ', 'burst', '#c0cce0', 2.3] },
-    { id: 'mamoru', name: 'マモール', kind: 'ばんけん型', look: { f: 'quad', s: 1.2, c: m('#c9a06a', '#8a6a3a', '#f0dcb0'), ear: 'dog', tail: 'dog', armor: '#7a8aa8', collar: '#ffd23f', helm: true }, skill: ['まもりのさけび', 'wave', '#ffd23f', 2.1] },
-    { id: 'rouga', name: 'ロウガ', kind: 'ぎんろう型', look: { f: 'quad', s: 1.4, c: m('#e8f0ff', '#8a9ac0', '#ffffff'), ear: 'cat', tail: 'dog', mane: '#7fd1ff', gem: '#5ef2ff', fang: true, spike: '#7fd1ff', tiara: '#7fd1ff' }, skill: ['ぎんいろのかぜ', 'wave', '#7fd1ff', 2.7] },
+    { id: 'mamoru', name: 'マモール', kind: 'ばんけん型', look: { f: 'quad', s: 1.2, c: m('#c9a06a', '#8a6a3a', '#f0dcb0'), ear: 'dog', tail: 'dog', armor: '#7a8aa8', collar: '#ffd23f', helm: true, plate: '#7a8aa8' }, skill: ['まもりのさけび', 'wave', '#ffd23f', 2.1] },
+    { id: 'rouga', name: 'ロウガ', kind: 'ぎんろう型', look: { f: 'quad', s: 1.45, c: m('#e8f0ff', '#8a9ac0', '#ffffff'), ear: 'cat', tail: 'dog', mane: '#7fd1ff', gem: '#5ef2ff', fang: true, spike: '#7fd1ff', tiara: '#7fd1ff', blade: '#9fe4ff', plate: '#7fd1ff' }, skill: ['ぎんいろのかぜ', 'wave', '#7fd1ff', 2.7] },
   ],
   bird: [
     { id: 'piyo', name: 'ピヨ', kind: 'ひよこ型', look: { f: 'bird', s: 0.85, c: m('#fff27a', '#d9b800', '#fffbd0'), beak: true, tail: 'bird', wing: 'bird', ear: 'tuft' }, skill: ['ひよこつつき', 'shot', '#fff27a', 1.5] },
@@ -178,9 +184,10 @@ export const STAGE_EGGS: EggKind[][] = [
 
 /** 段階ごとの基本ステータス（ちから型は攻撃が高く、まもり型は体力が高い） */
 export const TIER_BASE: Record<1 | 2 | 3 | 4, { h: number; hp: number; atk: number }> = {
-  1: { h: 1.0, hp: 28, atk: 5 },
-  2: { h: 1.3, hp: 52, atk: 8 },
-  3: { h: 1.6, hp: 88, atk: 13 },
-  4: { h: 2.0, hp: 140, atk: 20 },
+  // 高さ：赤ちゃんは とても小さく、完成期は 大きく（進化の ちがいを はっきり）
+  1: { h: 0.72, hp: 28, atk: 5 },
+  2: { h: 1.15, hp: 52, atk: 8 },
+  3: { h: 1.7, hp: 88, atk: 13 },
+  4: { h: 2.3, hp: 140, atk: 20 },
 }
 export const FAMILY_SPEED: Record<Exclude<Family, 'plain'>, number> = { machine: 1.3, dragon: 1.5, cat: 2.0, dog: 1.8, bird: 1.9, water: 1.5, monster: 1.2 }

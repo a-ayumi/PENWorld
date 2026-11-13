@@ -988,7 +988,7 @@ function cat(g: G, p: Pose, f: number, L: Look, dog = false): Geom {
   const cx = 13 - (s - 1) * 1.5 + p.lean
   const bob = p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
   // 進化の だんかい（0 = 成長期 … 1 = 完成期）：上がるほど 足が長く・体が長く・頭の割合が小さく（おとなの体つき）
-  const up = Math.min(1, Math.max(0, (s - 0.95) / 0.45))
+  const up = Math.min(1, Math.max(0, (s - 0.82) / 0.63))
   const rx = (6.2 + up * 0.5) * s + p.sq * 0.5
   const ry = 4.2 * s - p.sq * 0.4
   const ty = 30 - (4.2 + s + up * 1.5) - ry * 0.55 + bob
@@ -1003,19 +1003,36 @@ function cat(g: G, p: Pose, f: number, L: Look, dog = false): Geom {
     ell(g, paw, x + 0.5, 29.3, w * 0.72, 1.2)
   }
   // しっぽ（ふたまたは 2 本）
+  // 2 本目は せなかの上へ（かくれないように）
+  const tip = (t: number) => (t ? { x: cx - rx * 0.35 - wag, y: ty - (8.6 + up) * s } : { x: cx - rx - 1.2 * s + wag, y: ty - (8.2 + up * 1.2) * s })
   const tails = L.tails ?? 1
   if (dog) {
     // いぬ：ふさふさの みじかい しっぽを 上へ まく（よく ふる）
     const w2 = Math.sin(f * 2.6) * 2.2
     tailCurve(g, cx - rx + 1.4, ty - ry * 0.3, cx - rx - 3.2 * s, ty - ry * 0.4, cx - rx - 0.6 * s + w2, ty - ry - 3.6 * s, 1.5 + s * 0.5, 1.9 + s * 0.6, B, L.mane ?? H)
   } else
-  for (let t = 0; t < tails; t++)
-    tailCurve(g, cx - rx + 1.2, ty - 0.4, cx - rx - 4.2 * s - t * 1.2, ty + 0.5 * s - t * 1.5, cx - rx - 1.2 * s + wag * (t ? -1 : 1) - t * 2.6, ty - (8.2 + up * 1.2) * s + t * 2.2, 1.3 + s * 0.35, 1.0 + s * 0.25, B, L.stripe ?? S, L.stripe)
+  for (let t = tails - 1; t >= 0; t--)
+    tailCurve(g, cx - rx + 1.2, ty - 0.4, cx - rx - (t ? 2.4 : 4.2) * s, ty + (t ? -2.5 : 0.5) * s, tip(t).x, tip(t).y, 1.3 + s * 0.35, 1.0 + s * 0.25, B, L.stripe ?? S, L.stripe)
+  if (L.star && !dog) {
+    const q = tip(0)
+    poly(g, L.star, [q.x, q.y - 3.4, q.x + 1, q.y - 1, q.x + 3.2, q.y, q.x + 1, q.y + 1, q.x, q.y + 3.4, q.x - 1, q.y + 1, q.x - 3.2, q.y, q.x - 1, q.y - 1])
+    rect(g, '#ffffff', q.x - 0.5, q.y - 0.5, 1, 1)
+  }
+  // せなかの けっしょうの はね（3 まい・うしろへ そる）
+  if (L.blade)
+    for (let i = 0; i < 3; i++) {
+      const bx0 = cx - rx * 0.1 - i * rx * 0.28
+      const by0 = ty - ry * 0.75
+      const tx = bx0 - (3 + i * 1.6) * s * 0.8
+      const ty2 = by0 - (7.5 - i * 1.6) * s * 0.8 - p.flap * 1.2
+      poly(g, L.blade, [bx0 - 1.3 * s, by0, tx, ty2, bx0 + 1.3 * s, by0])
+      poly(g, '#ffffff', [bx0 - 0.2, by0 - 1, tx + 0.6, ty2 + 1.5, bx0 + 0.5, by0 - 1])
+    }
   // しっぽの先の ひとだま（ゆらめく）
   if (L.wisp && !dog)
     for (let t = 0; t < tails; t++) {
-      const wx = cx - rx - 1.2 * s + wag * (t ? -1 : 1) - t * 2.6
-      const wy = ty - (8.2 + up * 1.2) * s + t * 2.2 - 1.5
+      const wx = tip(t).x
+      const wy = tip(t).y - 1.5
       const fl = (f + t) % 2
       poly(g, L.wisp, [wx - 2, wy + 1, wx + (fl ? 0.6 : -0.6), wy - 4.2, wx + 2, wy + 1])
       ell(g, L.wisp, wx, wy, 2.1, 2.1)
@@ -1061,6 +1078,31 @@ function cat(g: G, p: Pose, f: number, L: Look, dog = false): Geom {
     rect(g, L.collar, hx - hr * 0.72, hy + hr * 0.62, hr * 0.95, 1.8)
     ell(g, '#ffd23f', hx - hr * 0.1, hy + hr * 0.62 + 2.2, 1, 1)
   }
+  // おとなの しま：足にも
+  if (L.stripe && up > 0.4) for (const lx of [cx - rx * 0.3 + p.step * 0.9, cx + rx * 0.84 - p.step * 0.9]) for (const dy of [1.2, 3]) rect(g, L.stripe, lx - w / 2, legY + dy, w, 0.8)
+  // 光る もよう（ふともも と かた）
+  if (L.rune) {
+    for (const [mxr, myr] of [[cx - rx * 0.42, ty + ry * 0.05], [cx + rx * 0.55, ty - ry * 0.2]] as const) {
+      poly(g, L.rune, [mxr - 1.6, myr - 1, mxr, myr + 1.2, mxr + 1.6, myr - 1, mxr, myr + 0.2])
+      rect(g, L.rune, mxr - 0.4, myr - 2.6, 0.8, 1)
+    }
+  }
+  // かたと足の よろい
+  if (L.plate) {
+    ell(g, L.plate, cx + rx * 0.72, ty - ry * 0.3, rx * 0.28, ry * 0.6)
+    rect(g, '#ffffff', cx + rx * 0.62, ty - ry * 0.62, rx * 0.2, 0.5)
+    for (const lx of [cx - rx * 0.3 + p.step * 0.9, cx + rx * 0.84 - p.step * 0.9]) {
+      rect(g, L.plate, lx - w / 2 - 0.3, legY + 0.8, w + 0.6, 2.4)
+      rect(g, '#ffffff', lx - w / 2, legY + 1.1, 0.5, 1.4)
+    }
+  }
+  // まわりに うかぶ たま
+  if (L.orbs)
+    for (const [ox, oy, ph] of [[cx - rx * 0.1, ty - ry - 5.5 * s * 0.8, 0], [hx + hr * 1.15, hy - hr * 1.5, 2]] as const) {
+      const yy = oy + Math.sin(f * 1.3 + ph) * 1.2
+      ell(g, L.orbs, ox, yy, 1.8, 1.8)
+      rect(g, '#ffffff', ox - 0.7, yy - 0.8, 1, 1)
+    }
   // なびく スカーフ（首に まいて、うしろへ たなびく）
   if (L.scarf) {
     const fy2 = Math.sin(f * 1.9) * 1.2
@@ -1133,41 +1175,28 @@ function dogHead(g: G, p: Pose, L: Look, hx: number, hy: number, hr: number, up 
   if (L.fang) poly(g, '#ffffff', [mx + 1.8, my + 0.2, mx + 3, my + 0.2, mx + 2.4, my + 2 + up * 1.6])
   return { mx, my }
 }
-/** すわった こねこ（赤ちゃん）：大きな頭・ちいさな体・まえ足を そろえる */
-function kitten(g: G, p: Pose, f: number, L: Look, dog = false): Geom {
-  const s = L.s
+/** 赤ちゃん：顔だけの ちいさな つぶ（体は まだ無い・ちいさな足と しっぽの芽） */
+function pip(g: G, p: Pose, f: number, L: Look, dog = false): Geom {
   const [B, S, H] = L.c
-  const belly = L.b ?? H
-  const cx = 14 + p.lean
   const bob = p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
-  const rx = 5.6 * s + p.sq * 0.5
-  const ry = 4.8 * s - p.sq * 0.5
-  const ty = 30 - ry - 0.4 + bob
-  const hr = 6.6 * s
-  const hx = cx + 2.2
-  const hy = ty - ry * 0.55 - hr * 0.62 + p.sq * 0.4
-  const wag = Math.sin(f * 1.7) * 1.4
-  if (dog) tailCurve(g, cx - rx + 1.5, ty + ry * 0.2, cx - rx - 2.5, ty, cx - rx - 0.5 + Math.sin(f * 2.6) * 1.8, ty - ry * 0.9, 1.5, 1.9, B, H)
-  else tailCurve(g, cx - rx + 1.5, ty + ry * 0.4, cx - rx - 4.5, ty + ry * 0.6, cx - rx - 2 + wag, ty - ry * 1.3, 1.6, 1.2, B, S)
-  ell(g, S, cx, ty, rx, ry)
-  ell(g, B, cx - 0.4, ty - 0.6, rx - 0.9, ry - 0.9)
-  ell(g, belly, cx + rx * 0.3, ty + ry * 0.25, rx * 0.5, ry * 0.6)
-  // まえ足
-  for (const dx of [0.1, 0.62]) {
-    rect(g, B, cx + dx * rx - 1.1 + (dx > 0.3 ? -p.step : p.step) * 0.6, ty + ry * 0.1, 2.2, ry * 0.9 - 0.4)
-    ell(g, belly, cx + dx * rx + 0.3 + (dx > 0.3 ? -p.step : p.step) * 0.6, 29.3, 1.7, 1.2)
-  }
-  const { mx, my } = dog ? dogHead(g, p, L, hx - 0.8, hy, hr * 0.94) : catHead(g, p, L, hx, hy, hr)
-  return { bx: cx, by: ty, rx, ry, hx, hy, hr, mx, my, cols: [B, S, H] }
+  const hr = 7 + p.sq * 0.4
+  const hx = 15 + p.lean
+  const hy = 30 - 1.4 - hr * 0.86 + bob + p.sq * 0.4
+  const wag = Math.sin(f * (dog ? 2.6 : 1.7)) * 1.3
+  tailCurve(g, hx - hr + 1.5, hy + hr * 0.45, hx - hr - 2.4, hy + hr * 0.5, hx - hr - 1.2 + wag, hy - hr * 0.15, 1.3, dog ? 1.7 : 1.0, B, dog ? H : S)
+  ell(g, S, hx - 2.6 + p.step * 0.8, 29.3, 2, 1.2)
+  ell(g, S, hx + 3 - p.step * 0.8, 29.3, 2, 1.2)
+  const { mx, my } = dog ? dogHead(g, p, L, hx - 0.8, hy, hr * 0.96) : catHead(g, p, L, hx, hy, hr)
+  return { bx: hx, by: hy, rx: hr, ry: hr * 0.9, hx, hy, hr, mx, my, cols: [B, S, H] }
 }
 
 // ---------- 系統の仲間（パーツ指定で描く）----------
 /** families.ts の Look（パーツの指定）から 1 コマ描く。右むき、足もとは y=30 */
 function critter(g: G, p: Pose, f: number, L: Look): Geom {
   // ねこ（耳も しっぽも ねこ）は 専用の描き方（見本）
-  if (L.ear === 'cat' && L.tail === 'cat') return L.f === 'quad' ? cat(g, p, f, L) : kitten(g, p, f, L)
+  if (L.ear === 'cat' && L.tail === 'cat') return L.f === 'quad' ? cat(g, p, f, L) : pip(g, p, f, L)
   // いぬ・おおかみ（しっぽが いぬ）も 同じ体に、いぬの頭
-  if (L.tail === 'dog') return L.f === 'quad' ? cat(g, p, f, L, true) : kitten(g, p, f, L, true)
+  if (L.tail === 'dog') return L.f === 'quad' ? cat(g, p, f, L, true) : pip(g, p, f, L, true)
   const s = L.s
   const [B, S, H] = L.c
   const dark = L.eye ?? '#1a1530'
