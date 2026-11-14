@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { psx, SNAP_GLSL, snapUniform } from './psx'
 import { rng } from './textures'
-import { HALF, SIZE, dens, disposeTree, edge, lambert, mounds, motes, placer, skyDome, smooth, terrain, voidSpace } from './stages'
+import { HALF, SIZE, chestModel, dens, disposeTree, edge, lambert, mounds, motes, placer, skyDome, smooth, terrain, voidSpace } from './stages'
 import { FLORA, tree } from './flora'
 import type { FoodSpot, Obstacle, Stage } from './stages'
 
@@ -143,34 +143,52 @@ function plume(count: number, rise: number, size: number) {
 }
 
 function volcano(): Stage {
-  const crater = { x: -5, z: -5.2 }
-  const pools: LavaPool[] = [
-    { x: 4.4, z: -3.2, r: 2.3, crust: 1 },
-    // 川（丸をつなぐ。つなぎ目に縁を出さない）
-    ...([[-7.4, 2.0], [-6.3, 3.3], [-5.0, 4.4], [-3.5, 5.1], [-2.0, 5.4]] as const).map(([x, z]) => ({ x, z, r: 0.95, crust: 0 })),
-  ]
-  // かいたくで広くなったら、小さな溶岩だまりも増やす
-  const rr = rng(405)
-  const extra = Math.max(0, dens(2) - 2)
-  for (let n = 0, tries = 0; n < extra && tries < 300; tries++) {
-    const x = (rr() * 2 - 1) * (HALF - 2)
-    const z = (rr() * 2 - 1) * (HALF - 2)
-    const r = 1.0 + rr() * 0.5
-    if (Math.hypot(x, z) < 4.5) continue
-    if ([...pools, { x: crater.x, z: crater.z, r: 2.8, crust: 0 }].some((p) => Math.hypot(p.x - x, p.z - z) < p.r + r + 1.4)) continue
-    pools.push({ x, z, r, crust: 1 })
-    n++
+  // 入り組んだ地形（計画 D）。20 マスの島を元に作り、k = 広さ / 20 倍に ひろげる
+  //  北西 = のぼれない 大きな 火山（てっぺんの 火口に 溶岩と けむり）
+  //  北〜東 = 火山の ふもとから 東のふちへ ながれる 溶岩の川（わたれる 岩の 浅瀬が 1 つ。むこう岸に たからばこ）
+  //  南東 = 大きな 溶岩の湖 / 南西 = 玄武岩の 台地（東の坂・上に たからばこ）/ まんなか = 村のための 平らな所
+  const k = SIZE / 20
+  const CONE = { x: -5.6, z: -5.6, R: 4.2, H: 8.5 * Math.sqrt(k) }
+  const MESA = { x: -5.6, z: 4.8, r: 2.2, h: 2.2 }
+  const crater = { x: CONE.x * k, z: CONE.z * k }
+  const pools: LavaPool[] = [{ x: 5.8 * k, z: 5.2 * k, r: 2.0 * k, crust: 1 }]
+  // 川：折れ線に そって 丸を つなぐ。浅瀬（FORD）の所だけ あける
+  const RIVER: [number, number][] = [[-2.2, -6.9], [0, -6.7], [2.4, -6.2], [4.6, -5.2], [6.3, -3.5], [7.4, -1.4], [8.6, 0.4], [10, 1.8]]
+  const FORD = { x: 5.5, z: -4.4 }
+  const riverR = 0.7 * k
+  for (let i = 0; i < RIVER.length - 1; i++) {
+    const [x0, z0] = RIVER[i]
+    const [x1, z1] = RIVER[i + 1]
+    const n = Math.ceil((Math.hypot(x1 - x0, z1 - z0) * k) / (riverR * 0.9))
+    for (let j = 0; j < n; j++) {
+      const x = x0 + ((x1 - x0) * j) / n
+      const z = z0 + ((z1 - z0) * j) / n
+      if (Math.hypot(x - FORD.x, z - FORD.z) < 1.05) continue
+      if (Math.abs(x) > 9.7 || Math.abs(z) > 9.7) continue
+      pools.push({ x: x * k, z: z * k, r: riverR, crust: 0 })
+    }
   }
-
-  const heightAt = (x: number, z: number) => {
-    const dc2 = (x - crater.x) ** 2 + (z - crater.z) ** 2
+  const mesa = (x: number, z: number) => {
+    const a = Math.atan2(z - MESA.z, x - MESA.x)
+    const r0 = MESA.r + Math.sin(a * 3 + 1) * 0.3 + Math.sin(a * 5) * 0.15
+    const d = Math.hypot(x - MESA.x, z - MESA.z)
+    const top = MESA.h * smooth(r0 + 0.4, r0, d)
+    const x1 = MESA.x + r0 + 3.2
+    const t = Math.min(1, Math.max(0, (x1 - x) / 2.7))
+    const ramp = x < x1 && x > MESA.x ? MESA.h * t * smooth(1.7, 1.3, Math.abs(z - MESA.z)) : 0
+    return Math.max(top, ramp)
+  }
+  const heightAt = (wx: number, wz: number) => {
+    const x = wx / k
+    const z = wz / k
     const ridge = 1 - Math.abs(Math.sin(x * 0.45 + Math.cos(z * 0.3) * 1.3))
-    let h =
-      0.3 +
-      (ridge * ridge * 0.9 + Math.sin(z * 0.7 + x * 0.35) * 0.18 + Math.cos(x * 1.3) * Math.sin(z * 1.1) * 0.12 +
-        mounds(x, z, [[6, 5, 2.4, 1.5], [-7, -1, 2, 1.1], [1, -7, 2.2, 1.3]]) +
-        2.4 * Math.exp(-dc2 / (2.3 * 2.3)) - 1.7 * Math.exp(-dc2 / (0.85 * 0.85))) * edge(x, z)
-    for (const p of pools) h = THREE.MathUtils.lerp(0.24, h, smooth(p.r - 0.3, p.r + 1.0, Math.hypot(x - p.x, z - p.z)))
+    let h = 0.3 + (ridge * ridge * 0.55 + Math.sin(z * 0.7 + x * 0.35) * 0.14 + Math.cos(x * 1.3) * Math.sin(z * 1.1) * 0.08 + 0.1) * edge(wx, wz)
+    h = THREE.MathUtils.lerp(0.34, h, smooth(3.0, 5.0, Math.hypot(x - 0.4, z - 0.8)))
+    for (const p of pools) h = THREE.MathUtils.lerp(0.24, h, smooth(p.r - 0.3, p.r + 1.0, Math.hypot(wx - p.x, wz - p.z)))
+    h = Math.max(h, mesa(x, z) + 0.26)
+    // 火山：ふもとは なだらか・上は 崖。てっぺんは 火口（溶岩の 障害物で ふさぐ）
+    const d = Math.hypot(x - CONE.x, z - CONE.z)
+    h += CONE.H * Math.pow(smooth(CONE.R, 0.9, d), 1.25) - 1.8 * smooth(0.9, 0.3, d)
     return Math.max(0.24, h)
   }
 
@@ -186,27 +204,39 @@ function volcano(): Stage {
   }, 64, 61, [6, 6])
   const group = new THREE.Group()
   group.add(
-    terrain(heightAt, basalt, ['#ffffff', '#e6d6f0']),
+    terrain(heightAt, basalt, ['#ffffff', '#e6d6f0'], true, { rock: ['#4a4250', '#332c3a'], snowLine: Infinity }),
     baseBox(sideTex(['#3a3340', '#2e2833', '#453d4b', '#241f29'], ['#4a4250', '#37303d'], '#ff8a3a', 62)),
   )
 
   const obstacles: Obstacle[] = pools.map((p) => ({ x: p.x, z: p.z, r: p.r - 0.25, water: true, lava: true }))
   const foodSpots: FoodSpot[] = []
-  const put = placer(71, obstacles, [{ x: crater.x, z: crater.z, r: 1.4 }])
+  // たからばこ：台地の上・川の むこう岸・南の ふち
+  const treasures: { x: number; z: number; mesh: THREE.Object3D }[] = []
+  for (const [ux, uz] of [[MESA.x - 0.5, MESA.z + 0.3], [7.6, -6.4], [0.6, 8.4]]) {
+    const tx = THREE.MathUtils.clamp(ux * k, -HALF + 0.8, HALF - 0.8)
+    const tz = THREE.MathUtils.clamp(uz * k, -HALF + 0.8, HALF - 0.8)
+    const ch = chestModel()
+    ch.position.set(tx, heightAt(tx, tz), tz)
+    ch.rotation.y = Math.PI * 0.2
+    group.add(ch)
+    treasures.push({ x: tx, z: tz, mesh: ch })
+    obstacles.push({ x: tx, z: tz, r: 0.3 })
+  }
+  const put = placer(71, obstacles, [{ x: crater.x, z: crater.z, r: 1.4 * k }, { x: FORD.x * k, z: FORD.z * k, r: 1.5 * k }, { x: (MESA.x + MESA.r + 1.6) * k, z: MESA.z * k, r: 1.6 * k }], heightAt)
 
   // 溶岩
   const matPool = lavaMat(1)
   const matRiver = lavaMat(0)
   const glowT = glowTex(63)
   const glowMat = new THREE.MeshBasicMaterial({ map: glowT, color: '#ff7a2a', transparent: true, opacity: 0.15, depthWrite: false, blending: THREE.AdditiveBlending })
-  for (const p of pools) {
+  pools.forEach((p, pi) => {
     const m = new THREE.Mesh(new THREE.CircleGeometry(p.r + 0.15, 14).rotateX(-Math.PI / 2), p.crust ? matPool : matRiver)
     m.position.set(p.x, 0.31, p.z)
     group.add(m)
     const gl = new THREE.Mesh(new THREE.CircleGeometry(p.r + 1.5, 14).rotateX(-Math.PI / 2), glowMat)
     gl.position.set(p.x, 0.36, p.z)
-    group.add(gl)
-  }
+    if (p.crust || pi % 3 === 0) group.add(gl)
+  })
   // 溶岩だまりのふちの黒い石
   const rim = lambert('#2c2630', { map: basalt })
   for (const p of pools.filter((q) => q.crust)) {
@@ -222,10 +252,10 @@ function volcano(): Stage {
 
   // 火口（山の頂上）
   const craterY = heightAt(crater.x, crater.z)
-  const cLava = new THREE.Mesh(new THREE.CircleGeometry(0.7, 10).rotateX(-Math.PI / 2), matRiver)
+  const cLava = new THREE.Mesh(new THREE.CircleGeometry(0.85 * k, 12).rotateX(-Math.PI / 2), matRiver)
   cLava.position.set(crater.x, craterY + 0.06, crater.z)
   group.add(cLava)
-  obstacles.push({ x: crater.x, z: crater.z, r: 0.55, water: true, lava: true })
+  obstacles.push({ x: crater.x, z: crater.z, r: 1.0 * k, water: true, lava: true })
   const smokes: THREE.Points[] = []
   const bigSmoke = plume(26, 3.6, 8)
   bigSmoke.position.set(crater.x, craterY + 0.2, crater.z)
@@ -323,7 +353,7 @@ function volcano(): Stage {
   group.add(sky.mesh, vs.group, embers)
 
   return {
-    id: 5, name: 'ほむらのかざん', sub: 'EMBER CRATER', group, heightAt, obstacles, foodSpots,
+    id: 5, name: 'ほむらのかざん', sub: 'EMBER CRATER', group, heightAt, obstacles, foodSpots, treasures,
     food: { name: 'ほのおのかけら', color: '#ff8a3a', leaf: '#ffd84a' },
     residents: ['noiz', 'gougan', 'noiz', 'gougan'],
     fog: '#8e3a24', sky: ['#2b0a1c', '#ff6a30', '#1a0a10'],

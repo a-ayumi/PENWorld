@@ -1,7 +1,7 @@
 // 行けない所の検査：node tools/test/run2.cjs <dist> tools/test/reach.js
 // 「まんなかから 歩いて行けない、平らな升目」(flatCut) は 0 にする。steepCut は 山や崖の斜面（行けなくてよい）
 const out = []
-for (const si of [0, 1, 2, 3, 4]) {
+for (const si of [0, 1, 2, 3, 4, 5]) {
   w.loadStage(si); w.obstacles()
   const nv = w.nav, N = nv.n, H = nv.h
   // 出発点：まんなか付近の 立てる升目
