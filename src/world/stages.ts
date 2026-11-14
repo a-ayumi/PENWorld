@@ -748,28 +748,12 @@ function frostCircuit(): Stage {
   const foodSpots: FoodSpot[] = []
   const put = placer(37, obstacles)
 
-  const pineD = lambert('#1f5a4a')
-  const pineL = lambert('#2e7a5e')
-  const snow = lambert('#f4f8ff')
-  const trunk = lambert('#5d4037')
   for (let i = 0; i < dens(10); i++) {
     const p = put(0.5)
     if (!p) break
-    const t = new THREE.Group()
-    const tr = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 0.5, 5), trunk)
-    tr.position.y = 0.25
-    t.add(tr)
-    ;[[0.75, 0.5, pineD], [0.58, 1.05, pineL], [0.4, 1.55, pineD]].forEach(([r, y, m]) => {
-      const c = new THREE.Mesh(new THREE.ConeGeometry(r as number, 0.8, 7), m as THREE.Material)
-      c.position.y = y as number
-      t.add(c)
-    })
-    const cap = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.35, 7), snow)
-    cap.position.y = 1.9
-    t.add(cap)
-    swayify(t, 0.7)
+    const t = tree('conifer', 900 + i, FLORA.frost)
     const s = 0.9 + p.r() * 0.6
-    t.scale.setScalar(s)
+    t.scale.setScalar(s * 0.72)
     t.position.set(p.x, heightAt(p.x, p.z) - 0.05, p.z)
     group.add(t)
     obstacles.push({ x: p.x, z: p.z, r: 0.35 * s })
@@ -926,6 +910,15 @@ function coralCove(): Stage {
     obstacles.push({ x: p.x, z: p.z, r: 0.3 })
     foodSpots.push({ x: p.x, z: p.z })
   }
+  // 南国の 花の しげみ（計画 E5。当たり判定なし）
+  for (let i = 0; i < dens(10); i++) {
+    const p = put(0.2, 1.5)
+    if (!p) break
+    const t = tree('bush', 1400 + i, FLORA.tropic)
+    t.scale.setScalar(0.8 + p.r() * 0.7)
+    t.position.set(p.x, heightAt(p.x, p.z) - 0.03, p.z)
+    group.add(t)
+  }
   // 貝がら・岩
   const shellMats = [lambert('#ffd6e0'), lambert('#fff6e8')]
   for (let i = 0; i < dens(12); i++) {
@@ -1032,34 +1025,40 @@ function cottonField(): Stage {
   group.add(ice)
 
   // わたゆきの木（実がなる）
-  const trunk = lambert('#6d4c41', { map: Tex.bark() })
-  const fluffA = lambert('#f4f8ff')
-  const fluffB = lambert('#d6e4fa')
   const berry = lambert('#ff9ecb', { emissive: '#ff6fae', emissiveIntensity: 0.2 })
   for (let i = 0; i < dens(7); i++) {
     const p = put(0.55)
     if (!p) break
-    const t = new THREE.Group()
-    const tr = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 0.9, 6), trunk)
-    tr.position.y = 0.45
-    t.add(tr)
-    for (const [x, y, z, s, m] of [[0, 1.3, 0, 0.7, fluffA], [0.35, 1.7, 0.1, 0.45, fluffB], [-0.3, 1.6, -0.15, 0.5, fluffA]] as const) {
-      const f = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 0), m)
-      f.position.set(x, y, z)
-      t.add(f)
-    }
+    const t = tree('round', 1100 + i, FLORA.cotton)
     for (let k = 0; k < 3; k++) {
       const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.09, 0), berry)
-      b.position.set(Math.cos(k * 2.2) * 0.6, 1.15 + k * 0.12, Math.sin(k * 2.2) * 0.6)
+      b.position.set(Math.cos(k * 2.2) * 0.95, 1.4 + k * 0.16, Math.sin(k * 2.2) * 0.95)
       t.add(b)
     }
-    swayify(t)
     const s = 0.9 + p.r() * 0.5
-    t.scale.setScalar(s)
+    t.scale.setScalar(s * 0.85)
     t.position.set(p.x, heightAt(p.x, p.z) - 0.05, p.z)
     group.add(t)
     obstacles.push({ x: p.x, z: p.z, r: 0.35 * s })
     foodSpots.push({ x: p.x, z: p.z })
+  }
+  // 雪を かぶった 針葉樹と、わたの しげみ（計画 E5。しげみは 当たり判定なし）
+  for (let i = 0; i < dens(4); i++) {
+    const p = put(0.55)
+    if (!p) break
+    const t = tree('conifer', 1200 + i, FLORA.frost)
+    t.scale.setScalar(0.75 + p.r() * 0.3)
+    t.position.set(p.x, heightAt(p.x, p.z) - 0.05, p.z)
+    group.add(t)
+    obstacles.push({ x: p.x, z: p.z, r: 0.35 })
+  }
+  for (let i = 0; i < dens(9); i++) {
+    const p = put(0.2, 1.5)
+    if (!p) break
+    const t = tree('bush', 1300 + i, FLORA.cottonBush)
+    t.scale.setScalar(0.8 + p.r() * 0.6)
+    t.position.set(p.x, heightAt(p.x, p.z) - 0.03, p.z)
+    group.add(t)
   }
   // 雪だまのオブジェ（2 段の雪玉 + 小枝）
   const snowMat = lambert('#fbfdff')
