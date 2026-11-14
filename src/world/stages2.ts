@@ -1,8 +1,9 @@
 import * as THREE from 'three'
 import { psx, SNAP_GLSL, snapUniform } from './psx'
 import { rng } from './textures'
-import { HALF, SIZE, chestModel, dens, disposeTree, edge, lambert, mounds, motes, placer, skyDome, smooth, terrain, voidSpace } from './stages'
+import { HALF, SIZE, chestModel, dens, disposeTree, edge, lambert, motes, placer, skyDome, smooth, terrain, voidSpace } from './stages'
 import { FLORA, tree } from './flora'
+import { waterSurface } from './fxprops'
 import type { FoodSpot, Obstacle, Stage } from './stages'
 
 /**
@@ -472,13 +473,65 @@ const mistTex = () =>
   }, 16, 89)
 
 function ruins(): Stage {
-  const dais = { x: -3.2, z: -4.2, r: 2.3, h: 0.62 }
-  const plaza = { x: 4.2, z: 3.6, r: 2.0, h: 0.34 }
-  const heightAt = (x: number, z: number) => {
-    let h = 0.32 + (Math.sin(x * 0.5) * Math.cos(z * 0.45) * 0.22 + Math.sin(x * 1.1 + z * 0.8) * 0.07 + mounds(x, z, [[6.5, -5, 2.0, 0.8], [-6.5, 5, 2.2, 0.7]])) * edge(x, z)
-    h = THREE.MathUtils.lerp(dais.h, h, smooth(dais.r, dais.r + 1.2, Math.hypot(x - dais.x, z - dais.z)))
-    h = THREE.MathUtils.lerp(plaza.h, h, smooth(plaza.r, plaza.r + 1.0, Math.hypot(x - plaza.x, z - plaza.z)))
-    return Math.max(0.24, h)
+  // 入り組んだ地形（計画 D）。20 マスの島を元に作り、k = 広さ / 20 倍に ひろげる
+  //  北西 = 2 だんの 神殿の 台（南の坂 → 1 だんめ → 東の坂 → てっぺんに くずれた アーチと たからばこ）
+  //  北東 = まるい 石の壁に かこまれた 庭（門は 1 つ・中に たからばこ）
+  //  南西 = くねる 水路（わたれる 浅瀬が 1 つ。むこう岸に たからばこ）/ 南東 = 床の 円形文様 / まんなか = 村のための 平らな所
+  const k = SIZE / 20
+  const LOW = { x: -3.4, z: -5.2, r: 3.2, h: 1.6 }
+  const TOP = { x: -4.0, z: -5.2, r: 1.5, h: 1.4 }
+  const GARDEN = { x: 6.0, z: -5.0, R: 2.5 }
+  const GATE = Math.atan2(0.6 - GARDEN.z, 0.6 - GARDEN.x)
+  const dais = { x: TOP.x * k, z: TOP.z * k, r: 1.3 * k }
+  const plaza = { x: 4.8 * k, z: 4.4 * k, r: 2.0, h: 0.34 }
+  const CANAL: [number, number][] = [[-10, 1.4], [-7.6, 2.2], [-5.9, 3.7], [-5.3, 5.8], [-5.7, 8.0], [-6.1, 10]]
+  const FORD = { x: -5.5, z: 4.9 }
+  const canalR = 0.6 * k
+  const canal: { x: number; z: number; r: number }[] = []
+  for (let i = 0; i < CANAL.length - 1; i++) {
+    const [x0, z0] = CANAL[i]
+    const [x1, z1] = CANAL[i + 1]
+    const n = Math.ceil((Math.hypot(x1 - x0, z1 - z0) * k) / (canalR * 0.9))
+    for (let j = 0; j < n; j++) {
+      const x = x0 + ((x1 - x0) * j) / n
+      const z = z0 + ((z1 - z0) * j) / n
+      if (Math.hypot(x - FORD.x, z - FORD.z) < 1.0) continue
+      if (Math.abs(x) > 9.7 || Math.abs(z) > 9.7) continue
+      canal.push({ x: x * k, z: z * k, r: canalR })
+    }
+  }
+  const temple = (x: number, z: number) => {
+    const a = Math.atan2(z - LOW.z, x - LOW.x)
+    const r0 = LOW.r + Math.sin(a * 4) * 0.12
+    const d = Math.hypot(x - LOW.x, z - LOW.z)
+    const z1 = LOW.z + r0 + 2.6
+    const t = Math.min(1, Math.max(0, (z1 - z) / 2.2))
+    const ramp = z < z1 && z > LOW.z ? LOW.h * t * smooth(1.7, 1.3, Math.abs(x - LOW.x)) : 0
+    let h = Math.max(LOW.h * smooth(r0 + 0.4, r0, d), ramp)
+    const d2 = Math.hypot(x - TOP.x, z - TOP.z)
+    const x1 = TOP.x + TOP.r + 1.8
+    const t2 = Math.min(1, Math.max(0, (x1 - x) / 1.4))
+    const ramp2 = x < x1 && x > TOP.x ? TOP.h * t2 * smooth(1.2, 0.9, Math.abs(z - TOP.z)) : 0
+    h += Math.max(TOP.h * smooth(TOP.r + 0.4, TOP.r, d2), ramp2)
+    return h
+  }
+  // 庭の 石の壁：てっぺんを とがらせる。門の 向きだけ あける
+  const ring = (x: number, z: number) => {
+    const d = Math.hypot(x - GARDEN.x, z - GARDEN.z)
+    let da = Math.abs(Math.atan2(z - GARDEN.z, x - GARDEN.x) - GATE)
+    if (da > Math.PI) da = Math.PI * 2 - da
+    return 2.6 * Math.pow(Math.max(0, 1 - Math.abs(d - GARDEN.R) / 0.8), 0.8) * smooth(0.28, 0.55, da)
+  }
+  const heightAt = (wx: number, wz: number) => {
+    const x = wx / k
+    const z = wz / k
+    const hills = Math.pow(Math.sin(x * 0.6 + 1.2) * Math.sin(z * 0.55) * 0.5 + 0.5, 1.2) * 0.8 * smooth(4.0, 6.5, z) * smooth(-4.0, -1.0, x)
+    let h = 0.32 + (hills + Math.sin(x * 0.5) * Math.cos(z * 0.45) * 0.14 + Math.sin(x * 1.1 + z * 0.8) * 0.05 + 0.08) * edge(wx, wz)
+    h = THREE.MathUtils.lerp(0.34, h, smooth(3.0, 5.0, Math.hypot(x - 0.6, z - 0.6)))
+    for (const p of canal) h = THREE.MathUtils.lerp(0.22, h, smooth(p.r - 0.3, p.r + 0.9, Math.hypot(wx - p.x, wz - p.z)))
+    h = THREE.MathUtils.lerp(plaza.h, h, smooth(plaza.r, plaza.r + 1.0, Math.hypot(wx - plaza.x, wz - plaza.z)))
+    h = Math.max(h, temple(x, z) + 0.26)
+    return Math.max(0.22, h + ring(x, z))
   }
   const texs: THREE.Texture[] = []
   const T = <X extends THREE.Texture>(t: X) => (texs.push(t), t)
@@ -494,13 +547,38 @@ function ruins(): Stage {
     }
   }, 64, 83, [6, 6]))
   group.add(
-    terrain(heightAt, floorTex, ['#ffffff', '#dfeedd']),
+    terrain(heightAt, floorTex, ['#ffffff', '#dfeedd'], true, { rock: ['#93a694', '#6f8474'], snowLine: Infinity }),
     baseBox(T(sideTex(['#5d6e62', '#506256', '#6a7c6e', '#44564a'], ['#6fae5a', '#4f8a4c'], '#8fe8ff', 84))),
   )
 
-  const obstacles: Obstacle[] = []
+  const obstacles: Obstacle[] = canal.map((p) => ({ x: p.x, z: p.z, r: p.r - 0.25, water: true }))
   const foodSpots: FoodSpot[] = []
-  const put = placer(97, obstacles, [dais, plaza, { x: 0, z: 0, r: 1.2 }])
+  // 水路の水
+  const canalMat = waterSurface({ deep: '#2f9a8c', shallow: '#6fd8c8' })
+  for (const p of canal) {
+    const m = new THREE.Mesh(new THREE.CircleGeometry(p.r + 0.15, 12).rotateX(-Math.PI / 2), canalMat)
+    m.position.set(p.x, 0.3, p.z)
+    group.add(m)
+  }
+  // たからばこ：神殿の てっぺん・庭の中・水路の むこう岸
+  const treasures: { x: number; z: number; mesh: THREE.Object3D }[] = []
+  for (const [ux, uz] of [[TOP.x - 0.7, TOP.z + 0.7], [GARDEN.x + 0.6, GARDEN.z - 0.6], [-8.2, 6.6]]) {
+    const tx = THREE.MathUtils.clamp(ux * k, -HALF + 0.8, HALF - 0.8)
+    const tz = THREE.MathUtils.clamp(uz * k, -HALF + 0.8, HALF - 0.8)
+    const ch = chestModel()
+    ch.position.set(tx, heightAt(tx, tz), tz)
+    ch.rotation.y = Math.PI * 0.2
+    group.add(ch)
+    treasures.push({ x: tx, z: tz, mesh: ch })
+    obstacles.push({ x: tx, z: tz, r: 0.3 })
+  }
+  const put = placer(97, obstacles, [
+    dais, plaza, { x: 0, z: 0, r: 1.2 },
+    { x: LOW.x * k, z: (LOW.z + LOW.r + 1.4) * k, r: 1.6 * k },
+    { x: (TOP.x + TOP.r + 0.9) * k, z: TOP.z * k, r: 1.1 * k },
+    { x: (GARDEN.x + Math.cos(GATE) * GARDEN.R) * k, z: (GARDEN.z + Math.sin(GATE) * GARDEN.R) * k, r: 1.5 * k },
+    { x: FORD.x * k, z: FORD.z * k, r: 1.4 * k },
+  ], heightAt)
   const stone = lambert('#b4c4b0', { map: T(mossStone()) })
   const fluted = lambert('#c4d2c0', { map: T(flute()) })
   const moss = lambert('#4f8a4c')
@@ -577,7 +655,7 @@ function ruins(): Stage {
     group.add(g)
     for (const sx of [-1, 1]) obstacles.push({ x: x + Math.cos(rot) * sx * R * s, z: z - Math.sin(rot) * sx * R * s, r: 0.5 * s })
   }
-  arch(dais.x, dais.z, 0.25, 1, [2, 3], 5)
+  arch(dais.x, dais.z - 0.9 * k, 0.1, 1, [2, 3], 5)
   const extraArches = Math.max(0, dens(1) - 1)
   for (let i = 0; i < extraArches; i++) {
     const p = put(1.9, 4)
@@ -615,8 +693,9 @@ function ruins(): Stage {
     group.add(g)
     obstacles.push({ x, z, r: 0.45 })
   }
-  pillar(-0.8, -6.2, 2.4, 0.03, false, 31)
-  pillar(-6.6, -1.2, 1.1, -0.06, true, 32)
+  // 神殿の 南の坂の ふもとに 2 本
+  pillar((LOW.x - 2.0) * k, (LOW.z + LOW.r + 2.8) * k, 2.4, 0.03, false, 31)
+  pillar((LOW.x + 2.0) * k, (LOW.z + LOW.r + 2.8) * k, 1.1, -0.06, true, 32)
   for (let i = 0; i < dens(5); i++) {
     const p = put(0.5)
     if (!p) break
@@ -637,7 +716,7 @@ function ruins(): Stage {
     group.add(g)
     obstacles.push({ x, z, r: 0.9 })
   }
-  drum(4.0, -4.4, 0.6)
+  drum(1.2 * k, 7.2 * k, 0.6)
   for (let i = 0; i < dens(1) - 1; i++) {
     const p = put(1.0)
     if (!p) break
@@ -735,7 +814,7 @@ function ruins(): Stage {
   const crystalMat = lambert('#8fe8ff', { emissive: '#4fc8e8', emissiveIntensity: 0.5 })
   const shadowMat = new THREE.MeshBasicMaterial({ color: '#05140f', transparent: true, opacity: 0.28, depthWrite: false })
   const slabs: { g: THREE.Group; sh: THREE.Mesh; y: number; ph: number; gy: number }[] = []
-  const slabSpots: { x: number; z: number }[] = [{ x: -1.6, z: 2.4 }, { x: 2.0, z: -1.2 }]
+  const slabSpots: { x: number; z: number }[] = [{ x: GARDEN.x * k, z: GARDEN.z * k }, { x: -7.8 * k, z: 4.6 * k }]
   for (let i = 0; i < dens(4) - 2; i++) {
     const p = put(0.6, 3)
     if (!p) break
@@ -775,7 +854,7 @@ function ruins(): Stage {
   group.add(sky.mesh, vs.group, spores)
 
   return {
-    id: 6, name: 'こだいのいせき', sub: 'ANCIENT RUINS', group, heightAt, obstacles, foodSpots,
+    id: 6, name: 'こだいのいせき', sub: 'ANCIENT RUINS', group, heightAt, obstacles, foodSpots, treasures,
     food: { name: 'ひかりのみ', color: '#9dffd0', leaf: '#3f9e6a' },
     residents: ['noiz', 'togebug', 'noiz'],
     fog: '#86b5a3', sky: ['#274a60', '#b5ddcf', '#0e1e2a'],
