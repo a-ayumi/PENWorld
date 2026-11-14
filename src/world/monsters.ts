@@ -2011,6 +2011,331 @@ DRAW_OLD.hireru = (g, p, f) => seaFish(g, p, f)
 DRAW_OLD.fuwari = (g, p, f) => cloudJelly(g, p, f)
 DRAW_OLD.shioryu = (g, p, f) => tideSerpent(g, p, f)
 
+// ---------- きかい系統（描きなおし）----------
+/** かどの まるい 四角 */
+const rr = (g: G, c: string, x: number, y: number, w: number, h: number, r: number) =>
+  shape(g, c, (g) => {
+    g.moveTo(x + r, y)
+    g.lineTo(x + w - r, y)
+    g.quadraticCurveTo(x + w, y, x + w, y + r)
+    g.lineTo(x + w, y + h - r)
+    g.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
+    g.lineTo(x + r, y + h)
+    g.quadraticCurveTo(x, y + h, x, y + h - r)
+    g.lineTo(x, y + r)
+    g.quadraticCurveTo(x, y, x + r, y)
+  })
+/** ロボの目（ひかる あかり）：表情は 形で出す */
+function ledEyes(g: G, xs: number[], y: number, mode: Pose['eye'], c: string, k = 1) {
+  xs.forEach((x, i) => {
+    const inner = xs.length === 1 ? -1 : i === 0 ? 1 : -1
+    if (mode === 'closed' || mode === 'sleepy') rect(g, c, x - k, y + (mode === 'sleepy' ? 0 : 0.5), 2 * k, 0.6)
+    else if (mode === 'happy') {
+      rect(g, c, x - k, y + 0.6, 0.7 * k, 0.8)
+      rect(g, c, x - 0.3 * k, y - 0.2, 0.7 * k, 0.8)
+      rect(g, c, x + 0.4 * k, y + 0.6, 0.7 * k, 0.8)
+    } else if (mode === 'hurt') {
+      rect(g, c, x - k, y - 0.6, 0.7, 0.7)
+      rect(g, c, x + 0.4 * k, y - 0.6, 0.7, 0.7)
+      rect(g, c, x - 0.3 * k, y + 0.1, 0.7, 0.7)
+      rect(g, c, x - k, y + 0.8, 0.7, 0.7)
+      rect(g, c, x + 0.4 * k, y + 0.8, 0.7, 0.7)
+    } else if (mode === 'angry') poly(g, c, [x - k * inner * -1.1, y - 1.1, x + k * inner * -1.1, y - 0.2, x + k * inner * -1.1, y + 1.2, x - k * inner * -1.1, y + 1.2])
+    else {
+      rect(g, c, x - 0.8 * k, y - 1 * k, 1.6 * k, 2.2 * k)
+      rect(g, '#ffffff', x - 0.8 * k, y - 1 * k, 0.6, 0.6)
+    }
+  })
+}
+/** しっぽの コードと プラグ */
+function plugTail(g: G, x: number, y: number, f: number) {
+  tailCurve(g, x, y, x - 3, y + 2.5, x - 5.5 + Math.sin(f * 1.5) * 0.8, y - 1, 0.55, 0.55, '#3d2a8a', '#3d2a8a')
+  rect(g, '#ffd23f', x - 7.4 + Math.sin(f * 1.5) * 0.8, y - 2.4, 2.2, 2.8)
+  rect(g, '#c9ced6', x - 8.4 + Math.sin(f * 1.5) * 0.8, y - 2, 1, 0.6)
+  rect(g, '#c9ced6', x - 8.4 + Math.sin(f * 1.5) * 0.8, y - 0.6, 1, 0.6)
+}
+/** 赤ちゃん：ねじの子（まるい頭に ねじの あし・アンテナ） */
+function screwBot(g: G, p: Pose, f: number, L: Look): Geom {
+  const [B, S, H] = L.c
+  const led = '#5ef2ff'
+  const bob = p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
+  const r = 6 + p.sq * 0.3
+  const cx = 15.5 + p.lean
+  const cy = 30 - 5.2 - r * 0.85 + bob + p.sq * 0.5
+  plugTail(g, cx - r * 0.7, cy + r * 0.5, f)
+  // ねじの あし（下へ 小さくなる 輪）
+  for (let i = 0; i < 3; i++) {
+    ell(g, S, cx, cy + r * 0.85 + 1 + i * 1.7 - p.sq * 0.3 * i, 3.6 - i * 0.9, 1.1)
+    ell(g, H, cx - 0.3, cy + r * 0.85 + 0.7 + i * 1.7 - p.sq * 0.3 * i, 3 - i * 0.9, 0.5)
+  }
+  // アンテナ
+  rect(g, S, cx + 0.4, cy - r - 3.2, 0.9, 3.6)
+  ell(g, L.gem ?? '#ffd23f', cx + 0.85, cy - r - 3.6 + (f % 2 ? 0 : 0.3), 1.5, 1.5)
+  ell(g, S, cx, cy, r, r * 0.92)
+  ell(g, B, cx - 0.4, cy - 0.5, r - 0.9, r * 0.92 - 0.9)
+  ell(g, H, cx - r * 0.35, cy - r * 0.55, r * 0.3, r * 0.14)
+  // 頭の ねじの みぞ と かおの まど
+  rect(g, S, cx - 2.2, cy - r * 0.86, 4.4, 0.8)
+  rr(g, '#1a2338', cx - r * 0.5, cy - r * 0.2, r * 1.3, r * 0.62, 1.4)
+  ledEyes(g, [cx - r * 0.1, cx + r * 0.48], cy + r * 0.08, p.eye, led, 0.9)
+  rect(g, '#ffffff', cx - r * 0.4, cy - r * 0.12, 0.8, 0.5)
+  for (const dx of [-0.7, 0.75]) rect(g, H, cx + dx * r - 0.4, cy + r * 0.45, 0.8, 0.8)
+  return { bx: cx, by: cy, rx: r, ry: r, hx: cx, hy: cy, hr: r, mx: cx + r * 0.2, my: cy + r * 0.55, cols: [B, S, H] }
+}
+/** 成長期：でんちロボ（でんちの形の まるい体・かおの まど・いなずま） */
+function batteryBot(g: G, p: Pose, f: number, L: Look): Geom {
+  const [B, S, H] = L.c
+  const dk = L.armor ?? '#3d4660'
+  const led = L.visor ?? '#5ef2ff'
+  const bob = p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
+  const cx = 16 + p.lean
+  const top = 11.5 + bob + p.sq * 0.6
+  const w = 13 + p.sq * 0.6
+  const h = 27.2 - top
+  plugTail(g, cx - w / 2 + 0.5, top + h * 0.7, f)
+  // あし と うで
+  for (const [dx, k] of [[-0.24, 1], [0.24, -1]] as const) {
+    rect(g, dk, cx + dx * w - 1.1 + p.step * k * 0.6, 26.4, 2.2, 2.6)
+    ell(g, S, cx + dx * w + 0.3 + p.step * k * 0.6, 29.3, 2.2, 1.2)
+  }
+  ell(g, S, cx - w / 2 - 1, top + h * 0.55 - p.flap * 1.2, 1.5, 2)
+  // 上の たんし と アンテナ
+  rr(g, dk, cx - 3, top - 2, 6, 3, 1)
+  rect(g, '#c9ced6', cx - 1.5, top - 3.2, 3, 1.4)
+  rect(g, S, cx + 3.6, top - 4.6, 0.8, 4)
+  ell(g, '#ff5e5e', cx + 4, top - 5 + (f % 2 ? 0 : 0.3), 1.3, 1.3)
+  rr(g, S, cx - w / 2, top, w, h, 4)
+  rr(g, B, cx - w / 2 + 0.6, top + 0.5, w - 1.6, h - 1.6, 3.4)
+  rect(g, H, cx - w / 2 + 1.6, top + 2, 1, h * 0.5)
+  // 下の 帯 と いなずま
+  rr(g, dk, cx - w / 2 + 0.3, top + h * 0.62, w - 0.6, h * 0.26, 1)
+  poly(g, '#fff27a', [cx + 0.8, top + h * 0.6, cx - 1.6, top + h * 0.77, cx - 0.1, top + h * 0.77, cx - 1, top + h * 0.92, cx + 1.8, top + h * 0.72, cx + 0.3, top + h * 0.72])
+  // かおの まど
+  rr(g, '#1a2338', cx - w * 0.36, top + h * 0.17, w * 0.78, h * 0.36, 1.6)
+  ledEyes(g, [cx - w * 0.1, cx + w * 0.26], top + h * 0.33, p.eye, led)
+  if (p.mouth) rect(g, led, cx + w * 0.02, top + h * 0.45, 2, 0.6)
+  rect(g, '#ffffff', cx - w * 0.3, top + h * 0.2, 1, 0.5)
+  ell(g, S, cx + w / 2 + 0.8, top + h * 0.55 + p.flap * 0.8, 1.6, 2.1)
+  return { bx: cx, by: top + h / 2, rx: w / 2, ry: h / 2, hx: cx, hy: top + h * 0.33, hr: w * 0.4, mx: cx, my: top + h * 0.45, cols: [B, S, H] }
+}
+/** 成長期：ぜんまいロボ（まるい おもちゃ・せなかで まわる ぜんまい・おなかの メーター） */
+function windupBot(g: G, p: Pose, f: number, L: Look): Geom {
+  const [B, S, H] = L.c
+  const key = L.gear ?? '#e8e2d0'
+  const led = L.visor ?? '#fff27a'
+  const bob = p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
+  const cx = 17 + p.lean
+  const by = 22 + bob
+  const rx = 6.6 + p.sq * 0.4
+  const ry = 6 - p.sq * 0.3
+  const hr = 4.6
+  const hy = by - ry - hr * 0.55
+  // ぜんまい（コマごとに まわる）
+  rect(g, '#7a8494', cx - rx - 3.5, by - 1.4, 4, 1.2)
+  if (f % 2) {
+    ell(g, key, cx - rx - 4.6, by - 3.2, 1.9, 2.3)
+    ell(g, key, cx - rx - 4.6, by + 1.6, 1.9, 2.3)
+    ell(g, S, cx - rx - 4.6, by - 3.2, 0.8, 1.1)
+    ell(g, S, cx - rx - 4.6, by + 1.6, 0.8, 1.1)
+  } else {
+    ell(g, key, cx - rx - 4.6, by - 0.8, 1.1, 3.6)
+    ell(g, '#ffffff', cx - rx - 4.9, by - 1.6, 0.4, 1.4)
+  }
+  for (const [dx, k] of [[-0.4, 1], [0.4, -1]] as const) {
+    rect(g, S, cx + dx * rx - 1.2 + p.step * k * 0.6, by + ry - 1, 2.4, 3)
+    ell(g, '#3d2a2a', cx + dx * rx + 0.3 + p.step * k * 0.6, 29.3, 2.4, 1.2)
+  }
+  ell(g, S, cx - rx * 0.95, by + 0.5 - p.flap * 1.2, 1.7, 2.2)
+  ell(g, S, cx, by, rx, ry)
+  ell(g, B, cx - 0.4, by - 0.5, rx - 0.9, ry - 0.9)
+  ell(g, H, cx - rx * 0.4, by - ry * 0.5, rx * 0.28, ry * 0.16)
+  // おなかの メーター
+  ell(g, '#3d2a2a', cx + rx * 0.2, by + ry * 0.15, 2.8, 2.8)
+  ell(g, '#fff8e0', cx + rx * 0.2, by + ry * 0.15, 2.1, 2.1)
+  leaf(g, '#e8402a', cx + rx * 0.2, by + ry * 0.15, cx + rx * 0.2 + Math.cos(f * 0.9 - 1) * 1.8, by + ry * 0.15 + Math.sin(f * 0.9 - 1) * 1.8, 0.3)
+  // あたま（まるい ヘルメット）と かおの まど
+  ell(g, S, cx + 0.5, hy, hr, hr * 0.92)
+  ell(g, B, cx + 0.2, hy - 0.4, hr - 0.8, hr * 0.92 - 0.8)
+  rr(g, '#1a2338', cx - hr * 0.45, hy - hr * 0.3, hr * 1.4, hr * 0.7, 1.3)
+  ledEyes(g, [cx + hr * 0.02, cx + hr * 0.6], hy + hr * 0.05, p.eye, led, 0.8)
+  rect(g, S, cx + 0.1, hy - hr - 1.6, 0.8, 2)
+  ell(g, key, cx + 0.5, hy - hr - 2, 1.2, 1.2)
+  ell(g, S, cx + rx * 0.95, by + 0.5 + p.flap * 0.8, 1.7, 2.2)
+  return { bx: cx, by, rx, ry, hx: cx, hy, hr, mx: cx + hr * 0.3, my: hy + hr * 0.55, cols: [B, S, H] }
+}
+/** 成熟期：せんしゃロボ（キャタピラ・ななめの よろい・長い ほう） */
+function tankBot(g: G, p: Pose, f: number, L: Look): Geom {
+  const [B, S, H] = L.c
+  const dk = L.armor ?? '#3d4a2a'
+  const led = L.visor ?? '#ffdf5a'
+  const bob = p.bob * 0.4
+  const ox = p.lean
+  const rec = p.lean > 2 ? -1.2 : 0 // うつ時の はんどう
+  // はいきの けむり
+  ell(g, '#c9ced6', 3.5 + ox - (f % 2), 14.5 - (f % 2) * 1.5, 1.4 + (f % 2) * 0.5, 1.2)
+  rect(g, dk, 5 + ox, 15.5 + bob, 1.4, 4)
+  // キャタピラ
+  rr(g, '#1a1f2a', 3.5 + ox, 23.5, 25, 6.4, 3.1)
+  rr(g, '#3a4250', 4.6 + ox, 24.5, 22.8, 4.4, 2.1)
+  for (let i = 0; i < 5; i++) {
+    ell(g, '#1a1f2a', 7.2 + i * 4.4 + ox, 26.7, 1.7, 1.7)
+    ell(g, '#8a94a4', 7.2 + i * 4.4 + ox, 26.7, 0.8, 0.8)
+  }
+  for (let i = 0; i < 9; i++) rect(g, '#8a94a4', 5 + ((i * 2.8 + p.step * 1.4 + 28) % 22) + ox, 29.3, 1, 0.5)
+  // 車体（前が ななめ）
+  poly(g, S, [4.5 + ox, 24.2, 5.5 + ox, 18 + bob, 23 + ox, 18 + bob, 28.5 + ox, 21.5 + bob, 28.5 + ox, 24.2])
+  poly(g, B, [5.6 + ox, 23.4, 6.4 + ox, 19 + bob, 22.6 + ox, 19 + bob, 27.2 + ox, 22 + bob, 27.2 + ox, 23.4])
+  rect(g, H, 7 + ox, 19.4 + bob, 14, 0.6)
+  rect(g, dk, 6 + ox, 21.6 + bob, 21, 1.1)
+  for (let i = 0; i < 5; i++) rect(g, H, 8 + i * 4 + ox, 21.9 + bob, 0.7, 0.6)
+  ell(g, '#fff27a', 26.6 + ox, 22.6 + bob, 0.9, 0.8)
+  // ほう（長い つつ）
+  rr(g, '#2a2f3a', 17 + ox + rec, 12.6 + bob, 14.5, 2.6, 0.8)
+  rect(g, '#5a6474', 17 + ox + rec, 13 + bob, 13, 0.6)
+  rr(g, '#1a1f2a', 29.6 + ox + rec, 12 + bob, 2.6, 3.8, 0.8)
+  if (p.mouth === 1) ell(g, '#ffb03a', 33 + ox + rec, 13.9 + bob, 1.4, 1.6)
+  // ほうとう（まるい）と のぞきまど
+  shape(g, S, (g) => {
+    g.moveTo(8 + ox, 18.6 + bob)
+    g.bezierCurveTo(8 + ox, 9.5 + bob, 22 + ox, 9.5 + bob, 22.5 + ox, 18.6 + bob)
+  })
+  shape(g, B, (g) => {
+    g.moveTo(9 + ox, 18.2 + bob)
+    g.bezierCurveTo(9 + ox, 10.8 + bob, 21 + ox, 10.8 + bob, 21.5 + ox, 18.2 + bob)
+  })
+  rr(g, '#1a1f2a', 13 + ox, 13 + bob, 8, 2.6, 1)
+  ledEyes(g, [15.4 + ox, 18.6 + ox], 14.2 + bob, p.eye === 'open' ? 'angry' : p.eye, led, 0.8)
+  rect(g, dk, 10.5 + ox, 12 + bob, 1.4, 5)
+  rect(g, H, 10 + ox, 16 + bob, 1, 0.7)
+  rect(g, S, 11.5 + ox, 6.5 + bob, 0.7, 4.5)
+  ell(g, '#ff5e5e', 11.85 + ox, 6.2 + bob, 1, 1)
+  return { bx: 16 + ox, by: 21 + bob, rx: 11, ry: 4, hx: 15 + ox, hy: 14 + bob, hr: 5, mx: 19 + ox, my: 16.5 + bob, cols: [B, S, H] }
+}
+/** 成熟期：とけいの きし（むねの 文字ばん・はぐるまの かた・はりの けん・はがねの はね） */
+function clockKnight(g: G, p: Pose, f: number, L: Look): Geom {
+  const [B, S, H] = L.c
+  const gold = L.gear ?? '#ffd23f'
+  const led = L.visor ?? '#ff7ad9'
+  const bob = p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
+  const cx = 16 + p.lean
+  const cy = 18 + bob
+  // はがねの はね（3 まいずつ・うしろ）
+  for (let i = 0; i < 3; i++) {
+    const a = -2.5 + i * 0.33 - p.flap * 0.1
+    leaf(g, S, cx - 2, cy - 4, cx - 2 + Math.cos(a) * (11 - i * 1.6), cy - 4 + Math.sin(a) * (11 - i * 1.6), 1.6)
+    leaf(g, H, cx - 2, cy - 4, cx - 2 + Math.cos(a) * (8 - i * 1.4), cy - 4 + Math.sin(a) * (8 - i * 1.4), 0.5)
+  }
+  // あし（ほそく とがる）
+  for (const [dx, k] of [[-2.2, 1], [2.2, -1]] as const) {
+    poly(g, S, [cx + dx - 1.6, cy + 4, cx + dx + 1.6, cy + 4, cx + dx + 1 + p.step * k * 0.8, 28.6, cx + dx - 1 + p.step * k * 0.8, 28.6])
+    poly(g, gold, [cx + dx - 1.6 + p.step * k * 0.8, 28.2, cx + dx + 3 + p.step * k * 0.8, 30, cx + dx - 1.6 + p.step * k * 0.8, 30])
+  }
+  // はりの けん（長い はり）
+  const sa = -0.9 - p.flap * 0.25 + (p.lean > 2 ? 0.7 : 0)
+  leaf(g, gold, cx + 6, cy + 1, cx + 6 + Math.cos(sa) * 13, cy + 1 + Math.sin(sa) * 13, 0.9)
+  leaf(g, '#ffffff', cx + 6.5, cy + 0.5, cx + 6 + Math.cos(sa) * 9, cy + 1 + Math.sin(sa) * 9, 0.3)
+  // どう：ぎゃく台形の むね → ほそい こし
+  poly(g, S, [cx - 6.5, cy - 5.5, cx + 6.5, cy - 5.5, cx + 3.4, cy + 5, cx - 3.4, cy + 5])
+  poly(g, B, [cx - 5.6, cy - 4.8, cx + 5.4, cy - 4.8, cx + 2.6, cy + 4.2, cx - 3, cy + 4.2])
+  rect(g, gold, cx - 3.2, cy + 3.4, 6.4, 1.2)
+  // むねの 文字ばん（はりが まわる）
+  ell(g, gold, cx, cy - 1, 3.9, 3.9)
+  ell(g, '#fff8e0', cx, cy - 1, 3, 3)
+  for (let i = 0; i < 4; i++) rect(g, S, cx + Math.cos((i * Math.PI) / 2) * 2.4 - 0.3, cy - 1 + Math.sin((i * Math.PI) / 2) * 2.4 - 0.3, 0.6, 0.6)
+  leaf(g, '#1a1530', cx, cy - 1, cx + Math.cos(f * 0.8 - 1.5) * 2.4, cy - 1 + Math.sin(f * 0.8 - 1.5) * 2.4, 0.3)
+  leaf(g, '#1a1530', cx, cy - 1, cx + Math.cos(f * 0.2 + 0.6) * 1.6, cy - 1 + Math.sin(f * 0.2 + 0.6) * 1.6, 0.35)
+  // かたの はぐるま
+  for (const dx of [-6.6, 6.6]) {
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + (f % 2) * 0.5
+      rect(g, gold, cx + dx + Math.cos(a) * 3 - 0.7, cy - 5 + Math.sin(a) * 3 - 0.7, 1.4, 1.4)
+    }
+    ell(g, gold, cx + dx, cy - 5, 2.6, 2.6)
+    ell(g, S, cx + dx, cy - 5, 1, 1)
+  }
+  // うで（手前）
+  leaf(g, S, cx + 6.6, cy - 4, cx + 6.4, cy + 1.5, 1.2)
+  leaf(g, S, cx - 6.6, cy - 4, cx - 7.6, cy + 2 - p.flap, 1.2)
+  // かぶと：まるい頭に のぞきまどの すじ・かざりの はり
+  const hy = cy - 10
+  ell(g, S, cx + 0.5, hy, 4.4, 4.2)
+  ell(g, B, cx + 0.2, hy - 0.4, 3.6, 3.4)
+  rr(g, '#12162a', cx - 1.6, hy - 1, 6.2, 2.4, 0.9)
+  ledEyes(g, [cx + 0.6, cx + 3.2], hy + 0.1, p.eye === 'open' ? 'angry' : p.eye, led, 0.7)
+  poly(g, gold, [cx - 0.6, hy - 3.6, cx + 0.6, hy - 9, cx + 1.8, hy - 3.6])
+  rect(g, H, cx - 2, hy - 2.6, 2.4, 0.5)
+  return { bx: cx, by: cy, rx: 6, ry: 5.5, hx: cx, hy, hr: 4.4, mx: cx + 2, my: hy + 2.5, cols: [B, S, H] }
+}
+/** 完成期：はがねの まもり（大きな かた・つのの かぶと・たて と うでの ほう・ひかる つばさで うかぶ） */
+function steelGuardian(g: G, p: Pose, f: number, L: Look): Geom {
+  const [B, S, H] = L.c
+  const blue = L.armor ?? '#3d52c8'
+  const gold = L.horn ?? '#ffd23f'
+  const led = L.visor ?? '#5ef2ff'
+  const bob = p.bob * 0.5 + (p.bob < 0 ? p.bob : 0) + (f % 2 ? -0.5 : 0.4)
+  const cx = 16.5 + p.lean
+  const cy = 17 + bob
+  const fl = f % 2
+  // ひかる つばさ（うしろ・左右に 3 まい）
+  for (const sg of [-1, 1])
+    for (let i = 0; i < 3; i++) {
+      const a = sg < 0 ? -2.75 + i * 0.36 - p.flap * 0.08 : -0.4 - i * 0.36 + p.flap * 0.08
+      const len = 13 - i * 2.2
+      leaf(g, blue, cx + sg * 3, cy - 5, cx + sg * 3 + Math.cos(a) * len, cy - 5 + Math.sin(a) * len, 1.9)
+      leaf(g, led, cx + sg * 3, cy - 5, cx + sg * 3 + Math.cos(a) * (len - 1.5), cy - 5 + Math.sin(a) * (len - 1.5), 0.55)
+    }
+  // 足もとの ふんしゃ（うかぶ）
+  for (const dx of [-2.6, 2.6]) {
+    leaf(g, led, cx + dx, 26, cx + dx, 30.6 - fl, 1.2)
+    leaf(g, '#ffffff', cx + dx, 26, cx + dx, 28.6 - fl, 0.5)
+  }
+  // あし（よろい・下へ とがる）
+  for (const dx of [-2.8, 2.8]) {
+    poly(g, S, [cx + dx - 2.2, cy + 4.5, cx + dx + 2.2, cy + 4.5, cx + dx + 1.2, 26.6, cx + dx - 1.2, 26.6])
+    poly(g, B, [cx + dx - 1.5, cy + 5, cx + dx + 1.5, cy + 5, cx + dx + 0.7, 25.8, cx + dx - 0.9, 25.8])
+    rect(g, blue, cx + dx - 2, cy + 7.2, 4, 1.4)
+  }
+  // うでの ほう（右）
+  const rec = p.lean > 2 ? -1 : 0
+  rr(g, S, cx + 6 + rec, cy - 1.6, 8.6, 3.6, 1.2)
+  rr(g, '#1a1f2a', cx + 12.6 + rec, cy - 2.2, 2.6, 4.8, 0.9)
+  rect(g, led, cx + 7.4 + rec, cy - 0.4, 4.4, 0.7)
+  if (p.mouth === 1) ell(g, led, cx + 16 + rec, cy + 0.2, 1.5, 1.7)
+  // どう：広い むね → こし
+  poly(g, S, [cx - 7.6, cy - 6, cx + 7.6, cy - 6, cx + 4, cy + 5.4, cx - 4, cy + 5.4])
+  poly(g, B, [cx - 6.6, cy - 5.2, cx + 6.4, cy - 5.2, cx + 3.2, cy + 4.6, cx - 3.6, cy + 4.6])
+  poly(g, blue, [cx - 4.6, cy - 5.2, cx + 4.4, cy - 5.2, cx, cy + 1.4])
+  ell(g, led, cx, cy - 2.6, 1.7, 1.7)
+  rect(g, '#ffffff', cx - 0.8, cy - 3.4, 0.7, 0.7)
+  rect(g, gold, cx - 3.8, cy + 3.6, 7.6, 1.2)
+  rect(g, H, cx - 5.8, cy - 4.6, 1, 4)
+  // かた（大きく まるい・上に とげ）
+  for (const sg of [-1, 1]) {
+    ell(g, S, cx + sg * 8, cy - 5.4, 4.2, 3.6)
+    ell(g, blue, cx + sg * 8 - 0.3, cy - 5.8, 3.4, 2.8)
+    poly(g, gold, [cx + sg * 8 - 1.2, cy - 8, cx + sg * 9.4, cy - 12, cx + sg * 8 + 1.6, cy - 7.6])
+    rect(g, '#ffffff', cx + sg * 8 - 2, cy - 7.4, 1.6, 0.5)
+  }
+  // たて（左）：たこ形に 金の しるし
+  const sx = cx - 9.5
+  const sy = cy + 1.5 - p.flap * 0.6
+  poly(g, S, [sx - 4.2, sy - 5.4, sx + 4.2, sy - 5.4, sx + 4.2, sy + 1.6, sx, sy + 7.4, sx - 4.2, sy + 1.6])
+  poly(g, blue, [sx - 3.3, sy - 4.5, sx + 3.3, sy - 4.5, sx + 3.3, sy + 1.2, sx, sy + 6, sx - 3.3, sy + 1.2])
+  poly(g, gold, [sx, sy - 3.2, sx + 1.8, sy - 0.4, sx, sy + 3.2, sx - 1.8, sy - 0.4])
+  rect(g, '#ffffff', sx - 2.6, sy - 3.8, 0.7, 3.4)
+  // かぶと：つの（V 字）・のぞきまど
+  const hy = cy - 10.2
+  poly(g, gold, [cx - 1.6, hy - 2.4, cx - 5.6, hy - 9, cx - 0.2, hy - 3.4])
+  poly(g, gold, [cx + 1.8, hy - 2.4, cx + 6, hy - 9, cx + 0.4, hy - 3.4])
+  ell(g, S, cx + 0.3, hy, 4.6, 4.3)
+  ell(g, B, cx, hy - 0.4, 3.8, 3.5)
+  poly(g, blue, [cx - 1, hy - 4.2, cx + 1.6, hy - 4.2, cx + 0.9, hy - 0.6, cx - 0.3, hy - 0.6])
+  rr(g, '#0d1228', cx - 2.6, hy - 0.6, 7.2, 2.4, 0.9)
+  ledEyes(g, [cx - 0.2, cx + 2.8], hy + 0.5, p.eye === 'open' ? 'angry' : p.eye, led, 0.75)
+  poly(g, S, [cx - 1.6, hy + 2.4, cx + 3.4, hy + 2.4, cx + 0.9, hy + 4.6])
+  return { bx: cx, by: cy, rx: 7, ry: 5.6, hx: cx, hy, hr: 4.6, mx: cx + 1, my: hy + 3, cols: [B, S, H] }
+}
+
 // ---------- 系統の仲間（パーツ指定で描く）----------
 /** families.ts の Look（パーツの指定）から 1 コマ描く。右むき、足もとは y=30 */
 function critter(g: G, p: Pose, f: number, L: Look): Geom {
@@ -2018,6 +2343,11 @@ function critter(g: G, p: Pose, f: number, L: Look): Geom {
   if (L.ear === 'cat' && L.tail === 'cat') return L.f === 'quad' ? cat(g, p, f, L) : pip(g, p, f, L)
   // とり（くちばし + とりの つばさ）：赤ちゃんは ひよこの つぶ
   if (L.f === 'bird' && L.beak && L.wing === 'bird') return L.s < 0.8 ? chick(g, p, f, L) : bird(g, p, f, L)
+  // きかい：ねじの子 / でんち / ぜんまい / せんしゃ / とけいの きし / はがねの まもり
+  if (L.f === 'blob' && L.tail === 'plug') return screwBot(g, p, f, L)
+  if (L.cannon && L.visor) return L.f === 'quad' ? tankBot(g, p, f, L) : steelGuardian(g, p, f, L)
+  if (L.gear && L.visor) return L.wing === 'mech' ? clockKnight(g, p, f, L) : windupBot(g, p, f, L)
+  if (L.visor && L.tail === 'plug') return batteryBot(g, p, f, L)
   // みず：しずく / あわのこ / かいがら
   if (L.shell) return shellCrawler(g, p, f, L)
   if (L.tail === 'fish' && L.f === 'blob') return L.spot ? bubbleFry(g, p, f, L) : waterDrop(g, p, f, L)
