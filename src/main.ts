@@ -1278,6 +1278,24 @@ document.addEventListener('visibilitychange', () => {
   hiddenAt = 0
   fpsWatch.reset(2)
 })
+/** ひとつづきの世界の 見本（`?world=1`）：左上に 速さ（FPS）と 描く回数を 出す。スマホで はかるため */
+const worldFps = world.worldMode
+  ? (() => {
+      const el = document.createElement('div')
+      el.style.cssText = 'position:fixed;left:6px;top:6px;z-index:99;padding:3px 7px;border-radius:6px;background:rgba(0,0,0,.6);color:#fff;font:12px monospace;pointer-events:none'
+      el.textContent = 'ONE WORLD …'
+      document.body.appendChild(el)
+      let acc = 0
+      let n = 0
+      return (raw: number) => {
+        acc += raw
+        n++
+        if (acc < 1) return
+        el.textContent = `ONE WORLD  ${Math.round(n / acc)} fps  draw ${renderer.info.render.calls}  quality ${quality}`
+        acc = n = 0
+      }
+    })()
+  : null
 renderer.setAnimationLoop((t) => {
   if (document.hidden) return
   // 長いあいだ操作が無い時は 30fps に落として電池を節約（触るとすぐ戻る）
@@ -1286,6 +1304,7 @@ renderer.setAnimationLoop((t) => {
   timer.update(t)
   const rawDt = timer.getDelta()
   if (!idle) fpsWatch.tick(rawDt)
+  worldFps?.(rawDt)
   // 初回フレームは時刻の差がマイナスになることがあるので 0〜1/20 秒に収める
   const dt = THREE.MathUtils.clamp(rawDt, 0, 1 / 20)
   elapsed += dt

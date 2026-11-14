@@ -1294,4 +1294,4 @@ function disposeTree(o: THREE.Object3D) {
 /** ワープで巡る順番 */
 export const STAGES = [seedGrove, glassDunes, coralCove, cottonField, frostCircuit, ...STAGES2]
 /** 追加ステージ（stages2.ts）が使う共通の道具 */
-export { chestModel, dens, disposeTree, edge, lambert, motes, mounds, placer, skyDome, smooth, terrain, voidSpace }
+export { base, chestModel, dens, disposeTree, edge, lambert, motes, mounds, placer, skyDome, smooth, terrain, voidSpace }

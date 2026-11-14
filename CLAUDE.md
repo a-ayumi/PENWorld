@@ -82,6 +82,7 @@ Three.js + TypeScript + Vite + vite-plugin-pwa。机の上に浮かぶ 3D の本
 - **表情**：Pose の `eye` / `mouth` / `mark` で 12〜21 コマ（hungry / sleepy / glad / angry / worry）。`faceOf()` が止まっている時の状態から選ぶ。**進化**は `c.evo`（白いシルエット → ふくらむ → 新しい姿、約 1.8 秒。見えない・3D モデルはすぐ切りかえ）。**敵の亜種 6 種とボス 3 種**は `monsters.ts` の `enemyFor()`（ステージの敵に混ぜる）/ `armyMember()` / `armyBoss()`（敵軍の編成。3 回に 1 回ボス、HP バーは `drawBossBar()`）
 - ペットの行動結果は `delta()` で増減を付けてメッセージに出す（ごはん・ねむり・トレーニング・あそび・家づくり）
 - **セキュリティ**（公開リポジトリ）：秘密・鍵・個人情報をコミットしない／外部通信を増やさない（CSP の `connect-src 'self'`、許可元は `vite.config.ts` の `CSP`）／セーブや読み込んだコードは信用せず `isSpecies()` / `num()` で検査／`innerHTML` に外部データを入れない。方針は `SECURITY.md`
+- **ひとつづきの世界の 見本（計画 C）**：`?world=1` で `World.worldMode`。`worldmap.ts` の `buildWorldMap()` が 9 つの地方（`LAYOUT`）を 広さ 40 で 作って 3×3 に ならべ、世界の広さを 120 に する（`setLandSize`）。地方の `heightAt` / `update` は 広さ 40 の つもりで 書いてあるので `inTile()` で 聞く間だけ 広さを もどす。セーブ・ワープ・かいたくは 止める。のこりは `docs/PLAN.md` の 5
 - 天気は `setWeather()`、出やすさはステージごとの `WEATHER_W`
 - **空の えんしゅつ**（`src/world/sky.ts` の `SkyFx`、`World.skyfx`。`updateWeather` から毎フレーム）：島の外がわを ながれる雲（雨・雪で ふえて灰色に・島へ せり出す）/ さしこむ 陽の光（晴れた昼。板を十字に組んだ 加算の帯。もや・にじ の時は強く。画質「低」は なし）/ 雷（雨 0.65 より上で 7〜21 秒ごと、見ている所の奥の高い所へ `strike()`。フラッシュは `reducedMotion` で弱く・音は `boom`・あたり判定なし）/ 天に のぼる 光の柱 `ascend()`
 - **地形と天気の見た目**（`world/fx.ts` + `fxprops.ts`）：天気の強さは `World.wx`（0〜1・なめらかに変わる）、シェーダー共通の値は `fxU`（`updateWeather` が毎フレーム入れる。ステージの `update` は不要）。木は `swayify(t)`（頂点に風の重みを焼く）、草と花は `grass()`、水面は `waterSurface()`、浮き物は `floaters()`。材質へは `psx(m, { sway, ground, snow })`。ぬれ・水たまり・波紋・雲の影・雪の積もり・にじ（雨あがり）・もや（朝）・熱のゆらぎ（ひのこ）・月と星の移動

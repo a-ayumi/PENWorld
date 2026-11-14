@@ -1272,6 +1272,7 @@ export function settle(this: World) {
 }
 
 export function expandLand(this: World, level: number) {
+  if (this.worldMode) return
   const eggs = this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild, lucky: e.lucky, deco: e.deco }))
   this.land = level
   this.stat('lands')
