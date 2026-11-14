@@ -10,7 +10,7 @@ const srv = http.createServer((q, r) => { let f = path.join(dir, decodeURICompon
   const errs = []
   p.on('pageerror', (e) => errs.push('pageerror: ' + e.message))
   p.on('console', (m) => m.type() === 'error' && errs.push('console: ' + m.text()))
-  await p.goto(`http://localhost:${port}/`)
+  await p.goto(`http://localhost:${port}/${process.env.QUERY || ""}`)
   await p.waitForFunction(() => window.__pulsar, null, { timeout: 60000 })
   const r1 = await p.evaluate(new Function('return (async () => { const P = window.__pulsar, w = P.world; w.render = () => {}; w.drawHud = () => {};\n' + body + '\n})()'))
   console.log('RUN1', JSON.stringify(r1, null, 1))

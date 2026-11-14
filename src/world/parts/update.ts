@@ -29,7 +29,7 @@ export function update(this: World, dt: number) {
     this.warp = Math.max(0, this.warp - dt)
     if (!this.warpSwitched && this.warp < 0.8) {
       this.warpSwitched = true
-      this.loadStage((this.stageIndex + 1) % STAGES.length)
+      if (!this.worldMode) this.loadStage((this.stageIndex + 1) % STAGES.length)
     }
   }
   this.post.uniforms.glitch.value = this.warp > 0 ? Math.sin((1 - this.warp / 1.6) * Math.PI) * (this.reducedMotion ? 0.35 : 1) : 0

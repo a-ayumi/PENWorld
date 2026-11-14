@@ -16,3 +16,5 @@ VITE_NO_SW=1 npx vite build --outDir /tmp/pulsar-dist
 
 - 描画は SwiftShader（遅い）。早送りは `w.render` / `w.drawHud` を空にすると速い。
 - Chromium は `--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader` で起動している。
+
+- `QUERY="?world=1" node tools/test/run2.cjs <dist> a.js` — URL に つける 文字を かえて 走らせる（ひとつづきの世界の 見本 など）

@@ -7,6 +7,7 @@ import { SpriteAnim, iconSheet } from './sprites'
 import { EGG_COLORS, NEW_SKILLS, SPECIES, enemyFor, type Care, type EggKind, type MonsterView, type Species, type SpeciesId } from './monsters'
 import { WeatherFx, fxLod } from './fxprops'
 import { SIZE, STAGES, type Stage } from './stages'
+import { buildWorldMap } from './worldmap'
 import { type StructKind } from './structures'
 import { type ItemKind } from './items'
 import { SHOP, type ShopItem } from './shop'
@@ -795,7 +796,10 @@ export class World {
     this.scene.add(this.wfx.group)
     this.scene.add(this.skyfx.group)
     syncSeasonShop(this.season)
-    if (!this.load()) {
+    // `?world=1`：ひとつづきの世界の 見本（計画 C）。セーブは 読まない・書かない
+    this.worldMode = typeof location !== 'undefined' && new URLSearchParams(location.search).has('world')
+    if (this.worldMode) this.saveLocked = true
+    if (this.worldMode || !this.load()) {
       this.loadStage(0)
       this.pet = this.spawn('mebu', 'pet', 0, 1.5)
       this.say('メブが うまれた！')
@@ -847,7 +851,7 @@ export class World {
     this.festival = null
     this.clearPeddler()
     this.stageIndex = i
-    this.stage = STAGES[i]()
+    this.stage = this.worldMode ? buildWorldMap() : STAGES[i]()
     this.nav = new NavGrid(SIZE, this.stage.heightAt)
     this.chestOpen.clear()
     this.navKey = ''
@@ -1180,6 +1184,8 @@ export class World {
   // ================= セーブ / ロード =================
   /** 読み込み・やり直しの直前は自動セーブを止める（上書きしないように） */
   saveLocked = false
+  /** ひとつづきの世界の 見本（`?world=1`）。ワープ・かいたく・セーブを 止める */
+  worldMode = false
 
 
   // ================= るすばん（にっき・おかえりレポート）=================
