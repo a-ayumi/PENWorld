@@ -3585,3 +3585,206 @@ export class SpriteMonster extends SpriteAnim implements MonsterView {
     this.material.color.set(this.cur === 'hurt' ? '#ff9a9a' : '#ffffff')
   }
 }
+
+// ---------- 敵 4 種の描きなおし（2026-11-14）：曲線の ひとつづきの形・とがった かけら・光る目 ----------
+/** ノイズ：こわれたデータの かたまり。黒い たまの まわりを かけらが まわり、ひとつ目が にらむ */
+function glitchOrb(g: G, p: Pose, f: number) {
+  const cx = 16 + p.lean
+  const cy = 20 + p.bob * 0.5
+  const sq = p.sq * 0.5
+  // まわる かけら（うしろ）
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + f * 0.5
+    const r = 11.5 + (i % 2) * 1.2
+    const x = cx + Math.cos(a) * r
+    const y = cy + Math.sin(a) * r * 0.8
+    leaf(g, i % 2 ? '#3bf2ff' : '#ff3bd4', x - Math.sin(a) * 2.2, y + Math.cos(a) * 2.2, x + Math.sin(a) * 2.2, y - Math.cos(a) * 2.2, 0.9)
+  }
+  // からだ：ぎざぎざに かけた たま
+  const body = (c: string, k: number) =>
+    shape(g, c, (g) => {
+      const n = 15
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 - Math.PI / 2
+        const jag = i % 3 === 0 ? 1.22 : i % 3 === 1 ? 0.9 : 1.02
+        const r = 8.8 * k * jag + (((i * 5 + f) % 3) - 1) * 0.35
+        const x = cx + Math.cos(a) * r
+        const y = cy + Math.sin(a) * (r * 0.92 - sq)
+        if (i === 0) g.moveTo(x, y)
+        else g.lineTo(x, y)
+      }
+    })
+  body('#15102a', 1)
+  body('#2b2350', 0.86)
+  leaf(g, '#5a4c9a', cx - 5.5, cy - 2, cx - 2, cy - 6.5, 1.1)
+  // ひび（光る すじ）
+  for (const [x0, y0, x1, y1] of [[-6, 3, -2.5, 5.5], [3, 5, 6, 2.5], [-1, -7, 1.5, -5]] as const) leaf(g, f % 2 ? '#3bf2ff' : '#8af8ff', cx + x0, cy + y0, cx + x1, cy + y1, 0.35)
+  // こわれた 横すじ
+  for (let i = 0; i < 4; i++) {
+    const h = Math.sin((i + 1) * 91.7 + f * 13.1) * 43758.5
+    const n = h - Math.floor(h)
+    rect(g, i % 2 ? '#ff3bd4' : '#3bf2ff', cx - 10 + Math.floor(n * 16), cy - 8 + ((i * 5 + f * 3) % 16), 3, 0.5)
+  }
+  // ひとつ目
+  if (p.eye === 'closed' || p.eye === 'sleepy') leaf(g, '#ff3b5c', cx - 1.5, cy - 0.5, cx + 5.5, cy - 0.5, 0.5)
+  else {
+    const hh = p.eye === 'angry' ? 2.3 : 3.2
+    ell(g, '#0b0818', cx + 2, cy - 0.5, 4.6, hh + 0.9)
+    ell(g, '#ffffff', cx + 2, cy - 0.5, 3.8, hh)
+    ell(g, '#ff3b5c', cx + 2.8, cy - 0.5, 2.2, Math.min(2.2, hh))
+    rect(g, '#15102a', cx + 2.5, cy - 2.2, 0.8, 3.4)
+    rect(g, '#ffffff', cx + 0.6, cy - 2, 1, 1)
+    if (p.eye === 'angry') poly(g, '#0b0818', [cx - 2.5, cy - 5, cx + 6.5, cy - 2.6, cx + 6.5, cy - 4.4])
+  }
+  if (p.mouth) for (let i = 0; i < 5; i++) poly(g, '#ff3bd4', [cx - 1 + i * 1.4, cy + 4.5, cx - 0.3 + i * 1.4, cy + 6.2, cx + 0.4 + i * 1.4, cy + 4.5])
+}
+
+/** トゲバグ：ひくい こうらに けっしょうの とげ。まがった 6 本の足と 大きな あご */
+function spikeBeetle(g: G, p: Pose, f: number, c: [string, string, string] = ['#2a6f6a', '#163f3e', '#63bfae'], spike: [string, string] = ['#ff3bd4', '#ffa0ec']) {
+  const [B, S, H] = c
+  const cx = 16 + p.lean
+  const cy = 24 + p.bob * 0.5
+  // 足（ひざで まがる）
+  for (let i = 0; i < 3; i++) {
+    const lx = cx - 5.5 + i * 5
+    const s = (i % 2 ? 1 : -1) * p.step
+    leaf(g, S, lx, cy + 2, lx - 1.6 + s, cy + 5, 0.7)
+    leaf(g, S, lx - 1.6 + s, cy + 5, lx - 0.4 + s, cy + 8, 0.55)
+  }
+  // せなかの とげ（うしろから 前へ だんだん 大きく）
+  for (let i = 0; i < 5; i++) {
+    const sx = cx - 7.5 + i * 3.3
+    const h = 4.6 + i * 0.7 + (i === 3 ? 2.2 : 0)
+    leaf(g, spike[0], sx, cy - 2.5, sx - 1.4 + i * 0.25, cy - 3 - h, 1.25)
+    leaf(g, spike[1], sx - 0.4, cy - 3, sx - 1.4 + i * 0.25, cy - 3 - h * 0.8, 0.4)
+  }
+  // こうら：うしろが すぼまり 前が ふくらむ
+  const shell = (col: string, k: number, oy: number) =>
+    shape(g, col, (g) => {
+      g.moveTo(cx - 10 * k, cy + 3)
+      g.bezierCurveTo(cx - 10 * k, cy - 4.5 * k + oy + p.sq * 0.4, cx - 2, cy - 7 * k + oy + p.sq * 0.4, cx + 4, cy - 6 * k + oy + p.sq * 0.4)
+      g.bezierCurveTo(cx + 8.5 * k, cy - 5 * k + oy, cx + 9.5 * k, cy, cx + 8.5 * k, cy + 3)
+      g.quadraticCurveTo(cx, cy + 5.2, cx - 10 * k, cy + 3)
+    })
+  shell(S, 1, 0)
+  shell(B, 0.9, 0.3)
+  // こうらの 節
+  for (const dx of [-5, -1, 3.2]) leaf(g, S, cx + dx, cy - 4.6, cx + dx + 0.8, cy + 3.4, 0.35)
+  leaf(g, H, cx - 6.5, cy - 2.2, cx - 1.5, cy - 4.6, 0.7)
+  // あたま と あご
+  ell(g, S, cx + 9.6, cy + 1.2, 3.4, 3)
+  const open = p.mouth || p.eye === 'angry' ? 1.3 : 0.3
+  leaf(g, '#ffd23f', cx + 11.5, cy + 0.6, cx + 15, cy + 1.4 - open, 0.6)
+  leaf(g, '#ffd23f', cx + 11.5, cy + 2.4, cx + 15, cy + 2 + open, 0.6)
+  if (p.eye === 'closed' || p.eye === 'sleepy') rect(g, '#ff3b5c', cx + 9, cy + 0.4, 2, 0.5)
+  else {
+    ell(g, '#ff3b5c', cx + 10, cy + 0.2, 1.3, p.eye === 'angry' ? 0.8 : 1.1)
+    rect(g, '#ffffff', cx + 9.4, cy - 0.4, 0.5, 0.5)
+  }
+  if (f % 2 === 0) rect(g, '#3bf2ff', cx - 3, cy - 0.5, 1, 1)
+}
+
+/** ヤミカゲ：ゆらめく かげの ほのお。つりあがった 光る目と さけた口・のびる つめ */
+function shadowFlame(g: G, p: Pose, f: number) {
+  const cx = 16 + p.lean
+  const cy = 16 + p.bob
+  const w = Math.sin(f * 1.5) * 1.3
+  const w2 = Math.cos(f * 1.1) * 1.1
+  const flame = (c: string, k: number) =>
+    shape(g, c, (g) => {
+      g.moveTo(cx - 7.5 * k, cy + 6)
+      g.bezierCurveTo(cx - 10 * k, cy - 2, cx - 6.5 * k + w * 0.5, cy - 6, cx - 5.5 * k + w, cy - 12 * k)
+      g.quadraticCurveTo(cx - 3.2, cy - 7.5 * k, cx - 1 + w2 * 0.4, cy - 8.5 * k)
+      g.quadraticCurveTo(cx + 0.5 + w2, cy - 13 * k, cx + 1.5 - w * 0.8, cy - 16.5 * k)
+      g.quadraticCurveTo(cx + 4.5, cy - 11 * k, cx + 4, cy - 8 * k)
+      g.quadraticCurveTo(cx + 6 - w2, cy - 9.5 * k, cx + 7.5 * k - w2, cy - 11.5 * k)
+      g.bezierCurveTo(cx + 8 * k, cy - 6, cx + 10 * k, cy - 1, cx + 7.5 * k, cy + 6)
+      // すそ：なみうつ しっぽ
+      const n = 4
+      for (let i = 0; i < n; i++) {
+        const x0 = cx + 7.5 * k - (i / n) * 15 * k
+        const x1 = cx + 7.5 * k - ((i + 1) / n) * 15 * k
+        g.quadraticCurveTo((x0 + x1) / 2 + w * (i % 2 ? 1.4 : -1.4), cy + (i % 2 ? 15 : 11.5) * k + (1 - k) * 8, x1, cy + 6)
+      }
+    })
+  flame('#1c1040', 1)
+  flame('#34246a', 0.86)
+  flame('#4a3690', 0.62)
+  leaf(g, '#7a62c8', cx - 4.5, cy + 1, cx - 3, cy - 5.5, 0.9)
+  // つめ（左右に のびる）
+  for (const sg of [-1, 1]) for (let i = 0; i < 3; i++) leaf(g, '#1c1040', cx + sg * 7.5, cy + 2 - p.flap * 0.8, cx + sg * (10.6 + i * 0.4), cy + 2.5 + i * 1.7 - p.flap * 0.8, 0.5)
+  // 目
+  if (p.eye === 'closed' || p.eye === 'sleepy') {
+    leaf(g, '#ffe14a', cx - 3.6, cy - 1.6, cx - 0.6, cy - 0.8, 0.4)
+    leaf(g, '#ffe14a', cx + 2.2, cy - 0.8, cx + 5.2, cy - 1.6, 0.4)
+  } else {
+    const k = p.eye === 'angry' ? 0.8 : 1.2
+    leaf(g, '#ffe14a', cx - 4, cy - 2.6, cx - 0.4, cy - 0.6, k)
+    leaf(g, '#ffe14a', cx + 2, cy - 0.6, cx + 5.6, cy - 2.6, k)
+    rect(g, '#ffffff', cx - 2.4, cy - 2, 0.6, 0.6)
+    rect(g, '#ffffff', cx + 3.2, cy - 2, 0.6, 0.6)
+  }
+  // さけた口
+  if (p.mouth) {
+    shape(g, '#ffe14a', (g) => {
+      g.moveTo(cx - 3, cy + 2.2)
+      for (let i = 1; i <= 7; i++) g.lineTo(cx - 3 + i, cy + 2.2 + (i % 2 ? 1.8 : 0.4))
+      g.lineTo(cx + 4, cy + 2.2)
+    })
+  } else leaf(g, '#ffe14a', cx - 2.2, cy + 2.6, cx + 3.6, cy + 2.6, 0.3)
+}
+
+/** ゴウガン：マグマの かよう 岩の巨人。ひろい かた・しずんだ頭・大きな こぶし */
+function magmaGolem(g: G, p: Pose, f: number) {
+  const cx = 16 + p.lean
+  const cy = 20 + p.bob * 0.5
+  const D = '#3a332e'
+  const M = '#6f645b'
+  const L = '#a3978a'
+  const glow = f % 2 ? '#ffb04a' : '#ff6a1a'
+  const rock = (pts: number[], dx = 0, dy = 0) => {
+    const q = pts.map((v, i) => v + (i % 2 ? cy + dy : cx + dx))
+    poly(g, D, q)
+    // 内がわ：まんなかへ 少し ちぢめる
+    let mx = 0
+    let my = 0
+    for (let i = 0; i < q.length; i += 2) {
+      mx += q[i]
+      my += q[i + 1]
+    }
+    mx /= q.length / 2
+    my /= q.length / 2
+    poly(g, M, q.map((v, i) => (i % 2 ? my + (v - my) * 0.84 - 0.4 : mx + (v - mx) * 0.84 - 0.3)))
+  }
+  // 足
+  rock([-8, 6, -7.5, 11.5, -2, 11.5, -1.5, 6], p.step)
+  rock([1.5, 6, 2, 11.5, 7.5, 11.5, 8, 6], -p.step)
+  // うしろの うで
+  rock([-14.5, -4, -15.5, 3, -13, 7, -9.5, 6, -9, -3], 0, p.flap)
+  // どう：かたが ひろい 台形
+  rock([-10.5, -8, -9, 5, -5, 8, 5, 8, 9, 5, 11, -7, 6, -11, -5, -11])
+  poly(g, L, [cx - 8, cy - 7.5, cx - 4.5, cy - 10, cx + 1, cy - 10, cx - 3.5, cy - 5.5])
+  // マグマの ひび（むねから ひろがる）
+  for (const [x0, y0, x1, y1] of [[-1, -4, -3.5, 0.5], [-3.5, 0.5, -1, 4.5], [-3.5, 0.5, -7, 1.5], [-1, -4, 3.5, -1.5], [3.5, -1.5, 5, 3.5], [3.5, -1.5, 7.5, -3]] as const) leaf(g, glow, cx + x0, cy + y0, cx + x1, cy + y1, 0.55)
+  ell(g, '#ffe08a', cx - 1, cy - 3.6, 1.3, 1.3)
+  // 頭（かたの あいだに しずむ）
+  rock([-3, -15.5, -4, -10.5, 4.5, -10.5, 5.5, -14.5, 2, -16.5])
+  if (p.eye === 'closed' || p.eye === 'sleepy') rect(g, '#ff6a1a', cx - 1, cy - 12.6, 5, 0.6)
+  else {
+    leaf(g, '#1a1210', cx - 2, cy - 13, cx + 4.6, cy - 12.6, p.eye === 'angry' ? 1 : 1.3)
+    leaf(g, '#ff3b2a', cx - 1.2, cy - 13, cx + 4.2, cy - 12.6, p.eye === 'angry' ? 0.6 : 0.9)
+    rect(g, '#ffe08a', cx + 1.6, cy - 13.2, 1, 0.8)
+  }
+  // 前の こぶし（大きい）
+  const ax = p.lean > 1 ? 3 : 0
+  rock([7.5, -6, 7, 2, 10, 5.5, 14.5, 4, 15, -4, 11.5, -7.5], ax, -p.flap)
+  leaf(g, glow, cx + 9 + ax, cy - 1 - p.flap, cx + 13 + ax, cy - 0.5 - p.flap, 0.4)
+  // かたの とげ岩
+  poly(g, D, [cx - 8, cy - 10.5, cx - 6.5, cy - 14.5, cx - 4.5, cy - 10.8])
+  poly(g, D, [cx + 6, cy - 10.8, cx + 8.5, cy - 14, cx + 9.5, cy - 9])
+}
+
+DRAW_OLD.noiz = (g, p, f) => glitchOrb(g, p, f)
+DRAW_OLD.togebug = (g, p, f) => spikeBeetle(g, p, f)
+DRAW_OLD.yamikage = (g, p, f) => shadowFlame(g, p, f)
+DRAW_OLD.gougan = (g, p, f) => magmaGolem(g, p, f)
