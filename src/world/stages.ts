@@ -824,20 +824,60 @@ function frostCircuit(): Stage {
 // 4. さんごの入り江（Coral Cove）— 海ゾーン
 // =====================================================================
 function coralCove(): Stage {
+  // 入り組んだ地形（計画 D）。20 マスの島を元に作り、k = 広さ / 20 倍に ひろげる
+  //  北東 = 大きな ラグーン（海の岩の塔が 立つ）/ 北 = 小さな 入り江。2 つの あいだの 砂の道の先に みさき（たからばこ）
+  //  北西 = 海の がけの 高台（東の坂だけ のぼれる・上に たからばこ）/ 南西 = なだらかな 砂丘と 打ち上げられた船（うらに たからばこ）
+  //  南東 = しおだまり / まんなか = 村のための 平らな 砂浜
+  const k = SIZE / 20
+  const HEAD = { x: -5.6, z: -4.8, r: 2.1, h: 2.6 }
+  const STACK = { x: 6.3, z: -5.6 }
   const pools = [
-    { x: 1.8, z: -1.8, r: 3.6 },
-    { x: -5.2, z: 4.4, r: 1.9 },
+    { x: 5.8 * k, z: -5.0 * k, r: 2.5 * k },
+    { x: 1.2 * k, z: -6.6 * k, r: 1.55 * k },
+    { x: 5.6 * k, z: 4.9 * k, r: 1.4 * k },
   ]
-  const heightAt = (x: number, z: number) => {
-    let h = 0.36 + (Math.sin(x * 0.4 + 1) * Math.cos(z * 0.33) * 0.3 + Math.sin(z * 0.8) * 0.08 + mounds(x, z, [[-5, -1, 2.4, 1.2], [5, 5, 2.0, 0.9]])) * edge(x, z)
-    for (const p of pools) h = THREE.MathUtils.lerp(0.24, h, smooth(p.r - 0.3, p.r + 1.0, Math.hypot(x - p.x, z - p.z)))
+  const head = (x: number, z: number) => {
+    const a = Math.atan2(z - HEAD.z, x - HEAD.x)
+    const r0 = HEAD.r + Math.sin(a * 3 + 0.6) * 0.3 + Math.sin(a * 5) * 0.15
+    const d = Math.hypot(x - HEAD.x, z - HEAD.z)
+    const top = HEAD.h * smooth(r0 + 0.4, r0, d)
+    // 東の坂：崖が立ちあがる前に のぼりきる（はば 2.6 マス・わきは崖）
+    const x1 = HEAD.x + r0 + 3.2
+    const t = Math.min(1, Math.max(0, (x1 - x) / 2.7))
+    const ramp = x < x1 && x > HEAD.x ? HEAD.h * t * smooth(1.7, 1.3, Math.abs(z - HEAD.z)) : 0
+    return Math.max(top, ramp)
+  }
+  const heightAt = (wx: number, wz: number) => {
+    const x = wx / k
+    const z = wz / k
+    // 南西は なだらかな 砂丘
+    const dune = Math.pow(Math.sin(x * 0.9 + z * 0.55 + 0.8) * 0.5 + 0.5, 1.4) * 1.3 * smooth(-1.5, -4.5, x) * smooth(1.0, 3.5, z)
+    let h = 0.36 + (dune + Math.sin(x * 0.4 + 1) * Math.cos(z * 0.33) * 0.22 + Math.sin(z * 0.8) * 0.06 + 0.1) * edge(wx, wz)
+    h = THREE.MathUtils.lerp(0.4, h, smooth(3.0, 5.0, Math.hypot(x, z - 0.4)))
+    for (const p of pools) h = THREE.MathUtils.lerp(0.24, h, smooth(p.r - 0.3, p.r + 1.0, Math.hypot(wx - p.x, wz - p.z)))
+    h = Math.max(h, head(x, z) + 0.26)
+    // 海の岩の塔（ラグーンの中・のぼれない）
+    h = Math.max(h, 6.5 * Math.pow(smooth(1.1, 0, Math.hypot(x - STACK.x, z - STACK.z)), 1.4))
     return Math.max(0.24, h)
   }
   const group = new THREE.Group()
-  group.add(terrain(heightAt, Tex.beach(), ['#ffffff', '#ffeccc']), base('sand'))
+  group.add(terrain(heightAt, Tex.beach(), ['#ffffff', '#ffeccc'], true, { rock: ['#e6c9a4', '#c4a07c'], snowLine: Infinity }), base('sand'))
   const obstacles: Obstacle[] = pools.map((p) => ({ x: p.x, z: p.z, r: p.r - 0.25, water: true }))
   const foodSpots: FoodSpot[] = []
-  const put = placer(51, obstacles)
+  // たからばこ：がけの 高台の上・みさきの先・船の うら
+  const BOAT = { x: -5.8 * k, z: 6.0 * k }
+  const treasures: { x: number; z: number; mesh: THREE.Object3D }[] = []
+  for (const [ux, uz] of [[HEAD.x - 0.5, HEAD.z - 0.3], [3.0, -8.2], [-7.4, 7.0]]) {
+    const tx = THREE.MathUtils.clamp(ux * k, -HALF + 0.8, HALF - 0.8)
+    const tz = THREE.MathUtils.clamp(uz * k, -HALF + 0.8, HALF - 0.8)
+    const ch = chestModel()
+    ch.position.set(tx, heightAt(tx, tz), tz)
+    ch.rotation.y = Math.PI * 0.2
+    group.add(ch)
+    treasures.push({ x: tx, z: tz, mesh: ch })
+    obstacles.push({ x: tx, z: tz, r: 0.3 })
+  }
+  const put = placer(51, obstacles, [{ x: (HEAD.x + HEAD.r + 1.6) * k, z: HEAD.z * k, r: 1.6 * k }, { x: 3.2 * k, z: -6.6 * k, r: 1.2 * k }], heightAt)
 
   const water = waterSurface({ deep: '#1d7fd1', shallow: '#5fe0e8' })
   for (const p of pools) {
@@ -846,13 +886,13 @@ function coralCove(): Stage {
     group.add(m)
   }
   floaters(group, pools[0], 0.34, 'log', 3, 21)
-  floaters(group, pools[1], 0.34, 'log', 1, 22)
+  floaters(group, pools[1], 0.34, 'log', 2, 22)
   // さんご（水から顔を出す）
   const coralMats = ['#ff7aa8', '#ff9f43', '#b48cff', '#ff5e7a'].map((c) => lambert(c, { emissive: c, emissiveIntensity: 0.12 }))
   const r = rng(77)
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < dens(9); i++) {
     const a = r() * Math.PI * 2
-    const pool = pools[i < 7 ? 0 : 1]
+    const pool = pools[i % 3]
     const d = pool.r * (0.35 + r() * 0.5)
     const cx = pool.x + Math.cos(a) * d
     const cz = pool.z + Math.sin(a) * d
@@ -952,10 +992,11 @@ function coralCove(): Stage {
   mast.position.set(-0.2, 0.9, 0)
   mast.rotation.z = 0.35
   boat.add(hull, bow, mast)
-  boat.position.set(-4.4, heightAt(-4.4, -4.2), -4.2)
+  boat.scale.setScalar(1.5)
+  boat.position.set(BOAT.x, heightAt(BOAT.x, BOAT.z), BOAT.z)
   boat.rotation.set(0.12, 0.7, 0.15)
   group.add(boat)
-  obstacles.push({ x: -4.4, z: -4.2, r: 1.1 })
+  obstacles.push({ x: BOAT.x, z: BOAT.z, r: 1.5 })
   // 光るブイ
   const buoy = new THREE.Group()
   const bb = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.5, 8), lambert('#ff4d6d'))
@@ -963,7 +1004,7 @@ function coralCove(): Stage {
   const light = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), new THREE.MeshBasicMaterial({ color: '#5ef2ff' }))
   light.position.y = 0.36
   buoy.add(bb, band, light)
-  buoy.position.set(pools[0].x + 0.6, 0.45, pools[0].z - 0.4)
+  buoy.position.set(pools[0].x - 1.6, 0.45, pools[0].z + 1.4)
   group.add(buoy)
 
   group.add(grass(heightAt, obstacles, SIZE, { count: dens(100), colors: ['#5f8f3a', '#d6e87a'], flowers: ['#ff7aa8', '#fff6e8'], flowerRate: 0.1, height: 0.34, seed: 304 }))
@@ -972,7 +1013,7 @@ function coralCove(): Stage {
   const bubbles = motes('#e8ffff', 50)
   group.add(sky.mesh, vs.group, bubbles)
   return {
-    id: 3, name: 'さんごの入り江', sub: 'CORAL COVE', group, heightAt, obstacles, foodSpots,
+    id: 3, name: 'さんごの入り江', sub: 'CORAL COVE', group, heightAt, obstacles, foodSpots, treasures,
     food: { name: 'なみのみ', color: '#ffd166', leaf: '#3fae5a' },
     residents: ['noiz', 'togebug'],
     fog: '#bfe9ff', sky: ['#2f8ff0', '#bfeeff', '#123a6a'],
