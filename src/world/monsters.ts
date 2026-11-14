@@ -1737,264 +1737,260 @@ function waterDrop(g: G, p: Pose, f: number, L: Look): Geom {
   else rect(g, dark, mx + 0.3, my, 1.5, 0.5)
   return { bx: cx, by: cy, rx: r, ry: r, hx: cx, hy: cy, hr: r, mx, my, cols: [B, S, H] }
 }
-/** 成長期：あわのこ（まるい頭に ゆれる しっぽの おたまじゃくし・まわりに あわ） */
+/** かわいい目：まるく 大きく、光を 2 つ。ひらいた目 いがいは ふつうの eyes() */
+function cuteEyes(g: G, xs: number[], y: number, mode: Pose['eye'], color: string, r = 1.7) {
+  if (mode !== 'open' && mode !== 'hungry' && mode !== 'worry' && mode !== 'angry') return eyes(g, xs, y, mode, color)
+  for (const x of xs) {
+    ell(g, color, x, y, r, r * 1.15)
+    rect(g, '#ffffff', x - r * 0.7, y - r * 0.8, r * 0.8, r * 0.8)
+    rect(g, '#ffffff', x + r * 0.2, y + r * 0.35, 0.6, 0.6)
+  }
+  if (mode === 'angry' || mode === 'worry') xs.forEach((x, k) => brow(g, color, x, y - r * 0.4, xs.length === 1 ? -1 : k === 0 ? 1 : -1, mode))
+}
+/** にっこりの口（ちいさな「ω」）か、Pose の口 */
+function cuteMouth(g: G, p: Pose, x: number, y: number, dark: string) {
+  if (p.mouth) return mouthShape(g, p.mouth, x - 1.2, y, dark, false)
+  rect(g, dark, x - 0.25, y - 0.4, 0.5, 0.9)
+  rect(g, dark, x - 1.25, y + 0.5, 1, 0.5)
+  rect(g, dark, x + 0.25, y + 0.5, 1, 0.5)
+}
+/** 成長期：あわのこ（まんまるの あわの子・ちいさな ハートの おびれ・まわりに あわ） */
 function bubbleFry(g: G, p: Pose, f: number, L: Look): Geom {
   const [B, S, H] = L.c
   const dark = L.eye ?? '#1a1530'
   const bob = p.bob * 0.6 + (p.bob < 0 ? p.bob : 0)
-  const r = 6.4 + p.sq * 0.4
-  const cx = 19 + p.lean
-  const cy = 17.5 + bob + Math.sin(f * 1.3) * 0.5
-  const w = Math.sin(f * 1.6) * 1.6
-  const tail: Pt[] = [[2.5 + p.lean, cy + 1 + w], [6.5 + p.lean, cy + 2.5 - w], [10.5 + p.lean, cy + 0.5 + w * 0.6], [14.5 + p.lean, cy + 1.2]]
-  // しっぽの ひれ（うすい まく）
-  for (let i = 0; i < 5; i++) {
-    const t = 0.1 + i * 0.17
-    const q = along(tail, t)
-    const n = normalAt(tail, t)
-    leaf(g, H, q[0], q[1], q[0] + n[0] * 3.2 - 1.2, q[1] + n[1] * 3.2, 1.1)
-    leaf(g, H, q[0], q[1], q[0] - n[0] * 2.6 - 1.2, q[1] - n[1] * 2.6, 1)
-  }
-  tube(g, S, tail, (t) => 0.9 + t * 2.4, 0, 0.3, 26)
-  tube(g, B, tail, (t) => 0.6 + t * 2.2, 0, -0.2, 26)
-  // ひれの耳
-  leaf(g, S, cx - r * 0.5, cy - r * 0.6, cx - r * 1.2, cy - r * 1.35, 1.3)
-  leaf(g, H, cx - r * 0.5, cy - r * 0.55, cx - r * 0.95, cy - r * 1.1, 0.7)
-  leaf(g, S, cx - r * 0.2, cy + r * 0.8, cx - r * 0.8, cy + r * 1.35 - p.flap, 1.1)
-  ell(g, S, cx, cy, r, r * 0.94)
-  ell(g, B, cx - 0.4, cy - 0.5, r - 0.9, r * 0.94 - 0.9)
-  // あわの つや：ふちの 光の弧 と 白い点
+  const r = 7.4 + p.sq * 0.4
+  const cx = 17 + p.lean
+  const cy = 18 + bob + Math.sin(f * 1.3) * 0.5
+  const w = Math.sin(f * 1.6) * 1.2
+  // ちいさな おびれ（ハートを 横にした形）と むなびれ
+  leaf(g, S, cx - r * 0.85, cy + 0.5, cx - r * 1.5, cy - 2.6 + w, 1.9)
+  leaf(g, S, cx - r * 0.85, cy + 0.5, cx - r * 1.5, cy + 3.4 + w, 1.9)
+  leaf(g, H, cx - r * 0.9, cy + 0.5, cx - r * 1.3, cy - 1.6 + w, 0.8)
+  leaf(g, S, cx - r * 0.2, cy + r * 0.8, cx - r * 0.55, cy + r * 1.25 - p.flap, 1.3)
+  leaf(g, S, cx + r * 0.45, cy + r * 0.8, cx + r * 0.3, cy + r * 1.25 - p.flap, 1.3)
+  // 頭の ひれ（ちいさな 2 まい）
+  leaf(g, S, cx - r * 0.35, cy - r * 0.75, cx - r * 0.75, cy - r * 1.25, 1.3)
+  leaf(g, S, cx + r * 0.2, cy - r * 0.8, cx + r * 0.25, cy - r * 1.3, 1.2)
+  ell(g, S, cx, cy, r, r * 0.96)
+  ell(g, B, cx - 0.4, cy - 0.5, r - 0.9, r * 0.96 - 0.9)
+  ell(g, H, cx + r * 0.1, cy + r * 0.45, r * 0.6, r * 0.38)
   for (let i = 0; i < 5; i++) {
     const a = -2.6 + i * 0.22
-    rect(g, H, cx + Math.cos(a) * r * 0.72 - 0.5, cy + Math.sin(a) * r * 0.68 - 0.5, 1.2, 1)
+    rect(g, '#ffffff', cx + Math.cos(a) * r * 0.74 - 0.5, cy + Math.sin(a) * r * 0.7 - 0.5, 1.2, 1)
   }
-  ell(g, '#ffffff', cx - r * 0.5, cy - r * 0.42, 1.2, 0.9)
-  // まわりの あわ
-  for (const [dx, dy, br, ph] of [[-1.5, -1.5, 1.7, 0], [0.9, -1.45, 1.2, 2], [-1.9, 0.4, 1.0, 4]] as const) {
+  ell(g, '#ffffff', cx - r * 0.5, cy - r * 0.4, 1.3, 1)
+  for (const [dx, dy, br, ph] of [[-1.35, -1.25, 1.6, 0], [1.05, -1.3, 1.2, 2], [1.3, 0.9, 0.9, 4]] as const) {
     const bx = cx + dx * r
     const by = cy + dy * r + Math.sin(f * 0.9 + ph) * 0.8
     ell(g, S, bx, by, br, br)
     ell(g, H, bx - 0.2, by - 0.2, br - 0.6, br - 0.6)
     rect(g, '#ffffff', bx - br * 0.5, by - br * 0.5, 0.6, 0.6)
   }
-  eyes(g, [cx - r * 0.1, cx + r * 0.52], cy + r * 0.02, p.eye, dark)
-  ell(g, '#ffb0c0', cx - r * 0.42, cy + r * 0.42, 1.2, 0.7)
+  cuteEyes(g, [cx - r * 0.25, cx + r * 0.42], cy - r * 0.02, p.eye, dark, 1.8)
+  ell(g, '#ffb0c0', cx - r * 0.58, cy + r * 0.36, 1.4, 0.8)
+  ell(g, '#ffb0c0', cx + r * 0.72, cy + r * 0.36, 1.2, 0.8)
   const mx = cx + r * 0.1
-  const my = cy + r * 0.45
-  if (p.mouth) mouthShape(g, p.mouth, mx, my, dark, false)
-  else {
-    rect(g, dark, mx, my + 0.5, 2, 0.5)
-    rect(g, dark, mx - 0.5, my, 0.5, 0.5)
-    rect(g, dark, mx + 2, my, 0.5, 0.5)
-  }
+  const my = cy + r * 0.36
+  cuteMouth(g, p, mx, my, dark)
   return { bx: cx, by: cy, rx: r, ry: r, hx: cx, hy: cy, hr: r, mx, my, cols: [B, S, H] }
 }
-/** 成長期：かいがら（うずまきの から を せおって、やわらかい体で はう） */
+/** 成長期：かいがら（まるい から から まるい顔と 小さな足が のぞく。なめくじの体は 描かない） */
 function shellCrawler(g: G, p: Pose, f: number, L: Look): Geom {
   const [B, S, H] = L.c
   const dark = L.eye ?? '#1a1530'
   const shell = L.shell ?? '#ffe9a8'
-  const bob = p.bob * 0.4
-  const lean = p.lean
-  const sx = 12.5 + lean * 0.5
-  const sy = 19.5 + bob - p.sq * 0.3
-  const sr = 7.6
-  const hx = 23 + lean
-  const hy = 21.5 + bob
-  const st = Math.sin(f * 1.2) * 0.6
-  // やわらかい体：から の下から 前へ のびて、頭が もちあがる
-  const soft = (c: string, o: number) =>
-    shape(g, c, (g) => {
-      g.moveTo(5 + lean * 0.3, 29.6)
-      g.bezierCurveTo(8, 26.5 + o, 16, 27 + o, 19, 25.5 + o)
-      g.bezierCurveTo(19.5, 20.5 + o, hx - 3.5 + o, hy - 4.6 + o, hx, hy - 4.4 + o)
-      g.bezierCurveTo(hx + 4.6 - o, hy - 4.2 + o, hx + 4.6 - o, hy + 3.4, hx + 1, hy + 4.5)
-      g.bezierCurveTo(hx - 1, 29.8, 20, 30, 5 + lean * 0.3, 29.6)
-    })
-  // しょっかく（目のくき でなく、先が まるい つの）
-  for (const [dx, k] of [[-1.2, -1], [1.6, 1]] as const) {
-    leaf(g, S, hx + dx, hy - 3.6, hx + dx + k * 1.2 + st * k, hy - 8.2, 0.7)
-    ell(g, H, hx + dx + k * 1.2 + st * k, hy - 8.4, 1.1, 1.1)
+  const bob = p.bob * 0.4 + (p.bob < 0 ? p.bob : 0)
+  const sx = 11.5 + p.lean * 0.5
+  const sr = 8 + p.sq * 0.3
+  const sy = 30 - sr * 0.92 - 1.2 + bob
+  const hr = 6
+  const hx = sx + sr * 0.95 + p.lean * 0.5
+  const hy = sy + sr * 0.22
+  // 小さな足（から の下から ちょこんと）
+  for (const [dx, k] of [[-0.45, 1], [0.15, -1], [0.75, 1]] as const) ell(g, S, sx + dx * sr + p.step * k * 0.7, 29.3, 1.8, 1.2)
+  // まるい顔（から の前から のぞく）
+  ell(g, S, hx, hy, hr, hr * 0.95)
+  ell(g, B, hx - 0.4, hy - 0.5, hr - 0.9, hr * 0.95 - 0.9)
+  ell(g, H, hx - hr * 0.3, hy - hr * 0.5, hr * 0.3, hr * 0.16)
+  // 頭の ちいさな 2 本（先が まるい）
+  for (const [dx, k] of [[-0.25, -1], [0.4, 1]] as const) {
+    leaf(g, S, hx + dx * hr, hy - hr * 0.8, hx + dx * hr + k * 0.8, hy - hr * 1.45 + Math.sin(f * 1.2 + k) * 0.4, 0.7)
+    ell(g, '#ffd86a', hx + dx * hr + k * 0.8, hy - hr * 1.5 + Math.sin(f * 1.2 + k) * 0.4, 1.1, 1.1)
   }
-  soft(S, 0)
-  soft(B, 0.7)
-  leaf(g, H, 8, 28.6, 17, 28.4, 0.45)
-  // から：うずまき（外 → 内へ 小さく まく）と すじ
-  const whorl = (c: string, k: number) =>
-    shape(g, c, (g) => {
-      g.moveTo(sx - sr * k, sy + sr * 0.35 * k)
-      g.bezierCurveTo(sx - sr * 1.05 * k, sy - sr * 0.95 * k, sx + sr * 0.5 * k, sy - sr * 1.25 * k, sx + sr * 0.98 * k, sy - sr * 0.2 * k)
-      g.bezierCurveTo(sx + sr * 1.15 * k, sy + sr * 0.75 * k, sx + sr * 0.2 * k, sy + sr * 1.02 * k, sx - sr * 0.45 * k, sy + sr * 0.92 * k)
-      g.bezierCurveTo(sx - sr * 0.85 * k, sy + sr * 0.85 * k, sx - sr * k, sy + sr * 0.6 * k, sx - sr * k, sy + sr * 0.35 * k)
-    })
-  whorl('#c89a4a', 1)
-  whorl(shell, 0.9)
-  // うずの線：中心へ まきこむ
-  let px = sx + sr * 0.7
-  let py = sy + sr * 0.35
-  for (let i = 1; i <= 26; i++) {
-    const a = 0.5 + i * 0.42
-    const rr = sr * 0.72 * (1 - i / 30)
-    const qx = sx + sr * 0.05 + Math.cos(a) * rr
-    const qy = sy + sr * 0.05 + Math.sin(a) * rr * 0.92
-    leaf(g, i < 8 ? '#e0b860' : '#f29ab8', px, py, qx, qy, 0.38)
+  // から：まんまる・ぐるぐるの線・ハートの しるし
+  ell(g, '#c89a4a', sx, sy, sr, sr * 0.94)
+  ell(g, shell, sx - 0.4, sy - 0.5, sr - 0.9, sr * 0.94 - 0.9)
+  let px = sx + sr * 0.62
+  let py = sy + sr * 0.3
+  for (let i = 1; i <= 22; i++) {
+    const a = 0.5 + i * 0.45
+    const rr = sr * 0.66 * (1 - i / 26)
+    const qx = sx + Math.cos(a) * rr
+    const qy = sy + Math.sin(a) * rr * 0.94
+    leaf(g, '#e8b070', px, py, qx, qy, 0.4)
     px = qx
     py = qy
   }
-  for (let i = 0; i < 5; i++) {
-    const a = -2.7 + i * 0.5
-    leaf(g, '#e0b860', sx + Math.cos(a) * sr * 0.55, sy + Math.sin(a) * sr * 0.5, sx + Math.cos(a) * sr * 0.86, sy + Math.sin(a) * sr * 0.82, 0.3)
-  }
-  leaf(g, '#ffffff', sx - sr * 0.55, sy - sr * 0.3, sx - sr * 0.15, sy - sr * 0.7, 0.6)
-  eyes(g, [hx - 0.6, hx + 2.4], hy - 0.8, p.eye, dark)
-  ell(g, '#ffb0c0', hx - 1.8, hy + 1.3, 1.1, 0.7)
-  const mx = hx + 0.3
-  const my = hy + 1.5
-  if (p.mouth) mouthShape(g, p.mouth, mx, my, dark, false)
-  else rect(g, dark, mx, my, 2, 0.5)
-  return { bx: sx, by: sy, rx: sr, ry: sr, hx, hy, hr: 4.4, mx, my, cols: [B, S, H] }
+  ell(g, '#ff9ecb', sx - sr * 0.46, sy - sr * 0.42, 1.3, 1.3)
+  ell(g, '#ff9ecb', sx - sr * 0.22, sy - sr * 0.42, 1.3, 1.3)
+  poly(g, '#ff9ecb', [sx - sr * 0.62, sy - sr * 0.36, sx - sr * 0.06, sy - sr * 0.36, sx - sr * 0.34, sy - sr * 0.12])
+  leaf(g, '#ffffff', sx - sr * 0.7, sy - sr * 0.05, sx - sr * 0.45, sy - sr * 0.62, 0.6)
+  cuteEyes(g, [hx - hr * 0.05, hx + hr * 0.55], hy - hr * 0.05, p.eye, dark, 1.6)
+  ell(g, '#ffb0c0', hx - hr * 0.3, hy + hr * 0.42, 1.2, 0.7)
+  const mx = hx + hr * 0.28
+  const my = hy + hr * 0.42
+  cuteMouth(g, p, mx, my, dark)
+  return { bx: sx, by: sy, rx: sr, ry: sr, hx, hy, hr, mx, my, cols: [B, S, H] }
 }
-/** 成熟期：なみのり魚（しなる体・大きな せびれ・ふたまたの おびれ） */
+/** 成熟期：なみのり魚（まるまるとした体・大きな目・にっこり・みじかい ひれ） */
 function seaFish(g: G, p: Pose, f: number) {
   const B = '#3fc1c9'
   const S = '#1f8a9a'
   const H = '#b8f3f5'
-  const belly = '#e8fbfa'
+  const belly = '#eefcfa'
   const fin = '#ffd86a'
-  const ox = p.lean
-  const oy = p.bob * 0.7 + Math.sin(f * 1.3) * 0.5
-  const w = Math.sin(f * 1.7) * 1.4
-  const pts: Pt[] = ([[5, 20.5 + w], [9.5, 19.5 - w * 0.4], [15, 17], [21, 15.6], [26.5, 17.2]] as Pt[]).map(([x, y]) => [x + ox, y + oy] as Pt)
-  const R = (t: number) => 0.8 + Math.sin(Math.pow(t, 0.75) * Math.PI) * 4.4 - (t > 0.85 ? (t - 0.85) * 6 : 0)
-  // おびれ（ふたまた）
-  leaf(g, S, pts[0][0] + 1.5, pts[0][1], pts[0][0] - 3.5, pts[0][1] - 5, 1.7)
-  leaf(g, S, pts[0][0] + 1.5, pts[0][1], pts[0][0] - 3, pts[0][1] + 4.6, 1.7)
-  leaf(g, fin, pts[0][0] + 1, pts[0][1], pts[0][0] - 2.2, pts[0][1] - 3.2, 0.6)
-  leaf(g, fin, pts[0][0] + 1, pts[0][1], pts[0][0] - 1.9, pts[0][1] + 3, 0.6)
-  // せびれ（ほ のように 大きく・すじ入り）
-  const d0 = along(pts, 0.42)
-  const d1 = along(pts, 0.78)
+  const cx = 16.5 + p.lean
+  const cy = 17.5 + p.bob * 0.7 + Math.sin(f * 1.3) * 0.5
+  const w = Math.sin(f * 1.7) * 1.3
+  const rx = 9.6 + p.sq * 0.4
+  const ry = 7.6 - p.sq * 0.3
+  // おびれ（ハート形）
+  leaf(g, S, cx - rx * 0.8, cy + 0.5, cx - rx * 1.42, cy - 5 + w, 2.4)
+  leaf(g, S, cx - rx * 0.8, cy + 0.5, cx - rx * 1.42, cy + 5.4 + w, 2.4)
+  leaf(g, fin, cx - rx * 0.85, cy + 0.5, cx - rx * 1.28, cy - 3.4 + w, 1)
+  leaf(g, fin, cx - rx * 0.85, cy + 0.5, cx - rx * 1.28, cy + 3.8 + w, 1)
+  // せびれ（まるい ほ）
   shape(g, S, (g) => {
-    g.moveTo(d0[0], d0[1] - 2)
-    g.quadraticCurveTo(d0[0] + 1, d0[1] - 12 - p.flap, d0[0] + 6.5, d0[1] - 10.5 - p.flap)
-    g.quadraticCurveTo(d1[0] - 1, d1[1] - 8, d1[0], d1[1] - 2.5)
+    g.moveTo(cx - rx * 0.45, cy - ry * 0.75)
+    g.quadraticCurveTo(cx - rx * 0.3, cy - ry * 1.75 - p.flap, cx + rx * 0.2, cy - ry * 1.55 - p.flap)
+    g.quadraticCurveTo(cx + rx * 0.5, cy - ry * 1.3, cx + rx * 0.45, cy - ry * 0.8)
   })
-  for (let i = 0; i < 4; i++) leaf(g, fin, d0[0] + 1 + i * 1.9, d0[1] - 3.2 + i * 0.3, d0[0] + 2.2 + i * 1.5, d0[1] - 9.6 - p.flap + i * 0.7, 0.4)
-  // はらびれ（奥）
-  leaf(g, S, along(pts, 0.5)[0], along(pts, 0.5)[1] + 3, along(pts, 0.5)[0] - 2.5, along(pts, 0.5)[1] + 7.5, 1.1)
-  tube(g, S, pts, (t) => R(t) + 0.5, 0, 0.3)
-  tube(g, B, pts, R, -0.1, -0.4)
-  for (let i = 5; i <= 41; i++) {
-    const t = i / 44
-    const q = along(pts, t)
-    const n = normalAt(pts, t)
-    ell(g, belly, q[0] - n[0] * R(t) * 0.52, q[1] - n[1] * R(t) * 0.52, R(t) * 0.5, R(t) * 0.5)
-  }
-  // よこの すじ と えらの 線
-  leaf(g, H, along(pts, 0.25)[0], along(pts, 0.25)[1] - 0.6, along(pts, 0.72)[0], along(pts, 0.72)[1] - 1.4, 0.5)
-  const gl = along(pts, 0.8)
-  leaf(g, S, gl[0] - 0.5, gl[1] - 2.6, gl[0] - 1.2, gl[1] + 2.4, 0.35)
-  // むなびれ（手前・大きく）
-  const pf = along(pts, 0.66)
-  leaf(g, S, pf[0], pf[1] + 1.5, pf[0] - 5.5, pf[1] + 7 - p.flap * 1.5, 2)
-  leaf(g, fin, pf[0] - 0.4, pf[1] + 2, pf[0] - 4.4, pf[1] + 6 - p.flap * 1.5, 0.9)
-  const hx = pts[4][0] - 2.6
-  const hy = pts[4][1] - 1.4
-  eyes(g, [hx], hy, p.eye, '#14305a')
-  const mx = pts[4][0] - 0.6
-  const my = pts[4][1] + 0.6
-  if (p.mouth === 1 || p.mouth === 4) ell(g, '#7a1f3d', mx, my, 1.1, 1.1)
-  else rect(g, '#14305a', mx - 1, my, 2, 0.5)
+  for (let i = 0; i < 3; i++) leaf(g, fin, cx - rx * 0.28 + i * rx * 0.2, cy - ry * 0.9, cx - rx * 0.2 + i * rx * 0.17, cy - ry * 1.45 - p.flap, 0.4)
+  // 体：たまご形（前が まるく、うしろが 少し ほそい）
+  const body = (c: string, k: number) =>
+    shape(g, c, (g) => {
+      g.moveTo(cx - rx * k, cy + 0.5)
+      g.bezierCurveTo(cx - rx * 0.8 * k, cy - ry * 1.15 * k, cx + rx * 0.7 * k, cy - ry * 1.2 * k, cx + rx * k, cy - ry * 0.05 * k)
+      g.bezierCurveTo(cx + rx * 1.02 * k, cy + ry * 1.05 * k, cx - rx * 0.6 * k, cy + ry * 1.15 * k, cx - rx * k, cy + 0.5)
+    })
+  body(S, 1)
+  body(B, 0.9)
+  // おなかの白（下はんぶん）
+  shape(g, belly, (g) => {
+    g.moveTo(cx - rx * 0.7, cy + ry * 0.35)
+    g.quadraticCurveTo(cx, cy + ry * 0.05, cx + rx * 0.82, cy + ry * 0.3)
+    g.quadraticCurveTo(cx + rx * 0.4, cy + ry * 1.0, cx - rx * 0.3, cy + ry * 0.92)
+    g.quadraticCurveTo(cx - rx * 0.65, cy + ry * 0.8, cx - rx * 0.7, cy + ry * 0.35)
+  })
+  leaf(g, H, cx - rx * 0.55, cy - ry * 0.35, cx + rx * 0.1, cy - ry * 0.7, 0.7)
+  ell(g, '#ffffff', cx - rx * 0.5, cy - ry * 0.5, 1.3, 0.9)
+  // むなびれ（ぱたぱた）
+  leaf(g, S, cx + rx * 0.05, cy + ry * 0.35, cx - rx * 0.4, cy + ry * 1.15 - p.flap * 1.5, 2.1)
+  leaf(g, fin, cx, cy + ry * 0.4, cx - rx * 0.3, cy + ry * 0.95 - p.flap * 1.5, 0.9)
+  cuteEyes(g, [cx + rx * 0.3, cx + rx * 0.76], cy - ry * 0.12, p.eye, '#14305a', 1.9)
+  ell(g, '#ffb0c0', cx + rx * 0.1, cy + ry * 0.28, 1.4, 0.8)
+  cuteMouth(g, p, cx + rx * 0.56, cy + ry * 0.3, '#14305a')
 }
-/** 成熟期：くもくらげ（まるい かさ・ふりるの ふち・ながれる 足） */
+/** 成熟期：くもくらげ（大きな まるい かさ・ふりるの ふち・みじかい リボンの足） */
 function cloudJelly(g: G, p: Pose, f: number) {
   const W = '#fdfbff'
   const S = '#cdb8ec'
   const pink = '#ffb8d8'
   const cx = 16 + p.lean
-  const cy = 12.5 + p.bob * 0.8 + Math.sin(f * 1.1) * 0.6
+  const cy = 15 + p.bob * 0.8 + Math.sin(f * 1.1) * 0.6
   const pulse = p.sq * 0.4 + (f % 2 ? 0.5 : 0)
-  const bw = 9 + pulse
-  // 足：ながい ほそい 足（奥）と、まんなかの ふりるの うで
-  for (let i = 0; i < 5; i++) {
-    const x0 = cx - bw * 0.7 + i * bw * 0.35
-    const w = Math.sin(f * 1.3 + i * 1.1) * 1.8
-    tailCurve(g, x0, cy + 3, x0 + w, cy + 9, x0 - w * 0.8 - (i - 2) * 0.5, cy + 15 + (i % 2) * 2, 0.9, 0.45, i % 2 ? pink : S, i % 2 ? '#ffffff' : pink)
+  const bw = 10.5 + pulse
+  // みじかい リボンの足（4 本・先は まるい）
+  for (let i = 0; i < 4; i++) {
+    const x0 = cx - bw * 0.56 + i * bw * 0.375
+    const w = Math.sin(f * 1.3 + i * 1.3) * 1.3
+    const arm: Pt[] = [[x0, cy + 2.5], [x0 + w, cy + 6], [x0 - w * 0.7, cy + 9.5 + (i % 2)]]
+    tube(g, i % 2 ? pink : S, arm, (t) => 1.9 - t * 0.5, 0, 0.2, 12)
+    tube(g, i % 2 ? '#ffe0f0' : W, arm, (t) => 1.3 - t * 0.4, -0.2, -0.1, 12)
   }
-  for (const k of [-1, 1]) {
-    const arm: Pt[] = [[cx + k * 1.6, cy + 3], [cx + k * 2.6 + Math.sin(f * 1.2) * 0.8, cy + 7], [cx + k * 1.2 - Math.sin(f * 1.2 + 1) * 0.9, cy + 11], [cx + k * 2.2, cy + 14.5]]
-    tube(g, S, arm, (t) => 1.9 - t * 1.1, 0, 0.3, 18)
-    tube(g, W, arm, (t) => 1.5 - t * 1.0, -0.1, -0.1, 18)
-  }
-  // かさ：まるい ドームと、下の なみなみ の ふち
   const bell = (c: string, k: number, o: number) =>
     shape(g, c, (g) => {
-      g.moveTo(cx - bw * k, cy + 2.4 + o)
-      g.bezierCurveTo(cx - bw * 1.02 * k, cy - 9.5 * k, cx + bw * 1.02 * k, cy - 9.5 * k, cx + bw * k, cy + 2.4 + o)
+      g.moveTo(cx - bw * k, cy + 2.2 + o)
+      g.bezierCurveTo(cx - bw * 1.08 * k, cy - 12.5 * k, cx + bw * 1.08 * k, cy - 12.5 * k, cx + bw * k, cy + 2.2 + o)
       for (let i = 0; i < 5; i++) {
         const x1 = cx + bw * k - ((i + 1) / 5) * bw * 2 * k
         const xm = cx + bw * k - ((i + 0.5) / 5) * bw * 2 * k
-        g.quadraticCurveTo(xm, cy + 5.4 + o, x1, cy + 2.4 + o)
+        g.quadraticCurveTo(xm, cy + 5 + o, x1, cy + 2.2 + o)
       }
     })
   bell(S, 1, 0.5)
   bell(W, 0.92, 0)
-  // かさの 中の あかり と つや
-  ell(g, '#ffe6f2', cx + 0.5, cy - 2.2, bw * 0.5, 3)
-  leaf(g, '#ffffff', cx - bw * 0.6, cy - 1.5, cx - bw * 0.25, cy - 6, 0.8)
-  for (let i = 0; i < 4; i++) rect(g, pink, cx - bw * 0.55 + i * bw * 0.36, cy + 2.2, 1.2, 0.8)
-  eyes(g, [cx - 1.6, cx + 3], cy - 0.4, p.eye, '#4a2d6b')
-  ell(g, '#ffb0c0', cx - 4, cy + 1.2, 1.3, 0.8)
-  ell(g, '#ffb0c0', cx + 5.4, cy + 1.2, 1.3, 0.8)
-  if (p.mouth) mouthShape(g, p.mouth, cx, cy + 1.2, '#4a2d6b', false)
-  else rect(g, '#4a2d6b', cx + 0.2, cy + 1.4, 1.6, 0.5)
+  // 頭の上の ちいさな 雲の こぶ と つや
+  ell(g, '#ffe6f2', cx + 1, cy - 7.2, bw * 0.34, 1.7)
+  leaf(g, '#ffffff', cx - bw * 0.62, cy - 2.5, cx - bw * 0.3, cy - 7.5, 0.9)
+  for (let i = 0; i < 5; i++) ell(g, pink, cx - bw * 0.72 + i * bw * 0.36, cy + 2.4, 1.1, 0.8)
+  cuteEyes(g, [cx - 2.6, cx + 3.4], cy - 2.2, p.eye, '#4a2d6b', 2)
+  ell(g, '#ffb0c0', cx - 5.6, cy, 1.6, 0.9)
+  ell(g, '#ffb0c0', cx + 6.4, cy, 1.6, 0.9)
+  cuteMouth(g, p, cx + 0.4, cy - 0.2, '#4a2d6b')
 }
-/** 完成期：うしおへび（波から 立ちあがる 長い体・せなかの ひれ・ほおの ひれ・しぶき） */
+/** 完成期：うしおへび（ふっくらした 首長の 海のりゅう。大きな まるい頭・ひれの耳・波に のる） */
 function tideSerpent(g: G, p: Pose, f: number) {
   const B = '#2fb5c9'
   const S = '#1f8a9a'
   const H = '#9ae6ea'
-  const belly = '#e6fbf6'
+  const belly = '#eefcf6'
   const fin = '#7ff0e0'
+  const dark = '#0d2a40'
   const ox = p.lean
-  const oy = p.bob * 0.6
-  const wv = (k: number) => Math.sin(f * 1.1 + k) * 1.1
-  const pts: Pt[] = ([[2.5, 25 + wv(0)], [6.5, 28 + wv(1) * 0.6], [10.5, 24.5 + wv(2)], [14, 27.5 + wv(3) * 0.5], [17, 22.5], [18, 16.5 + wv(4) * 0.4], [20.5, 12.5], [24, 10]] as Pt[]).map(([x, y]) => [x + ox, y + oy] as Pt)
-  const R = (t: number) => 0.7 + Math.sin(Math.pow(t, 0.72) * Math.PI) * 1.7 + (t > 0.62 ? 0.7 : 0)
-  // おびれ
-  leaf(g, fin, pts[0][0] + 1, pts[0][1], pts[0][0] - 3, pts[0][1] - 3.6, 1.4)
-  leaf(g, fin, pts[0][0] + 1, pts[0][1], pts[0][0] - 2.6, pts[0][1] + 2.6, 1.2)
-  // せなかの ひれ（ほ のように つらなる）
-  for (let i = 0; i < 11; i++) {
-    const t = 0.16 + i * 0.07
+  const oy = p.bob * 0.6 + Math.sin(f * 1.1) * 0.4
+  const w = Math.sin(f * 1.2) * 1.2
+  // 体：しっぽ → ふっくらした 胴 → 太めの首（うねりは 1 つだけ）
+  const pts: Pt[] = ([[2.5, 22 + w], [6, 25.5], [11.5, 25.5], [15.5, 21], [16.5, 14.5]] as Pt[]).map(([x, y]) => [x + ox, y + oy] as Pt)
+  const R = (t: number) => 1.2 + Math.sin(Math.pow(t, 0.8) * Math.PI) * 3.4 + t * 1.6
+  const hx = pts[4][0] + 3.2
+  const hy = pts[4][1] - 3.6
+  const hr = 6.4
+  // おびれ（ハート形）と せなかの まるい ひれ
+  leaf(g, fin, pts[0][0] + 1, pts[0][1], pts[0][0] - 3, pts[0][1] - 4, 1.9)
+  leaf(g, fin, pts[0][0] + 1, pts[0][1], pts[0][0] - 3, pts[0][1] + 3.4, 1.9)
+  for (let i = 0; i < 4; i++) {
+    const t = 0.3 + i * 0.16
     const q = along(pts, t)
     const n = normalAt(pts, t)
-    leaf(g, i % 2 ? fin : H, q[0], q[1], q[0] + n[0] * (R(t) + 2.8) - 1.6, q[1] + n[1] * (R(t) + 2.8), 1.0)
+    ell(g, fin, q[0] + n[0] * (R(t) + 0.6), q[1] + n[1] * (R(t) + 0.6), 2.1, 2.1)
   }
   tube(g, S, pts, (t) => R(t) + 0.5, 0, 0.3)
   tube(g, B, pts, R, -0.2, -0.4)
-  for (let i = 4; i <= 41; i++) {
+  for (let i = 5; i <= 42; i++) {
     const t = i / 44
     const q = along(pts, t)
     const n = normalAt(pts, t)
-    ell(g, belly, q[0] - n[0] * R(t) * 0.5, q[1] - n[1] * R(t) * 0.5, R(t) * 0.5, R(t) * 0.5)
+    ell(g, belly, q[0] - n[0] * R(t) * 0.5, q[1] - n[1] * R(t) * 0.5, R(t) * 0.52, R(t) * 0.52)
   }
-  for (let i = 0; i < 10; i++) {
-    const t = 0.22 + i * 0.065
-    const q = along(pts, t)
-    const n = normalAt(pts, t)
-    rect(g, S, q[0] - n[0] * R(t) * 0.55 - 0.3, q[1] - n[1] * R(t) * 0.55 + 0.2, 1, 0.5)
+  // むなびれ（ちいさく ぱたぱた）
+  const pf = along(pts, 0.72)
+  leaf(g, fin, pf[0] + 1, pf[1] + 1, pf[0] + 5, pf[1] + 4.5 - p.flap, 1.9)
+  // 足もとの 波（まるい しぶき）
+  for (const [x, r0, ph] of [[4, 2.2, 0], [9, 2.8, 1.5], [14.5, 2.4, 3], [19.5, 1.8, 4.2]] as const) {
+    const yy = 29.6 - r0 * 0.5 - Math.abs(Math.sin(f * 1.4 + ph)) * 0.8
+    ell(g, '#bfeaf5', x + ox, yy, r0 + 0.5, r0)
+    ell(g, '#eefcff', x + ox - 0.3, yy - 0.4, r0 - 0.3, r0 - 0.6)
   }
-  // むなびれ
-  const pf = along(pts, 0.7)
-  leaf(g, fin, pf[0], pf[1] + 1, pf[0] + 4.5, pf[1] + 5 - p.flap, 1.5)
-  // 足もとの しぶき（波がしら）
-  for (const [x, h, ph] of [[4.5, 3, 0], [9, 4.2, 1.5], [13.5, 3.2, 3], [17.5, 2.4, 4.2]] as const) {
-    leaf(g, '#d8f6ff', x + ox - 1.6, 30, x + ox + 0.6, 30 - h - Math.sin(f * 1.4 + ph) * 0.8, 1.3)
-    rect(g, '#ffffff', x + ox + 1.2, 28 - h - Math.sin(f * 1.4 + ph), 0.8, 0.8)
-  }
-  const L: Look = { f: 'quad', s: 1.45, c: [B, S, H], b: belly, mane: fin, fang: true, gem: '#fff27a', eye: '#0d1530' }
-  dragonHead(g, p, L, pts[7][0] + 0.5, pts[7][1], 3.9, 1)
+  // ひれの耳（左右）と 頭
+  leaf(g, fin, hx - hr * 0.55, hy - hr * 0.35, hx - hr * 1.35, hy - hr * 1.0, 2)
+  leaf(g, '#eefcff', hx - hr * 0.6, hy - hr * 0.4, hx - hr * 1.1, hy - hr * 0.8, 0.8)
+  leaf(g, fin, hx + hr * 0.3, hy - hr * 0.75, hx + hr * 0.5, hy - hr * 1.5, 1.8)
+  ell(g, S, hx, hy, hr, hr * 0.9)
+  ell(g, B, hx - 0.5, hy - 0.6, hr - 0.9, hr * 0.9 - 0.9)
+  // まるい 口さき
+  ell(g, S, hx + hr * 0.45, hy + hr * 0.5, hr * 0.56, hr * 0.34)
+  ell(g, belly, hx + hr * 0.45, hy + hr * 0.47, hr * 0.5, hr * 0.28)
+  rect(g, dark, hx + hr * 0.36, hy + hr * 0.33, 0.7, 0.6)
+  rect(g, dark, hx + hr * 0.62, hy + hr * 0.33, 0.7, 0.6)
+  ell(g, H, hx - hr * 0.35, hy - hr * 0.5, hr * 0.3, hr * 0.15)
+  // ひたいの しんじゅ
+  ell(g, '#fff27a', hx + hr * 0.05, hy - hr * 0.62, 1.4, 1.4)
+  rect(g, '#ffffff', hx + hr * 0.05 - 0.8, hy - hr * 0.62 - 0.8, 0.7, 0.7)
+  cuteEyes(g, [hx - hr * 0.32, hx + hr * 0.4], hy - hr * 0.16, p.eye, dark, 1.9)
+  ell(g, '#ffb0c0', hx - hr * 0.62, hy + hr * 0.32, 1.4, 0.8)
+  cuteMouth(g, p, hx + hr * 0.45, hy + hr * 0.55, dark)
 }
 DRAW_OLD.hireru = (g, p, f) => seaFish(g, p, f)
 DRAW_OLD.fuwari = (g, p, f) => cloudJelly(g, p, f)
