@@ -1451,7 +1451,7 @@ function tube(g: G, c: string, pts: Pt[], R: (t: number) => number, ox = 0, oy =
   }
 }
 /** こうもり型の つばさ：うで → 手首から 指の骨が ひろがり、あいだに 波形の まく */
-function membraneWing(g: G, sx: number, sy: number, len: number, ang: number, trail: number, bone: string, skin: string) {
+function membraneWing(g: G, sx: number, sy: number, len: number, ang: number, trail: number, bone: string, skin: string, claw?: string) {
   const wx = sx + Math.cos(ang) * len * 0.42
   const wy = sy + Math.sin(ang) * len * 0.42
   const tips: Pt[] = []
@@ -1473,7 +1473,12 @@ function membraneWing(g: G, sx: number, sy: number, len: number, ang: number, tr
       g.quadraticCurveTo((a[0] + b[0]) / 2 + (wx - (a[0] + b[0]) / 2) * 0.34, (a[1] + b[1]) / 2 + (wy - (a[1] + b[1]) / 2) * 0.34, b[0], b[1])
     }
   })
-  for (const tp of tips) leaf(g, bone, wx, wy, tp[0], tp[1], 0.45)
+  for (const tp of tips) {
+    leaf(g, bone, wx, wy, tp[0], tp[1], 0.45)
+    // 指の先の つめ
+    if (claw) leaf(g, claw, tp[0], tp[1], tp[0] + (tp[0] - wx) * 0.12, tp[1] + (tp[1] - wy) * 0.12, 0.5)
+  }
+  if (claw) leaf(g, claw, wx, wy, wx + Math.cos(ang) * len * 0.14, wy + Math.sin(ang) * len * 0.14 - 0.6, 0.6)
   leaf(g, bone, sx, sy, wx, wy, len * 0.07 + 0.5)
   ell(g, bone, wx, wy, 0.9, 0.9)
 }
@@ -1486,11 +1491,11 @@ function dragonHead(g: G, p: Pose, L: Look, hx: number, hy: number, hr: number, 
   const jaw = open ? hr * 0.42 : 0
   const sn = hr * (1.5 + up * 0.5) // 口さきの長さ
   // つの（奥 → 手前）
-  const hl = (2.6 + up * 4.2) * (hr / 4)
+  const hl = (3 + up * 5.6) * (hr / 4)
   if (L.horn) {
     leaf(g, S, hx - hr * 0.1, hy - hr * 0.7, hx - hr * 0.5 - hl * 0.75, hy - hr * 0.9 - hl * 0.75, 0.9)
     leaf(g, L.horn, hx - hr * 0.45, hy - hr * 0.6, hx - hr * 0.9 - hl, hy - hr * 0.6 - hl * 0.55, 1.0)
-    if (up > 0.9) leaf(g, L.horn, hx - hr * 0.9 - hl * 0.5, hy - hr * 0.6 - hl * 0.28, hx - hr * 0.7 - hl * 0.7, hy - hr * 0.6 - hl * 0.95, 0.7)
+    if (up > 0.4) leaf(g, L.horn, hx - hr * 0.9 - hl * 0.5, hy - hr * 0.6 - hl * 0.28, hx - hr * 0.7 - hl * 0.7, hy - hr * 0.6 - hl * 0.95, 0.7)
   }
   // ほおの ひれ（おとな）
   if (up > 0.3) for (let i = 0; i < 3; i++) leaf(g, L.mane ?? S, hx - hr * 0.5, hy + hr * (0.1 + i * 0.25), hx - hr * (1.5 + up * 0.5), hy + hr * (0.25 + i * 0.5), 0.8)
@@ -1526,7 +1531,14 @@ function dragonHead(g: G, p: Pose, L: Look, hx: number, hy: number, hr: number, 
   leaf(g, H, hx - hr * 0.5, hy - hr * 0.55, hx + hr * 0.4, hy - hr * 0.7, 0.5)
   // はなの あな・目・きば
   rect(g, dark, hx + sn * 0.82, hy - hr * 0.08, 0.8, 0.6)
-  eyes(g, [hx + hr * 0.15], hy - hr * 0.22, p.eye === 'open' && up > 0.3 ? 'angry' : p.eye, dark)
+  if (up > 0.3 && p.eye !== 'closed' && p.eye !== 'sleepy' && p.eye !== 'happy' && p.eye !== 'hurt') {
+    // するどい目：つりあがった 金色の目に たての ひとみ、上に まゆの とげ
+    const ex = hx + hr * 0.2
+    const ey = hy - hr * 0.2
+    poly(g, '#ffe14a', [ex - 1.8, ey + 0.9, ex + 1.9, ey - 1.1, ex + 2.1, ey + 0.9])
+    rect(g, dark, ex + 0.5, ey - 0.6, 0.8, 1.5)
+    poly(g, S, [ex - 2.4, ey - 0.2, ex + 2.6, ey - 2.2, ex + 2.2, ey - 1.1, ex - 2, ey + 0.6])
+  } else eyes(g, [hx + hr * 0.15], hy - hr * 0.22, p.eye, dark)
   if (L.gem) poly(g, L.gem, [hx - hr * 0.3, hy - hr * 0.95, hx - hr * 0.3 + 1.3, hy - hr * 0.95 + 1.3, hx - hr * 0.3, hy - hr * 0.95 + 2.6, hx - hr * 0.3 - 1.3, hy - hr * 0.95 + 1.3])
   if (L.fang) {
     poly(g, '#ffffff', [hx + sn * 0.5, hy + hr * 0.32, hx + sn * 0.5 + 1, hy + hr * 0.32, hx + sn * 0.5 + 0.5, hy + hr * 0.32 + 1.4 + up])
@@ -1594,7 +1606,7 @@ function dragon(g: G, p: Pose, f: number, L: Look, kind: 0 | 1 | 2): Geom {
     hr = 3.9
   } else {
     pts = [[1.5, 23 + wv(0)], [5, 26 + wv(1)], [9, 22 + wv(2)], [12.5, 26 + wv(3) * 0.6], [16.5, 22], [19, 17 + wv(4) * 0.4], [22.5, 14.5], [25, 10.5]]
-    R = (t) => 0.6 + Math.sin(Math.pow(t, 0.75) * Math.PI) * 1.25 + (t > 0.7 ? 0.5 : 0)
+    R = (t) => 0.7 + Math.sin(Math.pow(t, 0.75) * Math.PI) * 1.6 + (t > 0.7 ? 0.5 : 0)
     hr = 4.0
   }
   pts = pts.map(([x, y]) => [x + ox, y + oy] as Pt)
@@ -1608,8 +1620,8 @@ function dragon(g: G, p: Pose, f: number, L: Look, kind: 0 | 1 | 2): Geom {
   }
   // つばさ（成長期は 小さく・成熟期は 大きく）
   const sh = at(kind === 0 ? 0.72 : 0.6)
-  const wl = kind === 0 ? 7.5 : 18
-  const wa = asleep ? 2.6 : kind === 0 ? -2.2 - p.flap * 0.25 + (down ? 0.35 : 0) : down ? 2.75 : -2.05
+  const wl = kind === 0 ? 7.5 : 18.5
+  const wa = asleep ? 2.6 : kind === 0 ? -2.2 - p.flap * 0.25 + (down ? 0.35 : 0) : down ? 2.75 : -2.42
   const wt = asleep || (kind === 1 && down) ? -1 : 1
   if (kind < 2 && !asleep) membraneWing(g, sh[0] + 1.2, sh[1] - 1, wl * 0.9, wa + (kind === 1 && down ? -0.25 : 0.28), wt, S, S)
   // たてがみ（天のりゅう）：せなかに そって ながれる 毛
@@ -1622,24 +1634,29 @@ function dragon(g: G, p: Pose, f: number, L: Look, kind: 0 | 1 | 2): Geom {
     }
   // せなかの とげ
   if (L.spike)
-    for (let i = 0; i < (kind === 2 ? 0 : 6); i++) {
-      const t = 0.22 + i * 0.1
+    for (let i = 0; i < (kind === 2 ? 12 : 8); i++) {
+      const t = 0.14 + i * (kind === 2 ? 0.065 : 0.085)
       const q = at(t)
       const n = norm(t)
-      leaf(g, L.spike, q[0] - 0.8, q[1], q[0] + n[0] * (R(t) + 1.6 + up * 1.4) - 1, q[1] + n[1] * (R(t) + 1.6 + up * 1.4), 0.8)
+      const sl = kind === 2 ? 1.4 : 1.8 + up * 2.2
+      leaf(g, L.spike, q[0] - 0.8, q[1], q[0] + n[0] * (R(t) + sl) - 1.4, q[1] + n[1] * (R(t) + sl), 0.9)
     }
   // しっぽの先：ほのお / やいば
   const tp = pts[0]
   if (L.tail === 'flame') {
     leaf(g, '#ff7a2a', tp[0] + 1, tp[1], tp[0] - 3 - (f % 2), tp[1] - 4.5, 1.8)
     leaf(g, '#ffd23f', tp[0] + 0.8, tp[1], tp[0] - 1.6, tp[1] - 2.6, 0.9)
-  } else leaf(g, L.spike ?? L.horn ?? S, tp[0] + 1.5, tp[1], tp[0] - 3.2, tp[1] - 1.8, 1.3)
+  } else {
+    // しっぽの先の やいば（上下に ひらく）
+    leaf(g, L.spike ?? L.horn ?? S, tp[0] + 1.5, tp[1], tp[0] - 4.2, tp[1] - 3, 1.5)
+    leaf(g, L.spike ?? L.horn ?? S, tp[0] + 1.5, tp[1], tp[0] - 3.6, tp[1] + 2.4, 1.2)
+  }
   // あし：奥
   const legAt = (t: number, len: number, c: string, sw: number) => {
     const q = at(t)
     const r = R(t)
     leaf(g, c, q[0], q[1] + r * 0.3, q[0] + 1.2 + sw, q[1] + r + len, 1.1 + up * 0.3)
-    for (const dx of [-0.8, 0.4, 1.6]) rect(g, L.horn ?? '#fff0c2', q[0] + 1.2 + sw + dx, q[1] + r + len - 0.2, 0.7, 1)
+    for (const dx of [-0.9, 0.4, 1.7]) leaf(g, L.horn ?? '#fff0c2', q[0] + 1.2 + sw + dx, q[1] + r + len - 0.4, q[0] + 1.8 + sw + dx * 1.3, q[1] + r + len + 1.6, 0.45)
   }
   if (kind > 0) {
     legAt(0.34, 2.2, S, 1.4)
@@ -1656,6 +1673,14 @@ function dragon(g: G, p: Pose, f: number, L: Look, kind: 0 | 1 | 2): Geom {
     const r = R(t)
     ell(g, belly, q[0] - n[0] * r * 0.5, q[1] - n[1] * r * 0.5, r * 0.52, r * 0.52)
   }
+  // うろこ（せなか側に ちいさな 弧を ならべる）
+  if (kind > 0)
+    for (let i = 0; i < (kind === 2 ? 14 : 8); i++) {
+      const t = 0.2 + i * (kind === 2 ? 0.05 : 0.07)
+      const q = at(t)
+      const n = norm(t)
+      rect(g, S, q[0] + n[0] * R(t) * 0.35 - 0.5, q[1] + n[1] * R(t) * 0.35, 1.2, 0.5)
+    }
   // おなかの ふし
   for (let i = 0; i < (kind === 2 ? 9 : 5); i++) {
     const t = 0.3 + i * (kind === 2 ? 0.065 : 0.09)
@@ -1677,7 +1702,7 @@ function dragon(g: G, p: Pose, f: number, L: Look, kind: 0 | 1 | 2): Geom {
   // 手前の つばさ
   if (kind < 2) {
     if (asleep) leaf(g, S, sh[0], sh[1] - 1, sh[0] - 7, sh[1] + 2, 2)
-    else membraneWing(g, sh[0], sh[1] - 1.2, wl, wa, wt, B, belly)
+    else membraneWing(g, sh[0], sh[1] - 1.2, wl, wa, wt, B, kind === 1 ? S : belly, kind === 1 ? L.horn : undefined)
   }
   // 天のりゅう：手に もつ 光の玉 と ひげ
   if (kind === 2) {
@@ -1737,16 +1762,6 @@ function waterDrop(g: G, p: Pose, f: number, L: Look): Geom {
   else rect(g, dark, mx + 0.3, my, 1.5, 0.5)
   return { bx: cx, by: cy, rx: r, ry: r, hx: cx, hy: cy, hr: r, mx, my, cols: [B, S, H] }
 }
-/** かわいい目：まるく 大きく、光を 2 つ。ひらいた目 いがいは ふつうの eyes() */
-function cuteEyes(g: G, xs: number[], y: number, mode: Pose['eye'], color: string, r = 1.7) {
-  if (mode !== 'open' && mode !== 'hungry' && mode !== 'worry' && mode !== 'angry') return eyes(g, xs, y, mode, color)
-  for (const x of xs) {
-    ell(g, color, x, y, r, r * 1.15)
-    rect(g, '#ffffff', x - r * 0.7, y - r * 0.8, r * 0.8, r * 0.8)
-    rect(g, '#ffffff', x + r * 0.2, y + r * 0.35, 0.6, 0.6)
-  }
-  if (mode === 'angry' || mode === 'worry') xs.forEach((x, k) => brow(g, color, x, y - r * 0.4, xs.length === 1 ? -1 : k === 0 ? 1 : -1, mode))
-}
 /** にっこりの口（ちいさな「ω」）か、Pose の口 */
 function cuteMouth(g: G, p: Pose, x: number, y: number, dark: string) {
   if (p.mouth) return mouthShape(g, p.mouth, x - 1.2, y, dark, false)
@@ -1787,7 +1802,7 @@ function bubbleFry(g: G, p: Pose, f: number, L: Look): Geom {
     ell(g, H, bx - 0.2, by - 0.2, br - 0.6, br - 0.6)
     rect(g, '#ffffff', bx - br * 0.5, by - br * 0.5, 0.6, 0.6)
   }
-  cuteEyes(g, [cx - r * 0.25, cx + r * 0.42], cy - r * 0.02, p.eye, dark, 1.8)
+  eyes(g, [cx - r * 0.25, cx + r * 0.42], cy - r * 0.02, p.eye, dark)
   ell(g, '#ffb0c0', cx - r * 0.58, cy + r * 0.36, 1.4, 0.8)
   ell(g, '#ffb0c0', cx + r * 0.72, cy + r * 0.36, 1.2, 0.8)
   const mx = cx + r * 0.1
@@ -1836,7 +1851,7 @@ function shellCrawler(g: G, p: Pose, f: number, L: Look): Geom {
   ell(g, '#ff9ecb', sx - sr * 0.22, sy - sr * 0.42, 1.3, 1.3)
   poly(g, '#ff9ecb', [sx - sr * 0.62, sy - sr * 0.36, sx - sr * 0.06, sy - sr * 0.36, sx - sr * 0.34, sy - sr * 0.12])
   leaf(g, '#ffffff', sx - sr * 0.7, sy - sr * 0.05, sx - sr * 0.45, sy - sr * 0.62, 0.6)
-  cuteEyes(g, [hx - hr * 0.05, hx + hr * 0.55], hy - hr * 0.05, p.eye, dark, 1.6)
+  eyes(g, [hx - hr * 0.05, hx + hr * 0.55], hy - hr * 0.05, p.eye, dark)
   ell(g, '#ffb0c0', hx - hr * 0.3, hy + hr * 0.42, 1.2, 0.7)
   const mx = hx + hr * 0.28
   const my = hy + hr * 0.42
@@ -1888,7 +1903,7 @@ function seaFish(g: G, p: Pose, f: number) {
   // むなびれ（ぱたぱた）
   leaf(g, S, cx + rx * 0.05, cy + ry * 0.35, cx - rx * 0.4, cy + ry * 1.15 - p.flap * 1.5, 2.1)
   leaf(g, fin, cx, cy + ry * 0.4, cx - rx * 0.3, cy + ry * 0.95 - p.flap * 1.5, 0.9)
-  cuteEyes(g, [cx + rx * 0.3, cx + rx * 0.76], cy - ry * 0.12, p.eye, '#14305a', 1.9)
+  eyes(g, [cx + rx * 0.3, cx + rx * 0.76], cy - ry * 0.12, p.eye, '#14305a')
   ell(g, '#ffb0c0', cx + rx * 0.1, cy + ry * 0.28, 1.4, 0.8)
   cuteMouth(g, p, cx + rx * 0.56, cy + ry * 0.3, '#14305a')
 }
@@ -1925,7 +1940,7 @@ function cloudJelly(g: G, p: Pose, f: number) {
   ell(g, '#ffe6f2', cx + 1, cy - 7.2, bw * 0.34, 1.7)
   leaf(g, '#ffffff', cx - bw * 0.62, cy - 2.5, cx - bw * 0.3, cy - 7.5, 0.9)
   for (let i = 0; i < 5; i++) ell(g, pink, cx - bw * 0.72 + i * bw * 0.36, cy + 2.4, 1.1, 0.8)
-  cuteEyes(g, [cx - 2.6, cx + 3.4], cy - 2.2, p.eye, '#4a2d6b', 2)
+  eyes(g, [cx - 2.6, cx + 3.4], cy - 2.2, p.eye, '#4a2d6b')
   ell(g, '#ffb0c0', cx - 5.6, cy, 1.6, 0.9)
   ell(g, '#ffb0c0', cx + 6.4, cy, 1.6, 0.9)
   cuteMouth(g, p, cx + 0.4, cy - 0.2, '#4a2d6b')
@@ -1988,7 +2003,7 @@ function tideSerpent(g: G, p: Pose, f: number) {
   // ひたいの しんじゅ
   ell(g, '#fff27a', hx + hr * 0.05, hy - hr * 0.62, 1.4, 1.4)
   rect(g, '#ffffff', hx + hr * 0.05 - 0.8, hy - hr * 0.62 - 0.8, 0.7, 0.7)
-  cuteEyes(g, [hx - hr * 0.32, hx + hr * 0.4], hy - hr * 0.16, p.eye, dark, 1.9)
+  eyes(g, [hx - hr * 0.32, hx + hr * 0.4], hy - hr * 0.16, p.eye, dark)
   ell(g, '#ffb0c0', hx - hr * 0.62, hy + hr * 0.32, 1.4, 0.8)
   cuteMouth(g, p, hx + hr * 0.45, hy + hr * 0.55, dark)
 }
