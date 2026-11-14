@@ -738,15 +738,77 @@ function glassDunes(): Stage {
 // 3. こおりの回路峰（Frost Circuit）
 // =====================================================================
 function frostCircuit(): Stage {
-  const heightAt = (x: number, z: number) => {
-    const hill = Math.max(0, 2.4 - Math.hypot(x + 3, z + 3) * 0.45)
-    return 0.3 + (hill + Math.sin(x * 0.5) * Math.sin(z * 0.45) * 0.35 + mounds(x, z, [[5, 5, 2.2, 1.3], [5.5, -4, 1.6, 0.8]])) * edge(x, z)
+  // 入り組んだ地形（計画 D）。20 マスの島を元に作り、k = 広さ / 20 倍に ひろげる
+  //  北西 = 2 だんの 峰（南の坂 → 1 だんめ → 東の坂 → てっぺん = つづら折り。上に アンテナ塔と たからばこ）
+  //  東 = 南北に くねる 氷の壁（切り通し 1 つ・むこうに たからばこ）/ 北東 = のぼれない 氷の山なみ
+  //  南 = なだらかな 雪の丘（南西の すみに たからばこ）/ まんなか = 村のための 平らな 雪原
+  const k = SIZE / 20
+  const LOW = { x: -4.8, z: -4.6, r: 3.4, h: 2.0 }
+  const TOP = { x: -5.4, z: -4.8, r: 1.5, h: 2.0 }
+  const GAP_Z = 1.2
+  const wallX = (z: number) => 5.2 + Math.sin(z * 0.8 + 0.5) * 0.7
+  const peak = (x: number, z: number) => {
+    const a = Math.atan2(z - LOW.z, x - LOW.x)
+    const r0 = LOW.r + Math.sin(a * 3) * 0.15
+    const d = Math.hypot(x - LOW.x, z - LOW.z)
+    // 1 だんめ：南の坂（はば 2.6 マス）
+    const z1 = LOW.z + r0 + 3.0
+    const t = Math.min(1, Math.max(0, (z1 - z) / 2.6))
+    const ramp = z < z1 && z > LOW.z ? LOW.h * t * smooth(1.7, 1.3, Math.abs(x - LOW.x)) : 0
+    let h = Math.max(LOW.h * smooth(r0 + 0.4, r0, d), ramp)
+    // 2 だんめ：1 だんめの 上から 東の坂で のぼる
+    const d2 = Math.hypot(x - TOP.x, z - TOP.z)
+    const x1 = TOP.x + TOP.r + 2.0
+    const t2 = Math.min(1, Math.max(0, (x1 - x) / 1.6))
+    const ramp2 = x < x1 && x > TOP.x ? TOP.h * t2 * smooth(1.2, 0.9, Math.abs(z - TOP.z)) : 0
+    h += Math.max(TOP.h * smooth(TOP.r + 0.4, TOP.r, d2), ramp2)
+    return h
+  }
+  // 氷の壁：てっぺんを とがらせる（平らな所を 作らない）。切り通しの所だけ 低い
+  const wall = (x: number, z: number) => {
+    if (z > 6.4) return 0
+    const d = Math.abs(x - wallX(z))
+    const gap = smooth(0.7, 1.5, Math.abs(z - GAP_Z))
+    return 3.4 * Math.pow(Math.max(0, 1 - d / 0.95), 0.8) * gap * smooth(6.4, 5.0, z)
+  }
+  // 北東の 氷の山なみ：島のふちまで のぼりつづける
+  const ridge = (x: number, z: number) => {
+    const t = Math.max(0, (-6.6 - z) / 3.4) * smooth(-0.6, 1.4, x)
+    const H = (7 + Math.sin(x * 1.3) * 2.2 + Math.sin(x * 2.9 + 1) * 1.2) * Math.sqrt(k)
+    return H * Math.pow(t, 1.5)
+  }
+  const heightAt = (wx: number, wz: number) => {
+    const x = wx / k
+    const z = wz / k
+    const hills = Math.pow(Math.sin(x * 0.55 + 0.6) * Math.sin(z * 0.5 + 0.3) * 0.5 + 0.5, 1.2) * 0.9 * smooth(3.5, 6.5, z)
+    let h = 0.3 + (hills + Math.sin(x * 0.5) * Math.sin(z * 0.45) * 0.18 + 0.1) * edge(wx, wz)
+    h = THREE.MathUtils.lerp(0.34, h, smooth(3.0, 5.0, Math.hypot(x - 0.6, z - 0.2)))
+    h = Math.max(h, peak(x, z) + 0.26)
+    return Math.max(0.24, h + wall(x, z) + ridge(x, z))
   }
   const group = new THREE.Group()
-  group.add(terrain(heightAt, Tex.snow(), ['#ffffff', '#dfe9ff'], false), base('snow'))
+  group.add(terrain(heightAt, Tex.snow(), ['#ffffff', '#dfe9ff'], false, { rock: ['#8fa8cc', '#6a84b0'], snowLine: 5 }), base('snow'))
   const obstacles: Obstacle[] = []
   const foodSpots: FoodSpot[] = []
-  const put = placer(37, obstacles)
+  // たからばこ：峰の てっぺん・氷の壁の むこう・南西の すみ
+  const treasures: { x: number; z: number; mesh: THREE.Object3D }[] = []
+  for (const [ux, uz] of [[TOP.x - 0.6, TOP.z + 0.7], [7.8, -4.6], [-7.8, 7.6]]) {
+    const tx = THREE.MathUtils.clamp(ux * k, -HALF + 0.8, HALF - 0.8)
+    const tz = THREE.MathUtils.clamp(uz * k, -HALF + 0.8, HALF - 0.8)
+    const ch = chestModel()
+    ch.position.set(tx, heightAt(tx, tz), tz)
+    ch.rotation.y = -Math.PI * 0.15
+    group.add(ch)
+    treasures.push({ x: tx, z: tz, mesh: ch })
+    obstacles.push({ x: tx, z: tz, r: 0.3 })
+  }
+  const TOWER = { x: (TOP.x - 0.2) * k, z: (TOP.z - 0.5) * k }
+  const put = placer(37, obstacles, [
+    { x: LOW.x * k, z: (LOW.z + LOW.r + 1.6) * k, r: 1.6 * k },
+    { x: (TOP.x + TOP.r + 1) * k, z: TOP.z * k, r: 1.2 * k },
+    { x: TOP.x * k, z: TOP.z * k, r: 1.5 * k },
+    { x: wallX(GAP_Z) * k, z: GAP_Z * k, r: 1.4 * k },
+  ], heightAt)
 
   for (let i = 0; i < dens(10); i++) {
     const p = put(0.5)
@@ -791,10 +853,10 @@ function frostCircuit(): Stage {
   const blink = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), new THREE.MeshBasicMaterial({ color: '#ff4d6d' }))
   blink.position.y = 3.2
   tower.add(dish, blink)
-  tower.position.set(-3, heightAt(-3, -3) - 0.3, -3)
+  tower.position.set(TOWER.x, heightAt(TOWER.x, TOWER.z) - 0.3, TOWER.z)
   tower.rotation.z = 0.08
   group.add(tower)
-  obstacles.push({ x: -3, z: -3, r: 0.7 })
+  obstacles.push({ x: TOWER.x, z: TOWER.z, r: 0.7 })
 
   group.add(grass(heightAt, obstacles, SIZE, { count: dens(80), colors: ['#4f7a7a', '#dff4ff'], height: 0.3, seed: 303 }))
   const sky = skyDome(['#0d1a3a', '#3a5a9a', '#0a1028'], 1)
@@ -803,7 +865,7 @@ function frostCircuit(): Stage {
   group.add(sky.mesh, vs.group, flakes)
 
   return {
-    id: 2, name: 'こおりの回路峰', sub: 'FROST CIRCUIT', group, heightAt, obstacles, foodSpots,
+    id: 2, name: 'こおりの回路峰', sub: 'FROST CIRCUIT', group, heightAt, obstacles, foodSpots, treasures,
     food: { name: 'ゆきベリー', color: '#b48cff', leaf: '#2e7a5e' },
     residents: ['noiz', 'gougan'],
     fog: '#7a90c0', sky: ['#0d1a3a', '#3a5a9a', '#0a1028'],
