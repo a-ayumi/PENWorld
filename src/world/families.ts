@@ -132,7 +132,7 @@ export const FAMILIES: Record<Exclude<Family, 'plain' | 'water'>, FamilySpec[]> 
     { id: 'oniko', name: 'オニコ', kind: 'こおに型', look: { f: 'biped', s: 0.95, c: m('#ff6a7a', '#b02a40', '#ffb0b8'), horn: '#fff0c2', fang: true }, skill: ['こおにパンチ', 'dash', '#ffb0b8', 1.9] },
     { id: 'nurari', name: 'ヌラリ', kind: 'ぬめりお化け型', look: { f: 'blob', s: 1.0, c: m('#6adc9a', '#2a9a5a', '#c0ffd8'), gem: '#ffffff', ear: 'ant' }, skill: ['ぬるぬるうず', 'wave', '#c0ffd8', 1.8] },
     { id: 'ogaran', name: 'オガラン', kind: 'おにだいしょう型', look: { f: 'biped', s: 1.25, c: m('#d63a4a', '#7a1a28', '#ff8a96'), horn: '#ffe9a8', fang: true, armor: '#3d2a2a', club: true }, skill: ['だいちのこんぼう', 'wave', '#ff8a96', 2.5] },
-    { id: 'bakeran', name: 'バケラン', kind: 'ひとつめお化け型', look: { f: 'blob', s: 1.25, c: m('#3aa0a8', '#1a606a', '#9ae8ee'), cyclops: true, wing: 'bat', fang: true }, skill: ['ひとつめビーム', 'shot', '#9ae8ee', 2.3] },
+    { id: 'bakeran', name: 'バケラン', kind: 'ひとつめお化け型', float: true, look: { f: 'blob', s: 1.25, c: m('#3aa0a8', '#1a606a', '#9ae8ee'), cyclops: true, wing: 'bat', fang: true }, skill: ['ひとつめビーム', 'shot', '#9ae8ee', 2.3] },
     { id: 'yamatan', name: 'ヤマタン', kind: 'やまたお化け型', look: { f: 'blob', s: 1.4, c: m('#5a3a8a', '#33205a', '#a88be8'), horn: '#ffd23f', fang: true, spike: '#ff5ed9', gem: '#ff5ed9', ear: 'horn', wing: 'bat', heads: true }, skill: ['やまたのいかり', 'rain', '#ff5ed9', 2.8] },
   ],
 }
