@@ -20,6 +20,13 @@ export const FLORA: Record<string, FloraPalette> = {
   bloomPink: { leaf: ['#3f6038', '#62865a', '#8fae86'], flower: ['#f0b0c4', '#fff0f2'] },
   conifer: { leaf: ['#143c2c', '#1f583a', '#307648'] },
   bush: { leaf: ['#2f552c', '#4c7a36', '#73994a'], flower: ['#e86a5a', '#ffd86a'] },
+  // ほかのステージ（計画 E5）
+  frost: { leaf: ['#1c4a4a', '#2c6c66', '#e4eef8'] }, // 雪を かぶった 針葉樹
+  cotton: { leaf: ['#aebcd8', '#dbe5f4', '#ffffff'] }, // わたゆきの木
+  cottonBush: { leaf: ['#aebcd8', '#dbe5f4', '#ffffff'], flower: ['#ff9ecb', '#ffd9ea'] },
+  tropic: { leaf: ['#1f6a46', '#36a05a', '#72cf70'], flower: ['#ff7ab0', '#ffd84a'] },
+  ruin: { leaf: ['#1f5a44', '#2f7a52', '#5aa878'], flower: ['#9dffd0', '#e0fff0'] },
+  ember: { leaf: ['#2e2228', '#4e3230', '#7a4432'], flower: ['#ff8a3a', '#ffd84a'] }, // こげた しげみに 火の花
 }
 
 let leafMat: THREE.Material | null = null

@@ -754,7 +754,9 @@ export function updateWeather(this: World, dt: number) {
   this.wfx.update(this.look, this.stage.heightAt(this.look.x, this.look.z), { rain: wx.rain, snow: wx.snow, ember: wx.ember, mist: wx.mist }, fog.color)
   // 空：雲・さしこむ 陽の光（晴れた昼。朝のもや・雨あがりの にじ の時は 強く）・雷（雨が強い時）
   const storm = Math.max(wx.rain, wx.snow * 0.7, wx.grey * 0.6)
-  const sunny = Math.max(0, 1 - this.night * 1.4) * Math.max(0, 1 - wx.grey * 1.3) * (1 - storm)
+  // 空が暗いステージ（こおりの回路峰・ほむらのかざん）は 光の帯を ひかえめに
+  const dim = this.stageIndex === 4 || this.stageIndex === 5 ? 0.3 : 1
+  const sunny = Math.max(0, 1 - this.night * 1.4) * Math.max(0, 1 - wx.grey * 1.3) * (1 - storm) * dim
   this.skyfx.update(dt, this.time, SIZE, storm, sunny, Math.min(1, wx.mist + wx.bow), this.high)
   if (wx.rain > 0.65) {
     this.boltT -= dt
