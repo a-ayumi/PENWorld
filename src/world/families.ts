@@ -93,7 +93,7 @@ export const FAMILIES: Record<Exclude<Family, 'plain' | 'water'>, FamilySpec[]> 
     { id: 'kacha', name: 'カチャ', kind: 'ぜんまいロボ型', look: { f: 'biped', s: 0.95, c: m('#ff8a5a', '#c9532b', '#ffd0b8'), gear: '#e8e2d0', visor: '#fff27a' }, skill: ['ぜんまいタックル', 'dash', '#ffb08a', 1.8] },
     { id: 'tankuru', name: 'タンクル', kind: 'せんしゃロボ型', look: { f: 'quad', s: 1.15, c: m('#7a8f5a', '#4d5e36', '#b4c88f'), cannon: true, armor: '#3d4a2a', visor: '#ffdf5a', tail: 'plug' }, skill: ['ほうだんいちげき', 'shot', '#ffdf5a', 2.2] },
     { id: 'kurokko', name: 'クロッコ', kind: 'とけいロボ型', look: { f: 'biped', s: 1.15, c: m('#3d4a8a', '#262e5c', '#7a8ad6'), gear: '#ffd23f', visor: '#ff7ad9', wing: 'mech', ear: 'ant' }, skill: ['ときのうず', 'wave', '#b48cff', 2.2] },
-    { id: 'metarion', name: 'メタリオン', kind: 'はがねのまもり型', look: { f: 'biped', s: 1.35, c: m('#c9ced6', '#7a8494', '#ffffff'), armor: '#3d52c8', visor: '#5ef2ff', wing: 'mech', horn: '#ffd23f', cannon: true }, skill: ['はがねのかがやき', 'burst', '#5ef2ff', 2.6] },
+    { id: 'metarion', name: 'メタリオン', kind: 'はがねのまもり型', float: true, look: { f: 'biped', s: 1.35, c: m('#c9ced6', '#7a8494', '#ffffff'), armor: '#3d52c8', visor: '#5ef2ff', wing: 'mech', horn: '#ffd23f', cannon: true }, skill: ['はがねのかがやき', 'burst', '#5ef2ff', 2.6] },
   ],
   dragon: [
     { id: 'ryuuko', name: 'リュウコ', kind: 'ちびりゅう型', look: { f: 'blob', s: 0.7, c: m('#ff9a6a', '#c25a3a', '#ffd9c0'), horn: '#fff0c2', tail: 'dragon', wing: 'bat', b: '#fff0c2' }, skill: ['ちびブレス', 'shot', '#ffb08a', 1.5] },
