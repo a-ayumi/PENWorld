@@ -76,7 +76,7 @@ export class SkyFx {
       c.g.position.set(c.x, c.y + Math.sin(time * 0.3 + i) * 0.3 + storm * 2.5, c.z - Math.sign(c.z) * inward)
       c.g.visible = high ? i < 6 + storm * 6 : i < 3 + storm * 3
     })
-    const a = high ? sun * (0.15 + glow * 0.12) : 0
+    const a = high ? sun * (0.1 + glow * 0.1) : 0
     this.rays.forEach((m) => {
       m.visible = a > 0.004
       m.position.x += dt * 0.25
