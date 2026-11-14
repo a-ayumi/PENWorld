@@ -1035,16 +1035,59 @@ function coralCove(): Stage {
 // 5. わたゆきの原（Cotton Snowfield）— 雪ゾーン（昼）
 // =====================================================================
 function cottonField(): Stage {
-  const lake = { x: -2.2, z: 2.2, r: 2.8 }
-  const heightAt = (x: number, z: number) => {
-    const h = 0.3 + (Math.sin(x * 0.35) * Math.sin(z * 0.3 + 1) * 0.5 + Math.cos(x * 0.8 + z * 0.5) * 0.1 + mounds(x, z, [[5, 4, 2.6, 1.5], [4, -5, 2.0, 1.0], [-6, -5, 1.8, 1.1]])) * edge(x, z)
-    return Math.max(0.24, THREE.MathUtils.lerp(0.26, h, smooth(lake.r, lake.r + 1.2, Math.hypot(x - lake.x, z - lake.z))))
+  // 入り組んだ地形（計画 D）。20 マスの島を元に作り、k = 広さ / 20 倍に ひろげる
+  //  北 = のぼれない 雪山の つらなり（北東に 山に かこまれた くぼ地 = 行き止まりに たからばこ）
+  //  西 = 大きな 凍った湖（上を歩ける・むこう岸に たからばこ）/ 東 = 雪の 高台（西の坂・上に かまくらの遺跡と たからばこ）
+  //  南 = 雪の ふきだまりの 波 / まんなか = 村のための 平らな 雪原
+  const k = SIZE / 20
+  const MESA = { x: 5.8, z: 3.4, r: 2.2, h: 2.4 }
+  const NOOK = { x: 4.4, z: -7.4 }
+  const lake = { x: -5.6 * k, z: 1.4 * k, r: 2.3 * k }
+  const mesa = (x: number, z: number) => {
+    const a = Math.atan2(z - MESA.z, x - MESA.x)
+    const r0 = MESA.r + Math.sin(a * 3) * 0.3 + Math.sin(a * 5 + 1) * 0.15
+    const d = Math.hypot(x - MESA.x, z - MESA.z)
+    const top = MESA.h * smooth(r0 + 0.4, r0, d)
+    // 西の坂：崖が立ちあがる前に のぼりきる
+    const x0 = MESA.x - r0 - 3.2
+    const t = Math.min(1, Math.max(0, (x - x0) / 2.7))
+    const ramp = x > x0 && x < MESA.x ? MESA.h * t * smooth(1.7, 1.3, Math.abs(z - MESA.z)) : 0
+    return Math.max(top, ramp)
+  }
+  // 北の雪山：島のふちまで のぼりつづける（てっぺんに 平らな所を 作らない）。くぼ地の所だけ 山が 奥へ ひっこむ
+  const ridge = (x: number, z: number) => {
+    const z0 = -5.6 - 2.6 * Math.exp(-(((x - NOOK.x) / 1.25) ** 2))
+    const t = Math.max(0, (z0 - z) / 3.6)
+    const H = (7.5 + Math.sin(x * 1.1 + 1) * 2.4 + Math.sin(x * 2.3 + 0.4) * 1.3) * Math.sqrt(k)
+    return H * Math.pow(t, 1.5)
+  }
+  const heightAt = (wx: number, wz: number) => {
+    const x = wx / k
+    const z = wz / k
+    const drift = Math.pow(Math.sin(x * 0.85 + Math.sin(z * 0.6) * 1.2) * 0.5 + 0.5, 1.5) * 1.2 * smooth(1.0, 4.0, z) * smooth(4.0, 1.5, x)
+    let h = 0.3 + (drift + Math.sin(x * 0.35) * Math.sin(z * 0.3 + 1) * 0.25 + Math.cos(x * 0.8 + z * 0.5) * 0.08 + 0.1) * edge(wx, wz)
+    h = THREE.MathUtils.lerp(0.34, h, smooth(3.0, 5.0, Math.hypot(x - 0.4, z + 0.4)))
+    h = THREE.MathUtils.lerp(0.26, h, smooth(lake.r, lake.r + 1.2, Math.hypot(wx - lake.x, wz - lake.z)))
+    h = Math.max(h, mesa(x, z) + 0.26)
+    return Math.max(0.24, h + ridge(x, z))
   }
   const group = new THREE.Group()
-  group.add(terrain(heightAt, Tex.powder(), ['#ffffff', '#e8f0ff'], false), base('snow'))
+  group.add(terrain(heightAt, Tex.powder(), ['#ffffff', '#e8f0ff'], false, { rock: ['#b4c2d8', '#8c9cb8'], snowLine: 4.5 }), base('snow'))
   const obstacles: Obstacle[] = []
   const foodSpots: FoodSpot[] = []
-  const put = placer(63, obstacles, [{ ...lake, r: lake.r }])
+  // たからばこ：高台の上（かまくらの よこ）・山の くぼ地の おく・湖の むこう岸
+  const treasures: { x: number; z: number; mesh: THREE.Object3D }[] = []
+  for (const [ux, uz] of [[MESA.x + 0.9, MESA.z + 0.9], [NOOK.x, NOOK.z], [-8.6, 1.6]]) {
+    const tx = THREE.MathUtils.clamp(ux * k, -HALF + 0.8, HALF - 0.8)
+    const tz = THREE.MathUtils.clamp(uz * k, -HALF + 0.8, HALF - 0.8)
+    const ch = chestModel()
+    ch.position.set(tx, heightAt(tx, tz), tz)
+    ch.rotation.y = Math.PI * 0.15
+    group.add(ch)
+    treasures.push({ x: tx, z: tz, mesh: ch })
+    obstacles.push({ x: tx, z: tz, r: 0.3 })
+  }
+  const put = placer(63, obstacles, [{ ...lake, r: lake.r }, { x: (MESA.x - MESA.r - 1.6) * k, z: MESA.z * k, r: 1.6 * k }, { x: NOOK.x * k, z: (NOOK.z + 1.2) * k, r: 1.3 * k }, { x: MESA.x * k, z: MESA.z * k, r: 1.4 * k }], heightAt)
 
   // 凍った湖（上を歩ける）
   const iceMat = new THREE.ShaderMaterial({
@@ -1056,12 +1099,12 @@ function cottonField(): Stage {
         vec2 q = floor(vUv * 40.0) / 40.0;
         float streak = step(0.93, fract((q.x + q.y) * 6.0 + time * 0.05));
         float crack = step(0.985, fract(sin(dot(floor(q * 10.0), vec2(12.9898, 78.233))) * 43758.5));
-        vec3 c = mix(vec3(0.62, 0.82, 0.98), vec3(0.85, 0.95, 1.0), q.y);
+        vec3 c = mix(vec3(0.42, 0.68, 0.94), vec3(0.66, 0.86, 1.0), q.y);
         c += streak * 0.15 + crack * 0.2;
         gl_FragColor = vec4(c, 1.0);
       }`,
   })
-  const ice = new THREE.Mesh(new THREE.CircleGeometry(lake.r, 14).rotateX(-Math.PI / 2), iceMat)
+  const ice = new THREE.Mesh(new THREE.CircleGeometry(lake.r, 18).rotateX(-Math.PI / 2), iceMat)
   ice.position.set(lake.x, 0.28, lake.z)
   group.add(ice)
 
@@ -1127,14 +1170,17 @@ function cottonField(): Stage {
   door.position.set(0, 0.02, 1.08)
   const domeG = new THREE.Group()
   domeG.add(dome, door)
-  domeG.position.set(4.2, heightAt(4.2, -3.8) - 0.05, -3.8)
+  const DOME = { x: (MESA.x - 0.3) * k, z: (MESA.z - 0.3) * k }
+  domeG.position.set(DOME.x, heightAt(DOME.x, DOME.z) - 0.05, DOME.z)
   domeG.rotation.y = -0.5
   group.add(domeG)
-  obstacles.push({ x: 4.2, z: -3.8, r: 1.15 })
+  obstacles.push({ x: DOME.x, z: DOME.z, r: 1.15 })
   // 灯りの柱（デジタルのランタン）
   const post = lambert('#7c8794')
   const lamps: THREE.Mesh[] = []
-  for (const [x, z] of [[-0.5, -1.5], [1.8, 3.6], [-5.5, -2.5]] as const) {
+  for (const [ux, uz] of [[-0.5, -2.6], [2.2, 3.4], [-2.6, 1.6], [3.6, -4.6]] as const) {
+    const x = ux * k
+    const z = uz * k
     const g = new THREE.Group()
     const pole = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.2, 0.1), post)
     pole.position.y = 0.6
@@ -1153,7 +1199,7 @@ function cottonField(): Stage {
   const flakes = motes('#ffffff', 110, true)
   group.add(sky.mesh, vs.group, flakes)
   return {
-    id: 4, name: 'わたゆきの原', sub: 'COTTON SNOWFIELD', group, heightAt, obstacles, foodSpots,
+    id: 4, name: 'わたゆきの原', sub: 'COTTON SNOWFIELD', group, heightAt, obstacles, foodSpots, treasures,
     food: { name: 'ゆきいちご', color: '#ff9ecb', leaf: '#7cf29b' },
     residents: ['noiz', 'togebug'],
     fog: '#e8f0ff', sky: ['#7fb2ff', '#e6f0ff', '#3a4a7a'],
