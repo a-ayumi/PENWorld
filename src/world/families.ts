@@ -96,12 +96,12 @@ export const FAMILIES: Record<Exclude<Family, 'plain' | 'water'>, FamilySpec[]> 
     { id: 'metarion', name: 'メタリオン', kind: 'はがねのまもり型', look: { f: 'biped', s: 1.35, c: m('#c9ced6', '#7a8494', '#ffffff'), armor: '#3d52c8', visor: '#5ef2ff', wing: 'mech', horn: '#ffd23f', cannon: true }, skill: ['はがねのかがやき', 'burst', '#5ef2ff', 2.6] },
   ],
   dragon: [
-    { id: 'ryuuko', name: 'リュウコ', kind: 'ちびりゅう型', look: { f: 'blob', s: 0.85, c: m('#ff9a6a', '#c25a3a', '#ffd9c0'), horn: '#fff0c2', tail: 'dragon', wing: 'bat', b: '#fff0c2' }, skill: ['ちびブレス', 'shot', '#ffb08a', 1.5] },
-    { id: 'honora', name: 'ホノラ', kind: 'ひのこりゅう型', look: { f: 'quad', s: 0.95, c: m('#ff5e4a', '#b02a22', '#ffb09a'), tail: 'flame', horn: '#ffe9a8', wing: 'bat', b: '#ffd27a', fang: true }, skill: ['ひのこブレス', 'shot', '#ff7a2a', 1.9] },
-    { id: 'kazeru', name: 'カゼル', kind: 'かぜりゅう型', look: { f: 'quad', s: 0.95, c: m('#5ed8c0', '#22907f', '#c0fff0'), tail: 'dragon', horn: '#ffffff', wing: 'dragon', b: '#e8fff8' }, skill: ['つむじかぜ', 'wave', '#c0fff0', 1.9] },
-    { id: 'bakuryu', name: 'バクリュウ', kind: 'ばくえんりゅう型', look: { f: 'quad', s: 1.2, c: m('#d63a2a', '#7a1810', '#ff9a7a'), spike: '#3d1a14', horn: '#ffd23f', tail: 'flame', wing: 'dragon', fang: true, b: '#ffb86b' }, skill: ['ばくえんブレス', 'burst', '#ff5e4a', 2.4] },
-    { id: 'raigaru', name: 'ライガル', kind: 'かみなりりゅう型', look: { f: 'quad', s: 1.2, c: m('#4a7ae8', '#243f9a', '#a8c0ff'), spike: '#ffd23f', horn: '#fff27a', tail: 'dragon', wing: 'dragon', b: '#dfe8ff' }, skill: ['いかづちのつめ', 'dash', '#fff27a', 2.3] },
-    { id: 'tenryuu', name: 'テンリュウ', kind: 'てんりゅう型', look: { f: 'quad', s: 1.4, c: m('#ffd23f', '#c79a00', '#fff3b0'), spike: '#7a3ad6', horn: '#ffffff', tail: 'dragon', wing: 'dragon', mane: '#7a3ad6', gem: '#5ef2ff', fang: true, b: '#fff3b0' }, skill: ['てんのいかり', 'rain', '#ffd23f', 2.8] },
+    { id: 'ryuuko', name: 'リュウコ', kind: 'ちびりゅう型', look: { f: 'blob', s: 0.7, c: m('#ff9a6a', '#c25a3a', '#ffd9c0'), horn: '#fff0c2', tail: 'dragon', wing: 'bat', b: '#fff0c2' }, skill: ['ちびブレス', 'shot', '#ffb08a', 1.5] },
+    { id: 'honora', name: 'ホノラ', kind: 'ひのこりゅう型', look: { f: 'quad', s: 0.82, c: m('#ff5e4a', '#b02a22', '#ffb09a'), tail: 'flame', horn: '#ffe9a8', wing: 'bat', b: '#ffd27a', fang: true }, skill: ['ひのこブレス', 'shot', '#ff7a2a', 1.9] },
+    { id: 'kazeru', name: 'カゼル', kind: 'かぜりゅう型', look: { f: 'quad', s: 0.82, c: m('#5ed8c0', '#22907f', '#c0fff0'), tail: 'dragon', horn: '#ffffff', wing: 'dragon', b: '#e8fff8' }, skill: ['つむじかぜ', 'wave', '#c0fff0', 1.9] },
+    { id: 'bakuryu', name: 'バクリュウ', kind: 'ばくえんりゅう型', float: true, look: { f: 'quad', s: 1.2, c: m('#d63a2a', '#7a1810', '#ff9a7a'), spike: '#3d1a14', horn: '#ffd23f', tail: 'flame', wing: 'dragon', fang: true, b: '#ffb86b' }, skill: ['ばくえんブレス', 'burst', '#ff5e4a', 2.4] },
+    { id: 'raigaru', name: 'ライガル', kind: 'かみなりりゅう型', float: true, look: { f: 'quad', s: 1.2, c: m('#4a7ae8', '#243f9a', '#a8c0ff'), spike: '#ffd23f', horn: '#fff27a', tail: 'dragon', wing: 'dragon', b: '#dfe8ff' }, skill: ['いかづちのつめ', 'dash', '#fff27a', 2.3] },
+    { id: 'tenryuu', name: 'テンリュウ', kind: 'てんりゅう型', float: true, look: { f: 'quad', s: 1.45, c: m('#ffd23f', '#c79a00', '#fff3b0'), spike: '#7a3ad6', horn: '#ffffff', tail: 'dragon', wing: 'dragon', mane: '#7a3ad6', gem: '#5ef2ff', fang: true, b: '#fff3b0' }, skill: ['てんのいかり', 'rain', '#ffd23f', 2.8] },
   ],
   cat: [
     { id: 'mimiko', name: 'ミミコ', kind: 'ちびねこ型', look: { f: 'blob', s: 0.85, c: m('#ffd9a8', '#c99a60', '#fff3dc'), ear: 'cat', tail: 'cat', b: '#ffffff' }, skill: ['ねこパンチ', 'dash', '#fff3dc', 1.5] },
