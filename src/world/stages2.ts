@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { psx, SNAP_GLSL, snapUniform } from './psx'
 import { rng } from './textures'
 import { HALF, SIZE, dens, disposeTree, edge, lambert, mounds, motes, placer, skyDome, smooth, terrain, voidSpace } from './stages'
+import { FLORA, tree } from './flora'
 import type { FoodSpot, Obstacle, Stage } from './stages'
 
 /**
@@ -249,6 +250,15 @@ function volcano(): Stage {
     g.position.set(p.x, heightAt(p.x, p.z), p.z)
     group.add(g)
     obstacles.push({ x: p.x, z: p.z, r: 0.5 })
+  }
+  // こげた しげみに 火の花（計画 E5。当たり判定なし）
+  for (let i = 0; i < dens(7); i++) {
+    const p = put(0.2, 1.5)
+    if (!p) break
+    const t = tree('bush', 1700 + i, FLORA.ember)
+    t.scale.setScalar(0.8 + p.r() * 0.7)
+    t.position.set(p.x, heightAt(p.x, p.z) - 0.03, p.z)
+    group.add(t)
   }
   // 玄武岩のごろ石
   const stoneMat = lambert('#51485a', { map: basalt })
@@ -645,32 +655,16 @@ function ruins(): Stage {
   group.add(disk)
 
   // ---- 光る実のなる木 ----
-  const bark = lambert('#5b4a3a')
-  const leafA = lambert('#2f7a52')
-  const leafB = lambert('#46a064')
   const fruit = lambert('#9dffd0', { emissive: '#7dffc0', emissiveIntensity: 0.4 })
   for (let i = 0; i < dens(5); i++) {
     const p = put(0.6)
     if (!p) break
-    const t = new THREE.Group()
-    const lean = (p.r() - 0.5) * 0.5
-    let top = new THREE.Vector3()
-    for (let k = 0; k < 4; k++) {
-      const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.1 - k * 0.012, 0.15 - k * 0.012, 0.42, 6), bark)
-      seg.position.set(lean * k * 0.3, 0.2 + k * 0.4, 0)
-      seg.rotation.z = -lean * 0.4
-      t.add(seg)
-      top = seg.position.clone().add(new THREE.Vector3(0, 0.2, 0))
-    }
-    for (const [dx, dy, dz, s, m] of [[0, 0.5, 0, 0.78, leafA], [0.45, 0.2, 0.2, 0.5, leafB], [-0.4, 0.3, -0.25, 0.52, leafB]] as const) {
-      const c = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 0), m)
-      c.position.copy(top).add(new THREE.Vector3(dx, dy, dz))
-      t.add(c)
-    }
+    const t = tree('round', 1500 + i, FLORA.ruin)
+    const top = new THREE.Vector3(0, 1.6, 0)
     for (let k = 0; k < 5; k++) {
       const f = new THREE.Mesh(new THREE.OctahedronGeometry(0.1, 0), fruit)
       const a = k * 1.3 + p.r()
-      f.position.copy(top).add(new THREE.Vector3(Math.cos(a) * 0.72, 0.05 + (k % 3) * 0.2, Math.sin(a) * 0.72))
+      f.position.copy(top).add(new THREE.Vector3(Math.cos(a) * 0.98, 0.05 + (k % 3) * 0.2, Math.sin(a) * 0.98))
       t.add(f)
     }
     const s = 0.9 + p.r() * 0.4
@@ -680,6 +674,15 @@ function ruins(): Stage {
     group.add(t)
     obstacles.push({ x: p.x, z: p.z, r: 0.35 * s })
     foodSpots.push({ x: p.x, z: p.z })
+  }
+  // こけの しげみ（計画 E5。当たり判定なし）
+  for (let i = 0; i < dens(9); i++) {
+    const p = put(0.2, 1.5)
+    if (!p) break
+    const t = tree('bush', 1600 + i, FLORA.ruin)
+    t.scale.setScalar(0.8 + p.r() * 0.7)
+    t.position.set(p.x, heightAt(p.x, p.z) - 0.03, p.z)
+    group.add(t)
   }
   // 苔むした岩
   const rockMat = lambert('#8fa890', { map: T(mossStone()) })
