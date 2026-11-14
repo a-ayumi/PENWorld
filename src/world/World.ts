@@ -430,6 +430,7 @@ export class World {
   dropFood = Vi.dropFood
   removeFood = Vi.removeFood
   lam = Vi.lam
+  settle = Vi.settle
   mountItem = Vi.mountItem
   unmountItem = Vi.unmountItem
   setItemQuality = Vi.setItemQuality
@@ -862,6 +863,7 @@ export class World {
     this.sun.color.set(s.sun.color)
     this.sun.position.set(...s.sun.dir)
     this.applyLight()
+    this.settle()
     for (const it of this.items) if (it.stage === i) this.mountItem(it)
     // 野生の持ち主はいなくなるので、その家は空き家になる（だれかが住みつく）
     for (const h of this.houses) {

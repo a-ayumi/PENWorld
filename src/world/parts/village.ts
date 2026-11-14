@@ -1235,6 +1235,42 @@ export function villageName(this: World) {
 }
 
 /** 箱庭をひろげる（ステージを作り直す。家・建物・置き物・たまごはそのまま残る） */
+/**
+ * 地形が 変わった後（地形の作りなおし・かいたく）に、水・溶岩・急な坂・島の外に かさなった 家・建物・置き物を
+ * いちばん近い 平らな所へ うつす。ステージを読みこむ時、モデルを 置く前に 呼ぶ。はしは 水の上に無ければ 取りのぞく
+ */
+export function settle(this: World) {
+  const here = this.stageIndex
+  const h = this.stage.heightAt
+  const fixed = this.stage.obstacles
+  const lim = HALF - 0.5
+  const bad = (x: number, z: number, r: number) => {
+    if (Math.abs(x) > lim || Math.abs(z) > lim) return true
+    if (Math.max(Math.abs(h(x + 0.6, z) - h(x - 0.6, z)), Math.abs(h(x, z + 0.6) - h(x, z - 0.6))) > 0.45) return true
+    return fixed.some((o) => (o.water || o.r > 0.8) && Math.hypot(o.x - x, o.z - z) < o.r + r)
+  }
+  const taken: { x: number; z: number; r: number }[] = []
+  const place = (o: { x: number; z: number }, r: number) => {
+    if (bad(o.x, o.z, r)) {
+      search: for (let d = 1; d < HALF * 2; d += 1) {
+        for (let a = 0; a < 16; a++) {
+          const x = o.x + Math.cos((a / 16) * Math.PI * 2) * d
+          const z = o.z + Math.sin((a / 16) * Math.PI * 2) * d
+          if (bad(x, z, r) || taken.some((t) => Math.hypot(t.x - x, t.z - z) < t.r + r + 0.4)) continue
+          o.x = x
+          o.z = z
+          break search
+        }
+      }
+    }
+    taken.push({ x: o.x, z: o.z, r })
+  }
+  for (const hs of this.houses) if (hs.stage === here) place(hs, 1.1)
+  this.structs = this.structs.filter((b) => b.stage !== here || b.kind !== 'bridge' || fixed.some((o) => o.water && Math.hypot(o.x - b.x, o.z - b.z) < o.r + 0.8))
+  for (const b of this.structs) if (b.stage === here && b.kind !== 'bridge' && b.kind !== 'wall') place(b, Math.max(0.6, STRUCTS[b.kind].r))
+  for (const it of this.items) if (it.stage === here) place(it, 0.4)
+}
+
 export function expandLand(this: World, level: number) {
   const eggs = this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild, lucky: e.lucky, deco: e.deco }))
   this.land = level
