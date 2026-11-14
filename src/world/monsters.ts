@@ -47,16 +47,16 @@ export const BRANCH: Record<1 | 2 | 3, Record<Care, SpeciesId>> = {
 }
 
 const OLD_SPECIES: Record<OldId, Species> = {
-  mebu: { id: 'mebu', name: 'メブ', kind: 'めばえ型', height: 1.22, hp: 30, atk: 5, speed: 1.4, temper: 'calm', tier: 1 },
-  pikori: { id: 'pikori', name: 'ピコリ', kind: 'でんきゅう鳥型', height: 1.35, hp: 45, atk: 8, speed: 1.8, temper: 'calm', tier: 2 },
-  gorota: { id: 'gorota', name: 'ゴロタ', kind: 'けっしょう甲羅型', height: 1.35, hp: 70, atk: 7, speed: 0.9, temper: 'calm', tier: 2 },
+  mebu: { id: 'mebu', name: 'メブ', kind: 'めばえ型', height: 0.8, hp: 30, atk: 5, speed: 1.4, temper: 'calm', tier: 1 },
+  pikori: { id: 'pikori', name: 'ピコリ', kind: 'でんきゅう鳥型', height: 1.15, hp: 45, atk: 8, speed: 1.8, temper: 'calm', tier: 2 },
+  gorota: { id: 'gorota', name: 'ゴロタ', kind: 'けっしょう甲羅型', height: 1.15, hp: 70, atk: 7, speed: 0.9, temper: 'calm', tier: 2 },
   fuwari: { id: 'fuwari', name: 'フワリ', kind: 'くもくらげ型', height: 1.7, hp: 72, atk: 11, speed: 1.3, temper: 'calm', float: true, tier: 3 },
-  giaru: { id: 'giaru', name: 'ギアル', kind: 'はぐるまロボ型', height: 1.69, hp: 80, atk: 13, speed: 1.7, temper: 'calm', tier: 3 },
+  giaru: { id: 'giaru', name: 'ギアル', kind: 'はぐるまロボ型', height: 1.7, hp: 80, atk: 13, speed: 1.7, temper: 'calm', tier: 3 },
   hireru: { id: 'hireru', name: 'ヒレル', kind: 'なみのり魚型', height: 1.7, hp: 76, atk: 12, speed: 1.7, temper: 'calm', float: true, tier: 3 },
-  mofuru: { id: 'mofuru', name: 'モフル', kind: 'わたゆき獣型', height: 1.4, hp: 60, atk: 6, speed: 1.0, temper: 'calm', tier: 2 },
-  garudora: { id: 'garudora', name: 'ガルドラ', kind: 'はがねりゅう型', height: 2.05, hp: 150, atk: 22, speed: 1.6, temper: 'calm', tier: 4 },
+  mofuru: { id: 'mofuru', name: 'モフル', kind: 'わたゆき獣型', height: 1.15, hp: 60, atk: 6, speed: 1.0, temper: 'calm', tier: 2 },
+  garudora: { id: 'garudora', name: 'ガルドラ', kind: 'はがねりゅう型', height: 2.3, hp: 150, atk: 22, speed: 1.6, temper: 'calm', float: true, tier: 4 },
   shioryu: { id: 'shioryu', name: 'シオリュウ', kind: 'うしおへび型', height: 2.3, hp: 165, atk: 18, speed: 1.5, temper: 'calm', float: true, tier: 4 },
-  hoshikujira: { id: 'hoshikujira', name: 'ホシクジラ', kind: 'ほしぞらくじら型', height: 2.1, hp: 140, atk: 19, speed: 1.2, temper: 'calm', float: true, tier: 4 },
+  hoshikujira: { id: 'hoshikujira', name: 'ホシクジラ', kind: 'ほしぞらくじら型', height: 2.3, hp: 140, atk: 19, speed: 1.2, temper: 'calm', float: true, tier: 4 },
   noiz: { id: 'noiz', name: 'ノイズ', kind: 'こわれたデータ', height: 1.35, hp: 38, atk: 7, speed: 1.5, temper: 'wild', tier: 0 },
   togebug: { id: 'togebug', name: 'トゲバグ', kind: 'とげむし型', height: 1.15, hp: 26, atk: 6, speed: 2.2, temper: 'wild', tier: 0 },
   yamikage: { id: 'yamikage', name: 'ヤミカゲ', kind: 'よるのかげ', height: 1.5, hp: 40, atk: 10, speed: 1.6, temper: 'wild', float: true, tier: 0, habit: 'night' },
@@ -2613,6 +2613,275 @@ function hydraGhost(g: G, p: Pose, f: number, L: Look): Geom {
   neck([[cx + 0.5, cy - 4.5], [cx, cy - 10.5], [cx + 1.5 + wv(3), cy - 15.5], [cx + 4 + wv(3), cy - 18.8]], 1)
   const hd: Pt = [cx + 4 + wv(3), cy - 18.8]
   return { bx: cx, by: cy, rx: 9, ry: 6.5, hx: hd[0], hy: hd[1], hr: 3, mx: hd[0] + 3, my: hd[1] + 1.2, cols: [B, S, H] }
+}
+
+// ---------- むかしの 7 種（描きなおし）----------
+/** メブ（赤ちゃん）：しずく形の まるい体に ふたばの 芽 */
+function sproutBaby(g: G, p: Pose, f: number) {
+  const B = '#6fd26a'
+  const S = '#3f9e4a'
+  const H = '#c8f7b0'
+  const dark = '#1a1530'
+  const ry = 7.6 - p.sq * 0.7
+  const rx = 8.2 + p.sq * 0.7
+  const cx = 16 + p.lean
+  const cy = 30 - ry - 1.2 + p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
+  const sw = Math.sin(f * 1.4) * 0.8
+  ell(g, S, cx - 3 + p.step * 0.8, 29.4, 2.4, 1.2)
+  ell(g, S, cx + 3.4 - p.step * 0.8, 29.4, 2.4, 1.2)
+  // 芽：くき と ふたば
+  leaf(g, S, cx + 0.5, cy - ry + 1, cx + 1 + sw * 0.5, cy - ry - 3.6, 0.7)
+  leaf(g, S, cx + 1 + sw * 0.5, cy - ry - 3.2, cx - 4.6 + sw, cy - ry - 6.4 - p.flap * 0.5, 2)
+  leaf(g, '#8fe070', cx + 1 + sw * 0.5, cy - ry - 3.4, cx - 3.6 + sw, cy - ry - 6 - p.flap * 0.5, 1)
+  leaf(g, S, cx + 1 + sw * 0.5, cy - ry - 3.2, cx + 6.4 + sw, cy - ry - 5.8 - p.flap * 0.5, 2)
+  leaf(g, '#8fe070', cx + 1 + sw * 0.5, cy - ry - 3.4, cx + 5.4 + sw, cy - ry - 5.4 - p.flap * 0.5, 1)
+  const body = (c: string, k: number) =>
+    shape(g, c, (g) => {
+      g.moveTo(cx, cy - ry * 1.12 * k)
+      g.bezierCurveTo(cx + rx * 0.7 * k, cy - ry * 0.9 * k, cx + rx * 1.05 * k, cy - ry * 0.1 * k, cx + rx * k, cy + ry * 0.35 * k)
+      g.bezierCurveTo(cx + rx * 0.95 * k, cy + ry * 1.05 * k, cx - rx * 0.95 * k, cy + ry * 1.05 * k, cx - rx * k, cy + ry * 0.35 * k)
+      g.bezierCurveTo(cx - rx * 1.05 * k, cy - ry * 0.1 * k, cx - rx * 0.7 * k, cy - ry * 0.9 * k, cx, cy - ry * 1.12 * k)
+    })
+  body(S, 1)
+  body(B, 0.89)
+  ell(g, H, cx + rx * 0.15, cy + ry * 0.5, rx * 0.55, ry * 0.36)
+  leaf(g, H, cx - rx * 0.6, cy - ry * 0.1, cx - rx * 0.3, cy - ry * 0.7, 0.9)
+  eyes(g, [cx + 1, cx + 5.4], cy - 0.6, p.eye, dark)
+  ell(g, '#ff9fb0', cx - 1.6, cy + 2.2, 1.3, 0.8)
+  ell(g, '#ff9fb0', cx + 7, cy + 2.2, 1.1, 0.8)
+  cuteMouth(g, p, cx + 3.4, cy + 2, dark)
+}
+/** ピコリ（成長期）：あたまに でんきゅうを のせた まるい ひよこ */
+function bulbChick(g: G, p: Pose, f: number) {
+  const B = '#ffd23f'
+  const S = '#d99a00'
+  const H = '#fff3b0'
+  const dark = '#1a1530'
+  const ry = 8 - p.sq * 0.6
+  const rx = 8.4 + p.sq * 0.6
+  const cx = 16 + p.lean
+  const cy = 29 - ry + p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
+  const on = f % 2 === 0
+  rect(g, '#ff9f43', cx - 3 + p.step, cy + ry - 0.6, 1, 2.2)
+  rect(g, '#ff9f43', cx + 2.6 - p.step, cy + ry - 0.6, 1, 2.2)
+  rect(g, '#ff9f43', cx - 4.2 + p.step, 29.5, 3.2, 0.9)
+  rect(g, '#ff9f43', cx + 1.4 - p.step, 29.5, 3.2, 0.9)
+  // おばね
+  leaf(g, S, cx - rx * 0.7, cy + ry * 0.2, cx - rx * 1.3, cy - ry * 0.3 + Math.sin(f * 1.7), 1.6)
+  leaf(g, S, cx - rx * 0.7, cy + ry * 0.3, cx - rx * 1.3, cy + ry * 0.4 + Math.sin(f * 1.7), 1.4)
+  // でんきゅう（ソケット → ガラス → ひかり）
+  rect(g, '#8a94a6', cx - 0.4, cy - ry - 2.2, 2.8, 2.6)
+  rect(g, '#c4ccd8', cx - 0.4, cy - ry - 1.4, 2.8, 0.6)
+  if (on) ell(g, '#fff8c0', cx + 1, cy - ry - 5.6, 4.6, 4.6)
+  ell(g, on ? '#fff27a' : '#c9ced6', cx + 1, cy - ry - 5.4, 3.3, 3.6)
+  ell(g, '#ffffff', cx, cy - ry - 6.4, 1.1, 1.3)
+  rect(g, on ? '#ff9f43' : '#8a94a6', cx + 0.5, cy - ry - 5, 1, 2.4)
+  ell(g, S, cx, cy, rx, ry)
+  ell(g, B, cx - 0.4, cy - 0.5, rx - 0.9, ry - 0.9)
+  ell(g, H, cx + rx * 0.2, cy + ry * 0.45, rx * 0.55, ry * 0.4)
+  leaf(g, H, cx - rx * 0.6, cy - ry * 0.1, cx - rx * 0.3, cy - ry * 0.7, 0.9)
+  // つばさ（ぱたぱた）
+  leaf(g, S, cx - rx * 0.35, cy - ry * 0.05, cx - rx * 1.0, cy + ry * 0.55 - p.flap * 2.2, 2.2)
+  leaf(g, B, cx - rx * 0.35, cy, cx - rx * 0.85, cy + ry * 0.45 - p.flap * 2.2, 1.1)
+  eyes(g, [cx + 0.6, cx + 5], cy - 2.6, p.eye, dark)
+  ell(g, '#ff9fb0', cx - 2, cy + 0.2, 1.3, 0.8)
+  const bx = cx + 2.8
+  const by = cy - 0.2
+  if (p.mouth === 1 || p.mouth === 4) {
+    poly(g, '#ff9f43', [bx - 1.5, by, bx + 1.5, by, bx, by - 1.3])
+    poly(g, '#e8662a', [bx - 1.3, by + 0.7, bx + 1.3, by + 0.7, bx, by + 2.4])
+  } else poly(g, '#ff9f43', [bx - 1.6, by - 0.2, bx + 1.6, by - 0.2, bx, by + 2])
+}
+/** ゴロタ（成長期）：けっしょうを せおった まるい こうら */
+function crystalShell(g: G, p: Pose, f: number) {
+  const B = '#8a94a6'
+  const S = '#5f6878'
+  const H = '#c4ccd8'
+  const dark = '#1a1530'
+  const cx = 14 + p.lean
+  const cy = 21.5 + p.bob * 0.5
+  const ry = 6.6 - p.sq * 0.5
+  const hx = 24 + p.lean
+  const hy = cy + 1.5
+  for (const [dx, k] of [[-6, 1], [-1.5, -1], [3.5, 1]] as const) {
+    rect(g, S, cx + dx - 1.4 + p.step * k * 0.7, cy + ry - 1.5, 2.8, 31 - (cy + ry - 1.5) - 1.6)
+    ell(g, S, cx + dx + 0.3 + p.step * k * 0.7, 29.3, 2.4, 1.2)
+  }
+  ell(g, S, cx - 10.5, cy + 2, 1.8, 1.3)
+  // けっしょう（うしろ → 手前）
+  const cr = [['#3ac8e8', -5.5, 6.5], ['#7fe8ff', -1.5, 9.5], ['#3ac8e8', 2.5, 7], ['#b8f6ff', 5.5, 4.5]] as const
+  for (const [c, dx, h] of cr) {
+    poly(g, c, [cx + dx - 2, cy - ry * 0.55, cx + dx + 0.4, cy - ry * 0.55 - h, cx + dx + 2.2, cy - ry * 0.55])
+    poly(g, '#ffffff', [cx + dx - 0.6, cy - ry * 0.7, cx + dx + 0.3, cy - ry * 0.55 - h + 1.4, cx + dx + 0.3, cy - ry * 0.7])
+  }
+  if (f % 2 === 0) rect(g, '#ffffff', cx - 2, cy - ry - 8.4, 1, 1)
+  // こうら（まるく・六角の もよう）
+  shape(g, S, (g) => {
+    g.moveTo(cx - 10.4, cy + ry * 0.55)
+    g.bezierCurveTo(cx - 10.4, cy - ry * 1.25, cx + 9.6, cy - ry * 1.25, cx + 9.6, cy + ry * 0.55)
+    g.quadraticCurveTo(cx, cy + ry * 1.05, cx - 10.4, cy + ry * 0.55)
+  })
+  shape(g, B, (g) => {
+    g.moveTo(cx - 9.4, cy + ry * 0.4)
+    g.bezierCurveTo(cx - 9.4, cy - ry * 1.08, cx + 8.6, cy - ry * 1.08, cx + 8.6, cy + ry * 0.4)
+    g.quadraticCurveTo(cx, cy + ry * 0.85, cx - 9.4, cy + ry * 0.4)
+  })
+  for (const [dx, dy] of [[-5, -0.2], [0, -0.45], [5, -0.2], [-2.5, 0.25], [2.5, 0.25]] as const) {
+    rect(g, S, cx + dx - 1.4, cy + dy * ry, 2.8, 0.5)
+    rect(g, S, cx + dx - 1.4, cy + dy * ry, 0.5, 1.6)
+  }
+  leaf(g, H, cx - 7.4, cy - 0.5, cx - 4.6, cy - ry * 0.75, 0.8)
+  rect(g, '#9aa4b6', cx - 9, cy + ry * 0.45, 17.4, 0.9)
+  // あたま（まるい）
+  ell(g, S, hx, hy, 4.6, 4.2)
+  ell(g, H, hx - 0.3, hy - 0.4, 3.8, 3.4)
+  eyes(g, [hx - 0.6, hx + 2.6], hy - 0.6, p.eye, dark)
+  ell(g, '#ff9fb0', hx - 2, hy + 1.4, 1.1, 0.7)
+  cuteMouth(g, p, hx + 1.4, hy + 1.6, dark)
+}
+/** モフル（成長期）：もこもこの わた雪の けもの・こおりの つの */
+function fluffBeast(g: G, p: Pose, f: number) {
+  const W = '#fbfdff'
+  const S = '#c9d8ee'
+  const dark = '#2a3a6a'
+  const ry = 8.4 - p.sq * 0.7
+  const rx = 9.6 + p.sq * 0.7
+  const cx = 16 + p.lean
+  const cy = 29 - ry + p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
+  for (const [dx, k] of [[-4, 1], [4, -1]] as const) ell(g, S, cx + dx + p.step * k * 0.7, 29.3, 2.6, 1.3)
+  // こおりの つの
+  for (const [dx, k] of [[-0.42, -1], [0.38, 1]] as const) {
+    poly(g, '#7fd1ff', [cx + dx * rx - 1.4, cy - ry * 0.75, cx + dx * rx + k * 1.6, cy - ry * 1.55, cx + dx * rx + 1.4, cy - ry * 0.75])
+    poly(g, '#e8f8ff', [cx + dx * rx - 0.5, cy - ry * 0.85, cx + dx * rx + k * 1.2, cy - ry * 1.35, cx + dx * rx + 0.3, cy - ry * 0.85])
+  }
+  // もこもこ：ふちに まるを ならべて、まんなかを うめる
+  const puff = (c: string, k: number, o: number) => {
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2 + (f % 2 ? 0.08 : 0)
+      ell(g, c, cx + Math.cos(a) * rx * 0.72 * k, cy + Math.sin(a) * ry * 0.72 * k + o, rx * 0.34 * k, ry * 0.36 * k)
+    }
+    ell(g, c, cx, cy + o, rx * 0.8 * k, ry * 0.8 * k)
+  }
+  puff(S, 1, 0.4)
+  puff(W, 0.93, -0.2)
+  for (const [dx, dy] of [[-0.55, 0.35], [0.5, 0.5], [-0.2, 0.62]] as const) leaf(g, S, cx + dx * rx - 1.2, cy + dy * ry, cx + dx * rx + 1.2, cy + dy * ry + 0.4, 0.4)
+  eyes(g, [cx + 0.2, cx + 4.8], cy - 0.8, p.eye, dark)
+  ell(g, '#ffc0d0', cx - 2.8, cy + 1.8, 1.6, 0.9)
+  ell(g, '#ffc0d0', cx + 7.4, cy + 1.8, 1.4, 0.9)
+  cuteMouth(g, p, cx + 2.6, cy + 1.6, dark)
+}
+/** ギアル（成熟期）：せなかで はぐるまが まわる ロボ・ひかる まど・うでの プラグ */
+function gearRobot(g: G, p: Pose, f: number) {
+  const B = '#6f55d8'
+  const S = '#5b3fc9'
+  const H = '#a58cff'
+  const dk = '#2a1f5e'
+  const gold = '#ffd23f'
+  const led = '#ff5e7a'
+  const cx = 16 + p.lean
+  const cy = 21 + p.bob * 0.5 + (p.bob < 0 ? p.bob : 0)
+  const hy = cy - 8 + p.sq * 0.5
+  // せなかの はぐるま（まわる）
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + (f % 2) * 0.4
+    rect(g, '#c9ced6', cx - 6.5 + Math.cos(a) * 5 - 0.9, cy - 2 + Math.sin(a) * 5 - 0.9, 1.8, 1.8)
+  }
+  ell(g, '#c9ced6', cx - 6.5, cy - 2, 4.3, 4.3)
+  ell(g, '#8a94a6', cx - 6.5, cy - 2, 2.6, 2.6)
+  ell(g, '#c9ced6', cx - 6.5, cy - 2, 1, 1)
+  // あし
+  for (const [dx, k] of [[-2.6, 1], [2.6, -1]] as const) {
+    rr(g, dk, cx + dx - 1.5 + p.step * k * 0.7, cy + 4, 3, 4.6, 1)
+    rr(g, S, cx + dx - 2.2 + p.step * k * 0.7, 28, 4.6, 2.2, 1)
+  }
+  // うで：手前は プラグの うで
+  rr(g, S, cx - 8, cy - 1 - p.flap * 0.8, 2.8, 5, 1.2)
+  // どう
+  rr(g, S, cx - 6, cy - 3.6, 12, 9, 2.6)
+  rr(g, B, cx - 5.2, cy - 3, 10.2, 7.6, 2.2)
+  rect(g, H, cx - 4.4, cy - 2, 0.8, 4)
+  rr(g, dk, cx - 2.4, cy - 0.6, 5.6, 3.4, 1)
+  rect(g, '#5ef2ff', cx - 1.4, cy + 0.6, 3.6, 0.9)
+  rect(g, gold, cx - 5, cy + 4, 10, 1)
+  rr(g, S, cx + 5.4, cy - 1.6 + p.flap * 0.6, 6.4, 3, 1.2)
+  rect(g, gold, cx + 11.6, cy - 2.2 + p.flap * 0.6, 2, 4.2)
+  rect(g, '#c9ced6', cx + 13.6, cy - 1.4 + p.flap * 0.6, 1.4, 0.7)
+  rect(g, '#c9ced6', cx + 13.6, cy + 0.6 + p.flap * 0.6, 1.4, 0.7)
+  // あたま：まるい かどの 四角・まど・アンテナ
+  rect(g, dk, cx - 1, hy + 4.4, 3, 1.6)
+  rr(g, S, cx - 5.6, hy - 4.6, 12, 9.4, 3)
+  rr(g, B, cx - 4.8, hy - 4, 10.2, 8, 2.6)
+  rect(g, H, cx - 3.8, hy - 3, 3, 0.7)
+  rr(g, '#12162a', cx - 2.8, hy - 1.6, 8.6, 4, 1.4)
+  ledEyes(g, [cx + 0.2, cx + 3.8], hy + 0.3, p.eye, led, 0.95)
+  for (const sg of [-1, 1]) ell(g, '#c9ced6', cx + 0.4 + sg * 6.2, hy, 1.3, 1.9)
+  rect(g, '#8a94a6', cx + 0.6, hy - 8.4, 0.9, 4)
+  ell(g, gold, cx + 1.05, hy - 8.8 + (f % 2 ? 0 : 0.3), 1.5, 1.5)
+}
+/** ホシクジラ（完成期）：星ぞらの もようの 大きな くじら・ほしの しおふき */
+function starWhale(g: G, p: Pose, f: number) {
+  const B = '#2a3a7a'
+  const S = '#1a2350'
+  const H = '#5a6ab0'
+  const belly = '#c8d4ff'
+  const star = '#ffe27a'
+  const cx = 16 + p.lean
+  const cy = 16.5 + p.bob * 0.8 + Math.sin(f * 1.1) * 0.6
+  const rx = 12
+  const ry = 7.6 - p.sq * 0.4
+  const w = Math.sin(f * 1.5) * 1.4
+  // おびれ（ハート形）
+  leaf(g, S, cx - rx * 0.86, cy + 1, cx - rx * 1.32, cy - 5.4 + w, 2.6)
+  leaf(g, S, cx - rx * 0.86, cy + 1, cx - rx * 1.32, cy + 5.6 + w, 2.6)
+  leaf(g, H, cx - rx * 0.9, cy + 1, cx - rx * 1.2, cy - 3.6 + w, 1)
+  // ほしの しおふき
+  for (const [dx, dy, r] of [[2, -3.6, 1.2], [-0.5, -6, 1], [4.6, -6.4, 0.9], [1.6, -8.8, 0.8]] as const) {
+    const yy = cy - ry + dy + (f % 2 ? -0.6 : 0)
+    rect(g, star, cx + dx - 0.4, yy - r, 0.8, r * 2)
+    rect(g, star, cx + dx - r, yy - 0.4, r * 2, 0.8)
+  }
+  const body = (c: string, k: number) =>
+    shape(g, c, (g) => {
+      g.moveTo(cx - rx * k, cy + 0.6)
+      g.bezierCurveTo(cx - rx * 0.75 * k, cy - ry * 1.2 * k, cx + rx * 0.75 * k, cy - ry * 1.25 * k, cx + rx * k, cy - ry * 0.05 * k)
+      g.bezierCurveTo(cx + rx * 1.03 * k, cy + ry * 1.0 * k, cx - rx * 0.55 * k, cy + ry * 1.15 * k, cx - rx * k, cy + 0.6)
+    })
+  body(S, 1)
+  body(B, 0.91)
+  // おなか（明るい色に たての すじ）
+  shape(g, belly, (g) => {
+    g.moveTo(cx - rx * 0.6, cy + ry * 0.45)
+    g.quadraticCurveTo(cx + rx * 0.1, cy + ry * 0.15, cx + rx * 0.86, cy + ry * 0.3)
+    g.quadraticCurveTo(cx + rx * 0.4, cy + ry * 0.98, cx - rx * 0.25, cy + ry * 0.92)
+    g.quadraticCurveTo(cx - rx * 0.55, cy + ry * 0.8, cx - rx * 0.6, cy + ry * 0.45)
+  })
+  for (let i = 0; i < 5; i++) leaf(g, H, cx - rx * 0.35 + i * rx * 0.22, cy + ry * 0.42, cx - rx * 0.28 + i * rx * 0.2, cy + ry * 0.86, 0.3)
+  leaf(g, H, cx - rx * 0.6, cy - ry * 0.3, cx - rx * 0.1, cy - ry * 0.75, 0.9)
+  // 星ぞらの もよう（またたく）
+  const stars = [[-0.5, -0.35, 1.3], [-0.1, -0.6, 0.9], [0.3, -0.5, 1.1], [0.05, -0.15, 0.8], [-0.7, 0, 0.8], [0.6, -0.2, 0.7]] as const
+  stars.forEach(([dx, dy, r], i) => {
+    const on = (f + i) % 3 !== 0
+    const c = on ? star : '#8a9ad6'
+    rect(g, c, cx + dx * rx - 0.4, cy + dy * ry - r, 0.8, r * 2)
+    rect(g, c, cx + dx * rx - r, cy + dy * ry - 0.4, r * 2, 0.8)
+  })
+  // むなびれ
+  leaf(g, S, cx + rx * 0.1, cy + ry * 0.5, cx - rx * 0.3, cy + ry * 1.3 - p.flap * 1.6, 2.4)
+  leaf(g, H, cx + rx * 0.06, cy + ry * 0.55, cx - rx * 0.22, cy + ry * 1.1 - p.flap * 1.6, 0.9)
+  eyes(g, [cx + rx * 0.62], cy - ry * 0.02, p.eye, '#0d1530')
+  ell(g, '#ff9fb0', cx + rx * 0.46, cy + ry * 0.26, 1.4, 0.8)
+  if (p.mouth === 1 || p.mouth === 4) ell(g, '#7a1f3d', cx + rx * 0.8, cy + ry * 0.42, 1.6, 1.3)
+  else leaf(g, '#0d1530', cx + rx * 0.56, cy + ry * 0.42, cx + rx * 0.94, cy + ry * 0.3, 0.3)
+}
+DRAW_OLD.mebu = (g, p, f) => sproutBaby(g, p, f)
+DRAW_OLD.pikori = (g, p, f) => bulbChick(g, p, f)
+DRAW_OLD.gorota = (g, p, f) => crystalShell(g, p, f)
+DRAW_OLD.mofuru = (g, p, f) => fluffBeast(g, p, f)
+DRAW_OLD.giaru = (g, p, f) => gearRobot(g, p, f)
+DRAW_OLD.hoshikujira = (g, p, f) => starWhale(g, p, f)
+/** ガルドラ（完成期）：はがねの りゅう。とぶ りゅうの 描き方に、はがねの色と 金の つの・とげ */
+DRAW_OLD.garudora = (g, p, f) => {
+  dragon(g, p, f, { f: 'quad', s: 1.45, c: ['#b4c0d4', '#66748c', '#f0f5ff'], b: '#4a6fa5', horn: '#ffd23f', spike: '#3d52c8', tail: 'dragon', wing: 'dragon', fang: true, gem: '#5ef2ff', eye: '#0d1530' }, 1)
 }
 
 // ---------- 系統の仲間（パーツ指定で描く）----------
