@@ -449,6 +449,23 @@ export function refreshHouse(this: World, h: House, force = false) {
 }
 
 /** 家の見た目：建てた段階ごとに 土台 → かべ → 屋根 */
+let glowT: THREE.Texture | null = null
+/** まるく ぼけた あかり（家の前の 地面・共有） */
+function glowTex() {
+  if (glowT) return glowT
+  const c = document.createElement('canvas')
+  c.width = c.height = 32
+  const x = c.getContext('2d')!
+  const gr = x.createRadialGradient(16, 16, 1, 16, 16, 16)
+  gr.addColorStop(0, '#fff')
+  gr.addColorStop(0.5, '#777')
+  gr.addColorStop(1, '#000')
+  x.fillStyle = gr
+  x.fillRect(0, 0, 32, 32)
+  glowT = new THREE.CanvasTexture(c)
+  return glowT
+}
+
 export function mountHouse(this: World, h: House) {
   h.level = houseLevel(h.mats)
   const g = new THREE.Group()
@@ -474,43 +491,122 @@ export function mountHouse(this: World, h: House) {
     base.position.y = 0.11
     g.add(base)
   }
+  // 計画 E4：しっくいの かべに 木の骨組み・かさねた かわら・まどわく・ひさし・夜の あかり
+  const tone = (a: string, b2: string, t: number) => '#' + new THREE.Color(a).lerp(new THREE.Color(b2), t).getHexString()
+  const B = (w: number, hh: number, d: number, m: THREE.Material, x: number, y: number, z: number) => {
+    const o = new THREE.Mesh(new THREE.BoxGeometry(w, hh, d), m)
+    o.position.set(x, y, z)
+    g.add(o)
+    return o
+  }
+  const wins: THREE.Mesh[] = []
+  const pane = (w: number, hh: number, x: number, y: number, z: number, side = false) => {
+    const o = new THREE.Mesh(new THREE.BoxGeometry(side ? 0.04 : w, hh, side ? w : 0.04), new THREE.MeshBasicMaterial({ color: '#7d93a0' }))
+    o.position.set(x, y, z)
+    g.add(o)
+    wins.push(o)
+    return o
+  }
+  const roofCol = ROOF[h.ownerSp] ?? st.roof
+  const plaster = this.lam(tone(st.wall, '#f3e6c8', 0.62))
+  const beam = this.lam(tone(st.wall, '#33241a', 0.68))
+  const up = h.level >= 4 ? 0.45 : 0
+  if (h.level >= 1) B(0.5, 0.1, 0.22, stone, 0, 0.05, 0.74) // ふみ石
   if (h.level >= 2) {
-    const walls = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.75, 1.0), wood)
-    walls.position.y = 0.6
-    const door = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.48, 0.05), this.lam('#3d2a1e'))
-    door.position.set(0, 0.46, 0.51)
-    const win = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.2, 0.05), new THREE.MeshBasicMaterial({ color: '#ffd27a' }))
-    win.position.set(0.38, 0.68, 0.51)
-    win.name = 'window'
-    g.add(walls, door, win)
+    B(1.2, 0.75, 1.0, plaster, 0, 0.6, 0)
+    // 骨組み：四すみの柱・上下の はり・すじかい
+    for (const x of [-0.6, 0.6]) for (const z of [-0.5, 0.5]) B(0.1, 0.77, 0.1, beam, x, 0.6, z)
+    for (const y of [0.26, 0.95]) {
+      for (const z of [-0.51, 0.51]) B(1.24, 0.07, 0.04, beam, 0, y, z)
+      for (const x of [-0.61, 0.61]) B(0.04, 0.07, 1.04, beam, x, y, 0)
+    }
+    for (const x of [-0.61, 0.61]) B(0.04, 0.66, 0.07, beam, x, 0.6, 0)
+    B(0.06, 0.66, 0.04, beam, -0.24, 0.6, 0.51)
+    const brace = B(0.05, 0.5, 0.035, beam, -0.42, 0.6, 0.512)
+    brace.rotation.z = 0.62
+    // とびら：わく・板・とって
+    B(0.42, 0.56, 0.05, beam, 0.02, 0.5, 0.51)
+    B(0.32, 0.48, 0.05, this.lam(tone(st.wall, '#5a3a22', 0.75), { map: this.bark() }), 0.02, 0.47, 0.525)
+    B(0.04, 0.04, 0.03, new THREE.MeshBasicMaterial({ color: st.accent }), 0.12, 0.47, 0.56)
+    // まど：わく・ガラス・十字の さん
+    B(0.3, 0.28, 0.04, beam, 0.4, 0.66, 0.515)
+    const w0 = pane(0.22, 0.2, 0.4, 0.66, 0.53)
+    w0.name = 'window'
+    B(0.02, 0.2, 0.02, beam, 0.4, 0.66, 0.555)
+    B(0.22, 0.02, 0.02, beam, 0.4, 0.66, 0.555)
+    for (const x of [-0.615, 0.615]) {
+      B(0.04, 0.28, 0.3, beam, x, 0.66, -0.2)
+      pane(0.22, 0.2, x + Math.sign(x) * 0.015, 0.66, -0.2, true)
+    }
   }
   if (h.level >= 3) {
-    // 屋根の形は住む種族で変わる（四角・六角・八角）
+    // 屋根の形は住む種族で変わる（四角・六角・八角）。かわらを 3 だん かさねる
     const sides = [4, 6, 8][(h.ownerSp.charCodeAt(0) + h.ownerSp.length) % 3]
-    const up = h.level >= 4 ? 0.45 : 0
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(h.level >= 4 ? 0.95 : 1.05, 0.7, sides), this.lam(ROOF[h.ownerSp] ?? st.roof))
-    roof.position.y = 1.32 + up
-    if (sides === 4) roof.rotation.y = Math.PI / 4
-    const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.34, 0.16), stone)
-    chimney.position.set(-0.32, 1.45 + up, -0.15)
-    g.add(roof, chimney)
+    const R = h.level >= 4 ? 0.98 : 1.08
+    const dark = this.lam(tone(roofCol, '#2a1c20', 0.38))
+    const light = this.lam(roofCol)
+    const rot = sides === 4 ? Math.PI / 4 : 0
+    const eave = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.96, R * 0.96, 0.05, sides), beam)
+    eave.position.y = 0.985 + up
+    eave.rotation.y = rot
+    g.add(eave)
+    for (let i = 0; i < 3; i++) {
+      const rb = R * (1 - i / 3.2) + (i ? 0.11 : 0)
+      const rt = i === 2 ? 0.02 : R * (1 - (i + 1) / 3.2)
+      const tier = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, 0.25, sides), i % 2 ? dark : light)
+      tier.position.y = 1.13 + up + i * 0.235
+      tier.rotation.y = rot
+      g.add(tier)
+    }
+    const knob = new THREE.Mesh(new THREE.OctahedronGeometry(0.07, 0), new THREE.MeshBasicMaterial({ color: st.accent }))
+    knob.position.y = 1.8 + up
+    g.add(knob)
+    B(0.18, 0.4, 0.18, stone, -0.34, 1.42 + up, -0.15)
+    B(0.24, 0.06, 0.24, beam, -0.34, 1.64 + up, -0.15)
+    // とびらの ひさし と まどの 花ばこ
+    const awn = B(0.56, 0.04, 0.3, light, 0.02, 0.86, 0.64)
+    awn.rotation.x = 0.42
+    for (const x of [-0.22, 0.26]) B(0.03, 0.03, 0.24, beam, x, 0.8, 0.62)
+    B(0.3, 0.07, 0.09, beam, 0.4, 0.5, 0.56)
+    for (const [x, col] of [[0.31, '#ff8fb1'], [0.4, '#ffe08a'], [0.49, '#ff8fb1']] as const) B(0.06, 0.06, 0.06, new THREE.MeshBasicMaterial({ color: col }), x, 0.56, 0.57)
   }
   if (h.level >= 4) {
     // 増築：2 階・ベランダ・庭の花・ランプ
-    g.add(new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.45, 0.8), wood).translateY(1.2))
-    g.add(new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.05, 0.3), wood).translateY(0.99).translateZ(0.62))
-    const win2 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.18, 0.05), new THREE.MeshBasicMaterial({ color: '#ffd27a' }))
-    win2.position.set(0, 1.22, 0.41)
-    g.add(win2)
+    B(0.95, 0.45, 0.8, plaster, 0, 1.2, 0)
+    for (const x of [-0.475, 0.475]) for (const z of [-0.4, 0.4]) B(0.08, 0.47, 0.08, beam, x, 1.2, z)
+    B(0.99, 0.06, 0.04, beam, 0, 1.4, 0.41)
+    B(1.3, 0.05, 0.3, beam, 0, 0.99, 0.62)
+    B(1.3, 0.03, 0.03, beam, 0, 1.16, 0.76)
+    for (let i = 0; i < 6; i++) B(0.03, 0.16, 0.03, beam, -0.63 + i * 0.252, 1.08, 0.76)
+    B(0.28, 0.26, 0.04, beam, 0, 1.22, 0.405)
+    pane(0.2, 0.18, 0, 1.22, 0.42)
+    B(0.02, 0.18, 0.02, beam, 0, 1.22, 0.445)
     for (const [x, z, col] of [[-0.8, 0.8, '#ff8fb1'], [0.8, 0.85, '#ffd23f'], [-0.55, 0.95, '#ffffff'], [0.45, 0.98, '#ff8fb1'], [0.95, 0.5, '#9fd8ff']] as const) {
       const f = new THREE.Mesh(new THREE.SphereGeometry(0.07, 5, 4), new THREE.MeshBasicMaterial({ color: col }))
       f.position.set(x, 0.1, z)
       g.add(f)
+      B(0.02, 0.08, 0.02, this.lam('#5f8a4a'), x, 0.04, z)
     }
-    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.06, 5, 4), new THREE.MeshBasicMaterial({ color: st.accent }))
-    lamp.position.set(-0.3, 0.75, 0.56)
+    B(0.03, 0.03, 0.12, beam, -0.3, 0.84, 0.57)
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.11, 0.09), new THREE.MeshBasicMaterial({ color: '#7d93a0' }))
+    lamp.position.set(-0.3, 0.76, 0.63)
+    lamp.userData.lamp = st.accent
     g.add(lamp)
+    wins.push(lamp)
   }
+  if (h.level >= 2) {
+    // 夜、とびらの前の 地面に もれる あかり
+    const spill = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.3, 0.9),
+      new THREE.MeshBasicMaterial({ color: '#ffb866', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, map: glowTex() }),
+    )
+    spill.rotation.x = -Math.PI / 2
+    spill.position.set(0.1, 0.06, 0.95)
+    spill.visible = false
+    g.add(spill)
+    g.userData.spill = spill
+  }
+  g.userData.wins = wins
   g.position.set(h.x, this.stage.heightAt(h.x, h.z) - 0.02, h.z)
   g.userData.pop = this.time > 2 ? 0.55 : 0
   this.scene.add(g)
@@ -549,11 +645,21 @@ export function updateHouses(this: World, dt: number) {
       if (Math.random() < dt * 0.4) this.burst(h.x, this.stage.heightAt(h.x, h.z) + 0.9, h.z, 'spark', 1, 0.6)
     }
     h.mesh.position.x = h.x + (h.shake > 0 ? Math.sin(this.time * 60) * 0.05 : 0)
-    const win = h.mesh.getObjectByName('window') as THREE.Mesh | undefined
-    if (win) {
-      // 夜や雨で中にだれかいると窓が光る
-      const lit = this.creatures.some((c) => c.inside && h.owner === c)
-      ;(win.material as THREE.MeshBasicMaterial).color.set(lit ? '#ffd27a' : '#5a4a3a')
+    const wins = h.mesh.userData.wins as THREE.Mesh[] | undefined
+    if (wins?.length) {
+      // 夜・雨・雪、または 中にだれかいると 窓とランプが ともる
+      const lit = this.night > 0.35 || this.weather === 'rain' || this.weather === 'snow' || this.creatures.some((c) => c.inside && h.owner === c)
+      if (h.mesh.userData.lit !== lit) {
+        h.mesh.userData.lit = lit
+        for (const w of wins) (w.material as THREE.MeshBasicMaterial).color.set(lit ? ((w.userData.lamp as string | undefined) ?? '#ffd27a') : '#7d93a0')
+      }
+      const spill = h.mesh.userData.spill as THREE.Mesh | undefined
+      if (spill) {
+        const m = spill.material as THREE.MeshBasicMaterial
+        const want = lit ? 0.2 + this.night * 0.35 : 0
+        m.opacity += (want - m.opacity) * Math.min(1, dt * 3)
+        spill.visible = m.opacity > 0.01
+      }
     }
     // ひのこの日は木の家が少しずつ焦げる
     if (this.weather === 'ember' && h.level >= 2) {
