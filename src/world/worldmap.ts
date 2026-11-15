@@ -233,7 +233,11 @@ export function buildWorldMap(): Stage {
     let best = -1
     let bw = -9
     tiles.forEach((t, i) => {
-      const w = weight(t, x, z) + jit(x + i * 3.1, z - i * 1.7)
+      // その 場所に とどく 地方（重みが 0 より 大きい）だけから えらぶ。ゆらぎで 遠い 地方が えらばれると、
+      // その 地方の 地面は そこまで ないので 穴が あく
+      const w0 = weight(t, x, z)
+      if (w0 <= 0.001) return
+      const w = w0 + jit(x + i * 3.1, z - i * 1.7)
       if (w > bw) {
         bw = w
         best = i
