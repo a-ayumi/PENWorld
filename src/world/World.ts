@@ -143,6 +143,8 @@ export interface House {
   mats: number; hp: number; mesh: THREE.Group | null; shake: number; level: number; alerted: number
   /** 建てた（建てなおした）時の 町の 時代と、それからの 年齢（秒）。年齢と まんなかからの 遠さで 古びる */
   era: number; age: number
+  /** 敵の 町の 家（`World.foeHouses`） */
+  foe?: boolean
 }
 /** 家のほかの建物（はたけ・いど・みはりとう・ゆりかごごや・へい・おしろ・はし・ふんすい・ふうしゃ・とうだい・いちば・あそびば・いしのとりで）。mats が need になると完成 */
 export interface Struct {
@@ -452,6 +454,11 @@ export class World {
   updateTownWall = Vi.updateTownWall
   mountWalls = Vi.mountWalls
   mountKeep = Vi.mountKeep
+  mountKeepAt = Vi.mountKeepAt
+  foeEra = Vi.foeEra
+  foeWorkers = Vi.foeWorkers
+  foeLot = Vi.foeLot
+  updateFoeTown = Vi.updateFoeTown
   wallSegs = Vi.wallSegs
   townCenter = Vi.townCenter
   townLot = Vi.townLot
@@ -875,7 +882,7 @@ export class World {
     }
     this.sucks = []
     this.later = []
-    for (const h of this.houses) this.unmountHouse(h)
+    for (const h of [...this.houses, ...this.foeHouses]) this.unmountHouse(h)
     for (const st of this.structs) this.unmountStruct(st)
     this.army = null
     this.picked = null
@@ -910,6 +917,7 @@ export class World {
       if (h.owner && h.owner.team === 'wild') h.owner = null
       if (h.stage === i) this.mountHouse(h)
     }
+    for (const h of this.foeHouses) if (h.stage === i) this.mountHouse(h)
     for (const st of this.structs) if (st.stage === i) this.mountStruct(st)
     this.mountWalls()
     this.armyCd = 150
@@ -1230,6 +1238,12 @@ export class World {
   wallVer = 0
   wallMesh: THREE.Group | null = null
   keepMesh: THREE.Group | null = null
+  /** 敵の 町（計画 B6）：家・へいの 輪・枝・中心の 建物 */
+  foeHouses: House[] = []
+  foeWalls: Record<number, TownRing[]> = {}
+  foePath: Record<number, EraPath> = {}
+  foeT = 4
+  foeKeepMesh: THREE.Group | null = null
   eraT = 0
   /** ちゅうもんの列（計画 B1）：買った物は ここに ならび、だいくたちが 順番に 取りかかる */
   orders: Order[] = []

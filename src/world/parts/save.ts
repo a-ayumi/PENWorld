@@ -8,7 +8,7 @@ import { SHOP } from '../shop'
 import { MissionBook, isSeason, sanitizeStats } from '../../missions'
 import { backfill, loadRoad, newRoad, saveRoad } from '../../roadmap'
 import type { World } from '../World'
-import { Creature, House, LIFESPAN, FRIEND_LIFE, MAX_ORDERS, newLife, isSpecies, num, SAVE_KEY, houseLevel } from '../World'
+import { type TownRing, Creature, House, LIFESPAN, FRIEND_LIFE, MAX_ORDERS, newLife, isSpecies, num, SAVE_KEY, houseLevel } from '../World'
 
 export function save(this: World) {
   if (!this.pet || this.saveLocked) return
@@ -27,6 +27,9 @@ export function save(this: World) {
     houses: this.houses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, ownerSp: h.ownerSp, owner: ownerKey(h), mats: h.mats, hp: Math.round(h.hp), era: h.era, age: Math.round(h.age) })),
     eraPath: this.eraPath,
     townWalls: this.townWalls,
+    foeHouses: this.foeHouses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, mats: h.mats, hp: Math.round(h.hp), era: h.era, age: Math.round(h.age) })),
+    foeWalls: this.foeWalls,
+    foePath: this.foePath,
     structs: this.structs.map((b) => ({ kind: b.kind, stage: b.stage, x: b.x, z: b.z, rot: b.rot, len: b.len, mats: b.mats, hp: Math.round(b.hp), item: b.item, ordered: b.ordered || undefined })),
     orders: this.orders,
     items: this.items.map((it) => ({ kind: it.kind, stage: it.stage, x: it.x, z: it.z, grow: it.grow, rot: it.rot })),
@@ -103,6 +106,26 @@ export function load(this: World): boolean {
           cx: num(r.cx, -HALF, HALF, 0), cz: num(r.cz, -HALF, HALF, 0), gate: num(r.gate, -7, 7, 0),
         }))
       }
+    // 敵の 町
+    const ringsOf = (src: unknown) => {
+      const out: Record<number, TownRing[]> = {}
+      if (src && typeof src === 'object')
+        for (const [k, v] of Object.entries(src as Record<string, unknown>)) {
+          if (!Number.isInteger(+k) || +k < 0 || +k >= STAGES.length || !Array.isArray(v)) continue
+          out[+k] = (v as Record<string, number>[]).slice(0, 6).filter((r) => r && typeof r === 'object').map((r) => ({
+            r: num(r.r, 2, 80, 10), era: Math.round(num(r.era, 1, 9, 2)), built: Math.round(num(r.built, 0, 400, 0)), age: num(r.age, 0, 1e7, 0),
+            cx: num(r.cx, -HALF, HALF, 0), cz: num(r.cz, -HALF, HALF, 0), gate: num(r.gate, -7, 7, 0),
+          }))
+        }
+      return out
+    }
+    this.foeWalls = ringsOf(d.foeWalls)
+    this.foeHouses = ((Array.isArray(d.foeHouses) ? d.foeHouses : []) as Record<string, number>[]).slice(0, 40).filter((h) => h && typeof h === 'object').map((h) => {
+      const mats = Math.round(num(h.mats, 0, 12, 0))
+      return { stage: Math.round(num(h.stage, 0, STAGES.length - 1, 0)), x: num(h.x, -HALF, HALF, 0), z: num(h.z, -HALF, HALF, 0), owner: null, ownerSp: 'noiz' as SpeciesId, mats, hp: num(h.hp, 0, 100, 0), mesh: null, shake: 0, level: houseLevel(mats), alerted: 0, era: Math.round(num(h.era, 1, 9, 1)), age: num(h.age, 0, 1e7, 0), foe: true }
+    })
+    this.foePath = {}
+    if (d.foePath && typeof d.foePath === 'object') for (const [k, v] of Object.entries(d.foePath as Record<string, unknown>)) if ((v === 'white' || v === 'steam') && Number.isInteger(+k) && +k >= 0 && +k < STAGES.length) this.foePath[+k] = v
     // 町の 枝（white / steam だけ）
     this.eraPath = {}
     if (d.eraPath && typeof d.eraPath === 'object') for (const [k, v] of Object.entries(d.eraPath as Record<string, unknown>)) if ((v === 'white' || v === 'steam') && Number.isInteger(+k) && +k >= 0 && +k < STAGES.length) this.eraPath[+k] = v

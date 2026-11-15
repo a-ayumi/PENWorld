@@ -514,7 +514,7 @@ export function mountHouse(this: World, h: House) {
     const seed = Math.round(Math.abs(h.x * 13.7 + h.z * 7.3)) + h.era
     const model = eraHouse(Math.min(9, Math.max(1, h.era)) as Era, ctx, wear, seed)
     // 家の 正面は 町の まんなかへ むける
-    const c = this.townCenter()
+    const c = h.foe && this.stage.foeStart ? this.stage.foeStart : this.townCenter()
     model.rotation.y = Math.round(Math.atan2(c.x - h.x, c.z - h.z) / (Math.PI / 2)) * (Math.PI / 2)
     if (h.level === 2) {
       // かべまで：低く + 足場
@@ -579,7 +579,7 @@ export function unmountHouse(this: World, h: House) {
 }
 
 export function updateHouses(this: World, dt: number) {
-  for (const h of [...this.houses]) {
+  for (const h of [...this.houses, ...this.foeHouses]) {
     if (h.stage !== this.stageIndex || !h.mesh) continue
     h.shake = Math.max(0, h.shake - dt)
     this.popAnim(h.mesh, dt)
@@ -621,7 +621,7 @@ export function updateHouses(this: World, dt: number) {
       }
     }
     // ひのこの日は木の家が少しずつ焦げる
-    if (this.weather === 'ember' && h.level >= 2) {
+    if (this.weather === 'ember' && h.level >= 2 && !h.foe) {
       h.hp -= dt * 0.12
       if (Math.random() < dt * 0.6) this.burst(h.x, this.stage.heightAt(h.x, h.z) + 1.2, h.z, 'hit', 1, 0.5, -1)
       if (h.hp <= 0) this.damageHouse(h, 0.01, null)
@@ -1241,7 +1241,7 @@ export function townEra(this: World): Era {
  * 0 = 新しい / 1 = 古びた（15 分ほど）/ 2 = くずれた（40 分ほど）
  */
 export function houseWear(this: World, h: House): Wear {
-  const c = this.townCenter()
+  const c = h.foe && this.stage.foeStart ? this.stage.foeStart : this.townCenter()
   const d = Math.hypot(h.x - c.x, h.z - c.z)
   const t = h.age * (0.6 + d / (8 * BUILD_SCALE))
   const max = houseMaxHp(h.level)
@@ -1327,7 +1327,7 @@ export function wallSegs(this: World, ring: TownRing, inner: boolean) {
     if (Math.abs(x) > HALF - 0.6 || Math.abs(z) > HALF - 0.6) continue
     if (Math.max(Math.abs(h(x + 0.5, z) - h(x - 0.5, z)), Math.abs(h(x, z + 0.5) - h(x, z - 0.5))) > 0.5) continue
     if (this.stage.obstacles.some((o) => Math.hypot(o.x - x, o.z - z) < o.r + 0.5)) continue
-    if (this.houses.some((o) => o.stage === here && Math.hypot(o.x - x, o.z - z) < 1.3 * BUILD_SCALE)) continue
+    if ([...this.houses, ...this.foeHouses].some((o) => o.stage === here && Math.hypot(o.x - x, o.z - z) < 1.3 * BUILD_SCALE)) continue
     if (this.structs.some((o) => o.stage === here && o.kind !== 'wall' && Math.hypot(o.x - x, o.z - z) < STRUCTS[o.kind].r + 1.0)) continue
     out.push({ i, a, x, z, len: (Math.PI * 2 * ring.r) / n + 0.05, order: da })
   }
@@ -1337,14 +1337,21 @@ export function wallSegs(this: World, ring: TownRing, inner: boolean) {
 
 /** 町の 中心の 建物（森など `Stage.start` の ある ステージ）。時代が かわった時・ステージに 入った時に 作りなおす */
 export function mountKeep(this: World) {
-  if (this.keepMesh) {
-    this.scene.remove(this.keepMesh)
-    this.keepMesh.traverse((o) => (o as THREE.Mesh).geometry?.dispose())
-    this.keepMesh = null
+  for (const m of [this.keepMesh, this.foeKeepMesh]) {
+    if (!m) continue
+    this.scene.remove(m)
+    m.traverse((o) => (o as THREE.Mesh).geometry?.dispose())
   }
+  this.keepMesh = this.foeKeepMesh = null
+  const fs = this.stage.foeStart
+  if (fs && this.foeHouses.some((h) => h.stage === this.stageIndex)) this.foeKeepMesh = this.mountKeepAt(fs, this.foeEra())
   const st = this.stage.start
   if (!st) return
-  const era = this.townEra()
+  this.keepMesh = this.mountKeepAt(st, this.townEra())
+}
+
+/** 中心の 建物を 1 つ 置く（味方・敵 共通） */
+export function mountKeepAt(this: World, st: { x: number; z: number }, era: Era) {
   const ctx = { lam: (c: string) => this.lam(c), basic: (c: string) => new THREE.MeshBasicMaterial({ color: c }) }
   const raw = eraKeep(era, ctx, 0)
   raw.scale.setScalar(BUILD_SCALE)
@@ -1357,9 +1364,9 @@ export function mountKeep(this: World) {
   wrap.rotation.y = Math.atan2(-st.x, -st.z)
   wrap.userData.era = era
   this.scene.add(wrap)
-  this.keepMesh = wrap
   this.wallObs.push({ x: st.x, z: st.z, r: (era <= 1 ? 0.8 : era >= 5 ? 2.2 : 1.7) * BUILD_SCALE, water: false })
   this.wallVer++
+  return wrap
 }
 
 /** 城壁を 描きなおす（輪ごとに まとめて 1 つに）。あたり判定 `wallObs` も 作りなおす */
@@ -1371,12 +1378,10 @@ export function mountWalls(this: World) {
   }
   this.wallObs = []
   this.wallVer++
-  const rings = this.townWalls[this.stageIndex] ?? []
-  if (!rings.length) return this.mountKeep()
   const ctx = { lam: (c: string) => this.lam(c), basic: (c: string) => new THREE.MeshBasicMaterial({ color: c }) }
   const all = new THREE.Group()
   const h = this.stage.heightAt
-  rings.forEach((ring, ri) => {
+  for (const rings of [this.townWalls[this.stageIndex] ?? [], this.foeWalls[this.stageIndex] ?? []]) rings.forEach((ring, ri) => {
     const inner = ri < rings.length - 1
     const wear: Wear = inner ? (ring.age > 2400 ? 2 : ring.age > 600 ? 1 : 0) : 0
     const era = Math.min(9, Math.max(2, ring.era)) as Era
@@ -1430,68 +1435,183 @@ export function mountWalls(this: World) {
  * - 外がわの 輪の 外に 家が 建つと、もっと 外に 新しい 輪を 引く。内がわの 古い輪は のこって 古び、4 か所 くずれて 通れる
  * - 区切りは なかまが いる時に 1 つずつ（門の わきから 外へ）。いちばん 外の 輪は 町の 時代に 合わせて 建てかわる
  */
-export function updateTownWall(this: World, dt: number) {
-  const here = this.stageIndex
-  const rings = (this.townWalls[here] ??= [])
-  for (let i = 0; i < rings.length - 1; i++) rings[i].age += dt
-  this.wallT -= dt
-  if (this.wallT > 0) return
-  this.wallT = 6
-  const era = this.townEra()
-  if (era < 2) return
-  const c = this.townCenter()
-  const town = this.houses.filter((h) => h.stage === here && h.level >= 2 && Math.hypot(h.x - c.x, h.z - c.z) < 30 * BUILD_SCALE)
-  if (town.length < 3) return
-  // まんなかから つながっている 物だけ 数える（はなれた 野生の子の 家は 入れない）
-  const ds = [
-    ...town.map((h) => Math.hypot(h.x - c.x, h.z - c.z) + 0.9 * BUILD_SCALE),
-    ...this.structs.filter((b) => b.stage === here && b.kind !== 'wall' && b.kind !== 'crate' && b.kind !== 'bridge').map((b) => Math.hypot(b.x - c.x, b.z - c.z) + STRUCTS[b.kind].r),
-  ].sort((a, b) => a - b)
-  // 町の 中心の 建物が ある所は その 大きさから 数える
-  let far = this.stage.start ? 3.4 * BUILD_SCALE : 0
+/**
+ * 城壁の 輪を そだてる（味方・敵 共通）。ds = まんなかからの 建物の 遠さ / start = 中心の 建物の 半径 / workers = 働く 数。
+ * 新しい 輪を 引く・時代を 合わせる・区切りを のばす。かわったら true
+ */
+function growRings(w: World, rings: TownRing[], c: { x: number; z: number }, era: number, ds: number[], start: number, workers: number, say: boolean) {
+  ds.sort((a, b) => a - b)
+  let far = start
   for (const d of ds) if (d <= far + 4.4 * BUILD_SCALE) far = Math.max(far, d)
   const last = rings[rings.length - 1]
   let changed = false
   const gate = Math.atan2(-c.z, -c.x)
   if (!last || far > last.r - 1.2 * BUILD_SCALE) {
-    // 前の 輪が 半分 できていない うちは 新しく 引かない
-    if (!last || last.built >= this.wallSegs(last, false).length * 0.6) {
+    // 前の 輪が 6 わり できていない うちは 新しく 引かない
+    if (!last || last.built >= w.wallSegs(last, false).length * 0.6) {
       rings.push({ r: Math.max(far + 1.6 * BUILD_SCALE, 5 * BUILD_SCALE, last ? last.r + 3.5 * BUILD_SCALE : 0), era, built: 0, age: 0, cx: c.x, cz: c.z, gate })
       changed = true
-      if (last) this.say('まちが ひろがって、そとに あたらしい へいを きずきはじめた')
-      else this.say('まちの まわりに へいを きずきはじめた')
+      if (say) w.say(last ? 'まちが ひろがって、そとに あたらしい へいを きずきはじめた' : 'まちの まわりに へいを きずきはじめた')
     }
   }
   const ring = rings[rings.length - 1]
-  if (ring.era < era && ring.built >= this.wallSegs(ring, false).length) {
+  const segs = w.wallSegs(ring, false)
+  if (ring.era < era && ring.built >= segs.length) {
     ring.era = era
     changed = true
-    this.say('へいが あたらしい じだいの すがたに なった')
+    if (say) w.say('へいが あたらしい じだいの すがたに なった')
   }
-  const total = this.wallSegs(ring, false).length
-  const workers = this.creatures.filter((k) => this.ally(k) && k.state !== 'dead' && k.state !== 'faint' && k.grow === 0).length
-  if (ring.built < total && workers > 0) {
-    ring.built = Math.min(total, ring.built + (workers >= 4 ? 2 : 1))
-    const sg = this.wallSegs(ring, false)[ring.built - 1]
+  if (ring.built < segs.length && workers > 0) {
+    ring.built = Math.min(segs.length, ring.built + (workers >= 4 ? 2 : 1))
+    const sg = segs[ring.built - 1]
     if (sg) {
-      this.burst(sg.x, this.stage.heightAt(sg.x, sg.z) + 1, sg.z, 'spark', 5, 1.6)
-      if (ring.built % 6 === 1) this.mark(sg.x, sg.z, 1)
+      w.burst(sg.x, w.stage.heightAt(sg.x, sg.z) + 1, sg.z, 'spark', 5, 1.6)
+      if (say && ring.built % 6 === 1) w.mark(sg.x, sg.z, 1)
     }
-    if (ring.built === total) this.say('へいが ぐるりと かこんだ！')
+    if (say && ring.built === segs.length) w.say('へいが ぐるりと かこんだ！')
     changed = true
   }
+  return changed
+}
+
+/** 内がわの 古い 輪の 古びの 段（描きなおしの 目印） */
+const ringWear = (r: TownRing) => (r.age > 2400 ? 2 : r.age > 600 ? 1 : 0)
+
+/**
+ * 城壁（計画 B4）：6 秒ごと。
+ * - 時代 2 から、家が 3 けん 以上の 町を 住民が 囲む（門は マップの まんなかの 向き = 大通り）
+ * - 外がわの 輪の 外に 建物が 出ると、もっと 外に 新しい 輪。内がわの 古い輪は のこって 古び、4 か所 くずれて 通れる
+ * - 区切りは なかまが いる時に 1 つずつ（門の わきから 外へ）。いちばん 外の 輪は 町の 時代に 合わせて 建てかわる
+ * 敵の 町（`foeWalls`）も ここで いっしょに 年を とらせ、描きなおしを まとめる
+ */
+export function updateTownWall(this: World, dt: number) {
+  const here = this.stageIndex
+  const rings = (this.townWalls[here] ??= [])
+  const foeRings = (this.foeWalls[here] ??= [])
+  for (const rs of [rings, foeRings]) for (let i = 0; i < rs.length - 1; i++) rs[i].age += dt
+  this.wallT -= dt
+  if (this.wallT > 0) return
+  this.wallT = 6
+  let changed = false
+  const era = this.townEra()
+  const c = this.townCenter()
+  const town = this.houses.filter((h) => h.stage === here && h.level >= 2 && Math.hypot(h.x - c.x, h.z - c.z) < 30 * BUILD_SCALE)
+  if (era >= 2 && town.length >= 3) {
+    // まんなかから つながっている 物だけ 数える（はなれた 野生の子の 家は 入れない）
+    const ds = [
+      ...town.map((h) => Math.hypot(h.x - c.x, h.z - c.z) + 0.9 * BUILD_SCALE),
+      ...this.structs.filter((b) => b.stage === here && b.kind !== 'wall' && b.kind !== 'crate' && b.kind !== 'bridge').map((b) => Math.hypot(b.x - c.x, b.z - c.z) + STRUCTS[b.kind].r),
+    ]
+    const workers = this.creatures.filter((k) => this.ally(k) && k.state !== 'dead' && k.state !== 'faint' && k.grow === 0).length
+    changed = growRings(this, rings, c, era, ds, this.stage.start ? 3.4 * BUILD_SCALE : 0, workers, true)
+  }
+  // 敵の 町の へい
+  const fs = this.stage.foeStart
+  if (fs) {
+    const fera = this.foeEra()
+    const fh = this.foeHouses.filter((h) => h.stage === here && h.level >= 2)
+    if (fera >= 2 && fh.length >= 3) changed = growRings(this, foeRings, fs, fera, fh.map((h) => Math.hypot(h.x - fs.x, h.z - fs.z) + 0.9 * BUILD_SCALE), 3.4 * BUILD_SCALE, this.foeWorkers(), false) || changed
+  }
   // 内がわの 輪が 古びの 段を かえたら 描きなおす
-  for (let i = 0; i < rings.length - 1; i++) {
-    const w = rings[i].age > 2400 ? 2 : rings[i].age > 600 ? 1 : 0
-    const key = `w${i}`
-    if (this.wallMesh?.userData[key] !== w) {
-      changed = true
-      if (this.wallMesh) this.wallMesh.userData[key] = w
+  const sig = [...rings.slice(0, -1), ...foeRings.slice(0, -1)].map(ringWear).join('')
+  if (changed || !this.wallMesh || this.wallMesh.userData.sig !== sig) {
+    this.mountWalls()
+    if (this.wallMesh) this.wallMesh.userData.sig = sig
+  }
+}
+
+/** 敵の 町の 時代（敵の 家の 数で 上がる。枝は 味方と 反対） */
+export function foeEra(this: World): Era {
+  const here = this.stageIndex
+  const n = this.foeHouses.filter((h) => h.stage === here && h.level >= 3).length
+  const rb = (this.foeWalls[here] ?? []).reduce((s, r) => s + r.built, 0)
+  return eraOf(eraStep(n * 1.2 + rb * 0.06), this.foePath[here])
+}
+
+/** 敵の 町で 働く 数（この 箱庭に いる 敵） */
+export function foeWorkers(this: World) {
+  return this.creatures.filter((c) => c.team === 'wild' && c.sp.temper === 'wild' && c.state !== 'dead' && c.state !== 'faint').length
+}
+
+/** 敵の 町の 区画：中心から 外へ 輪を ひろげて 空いた 平らな 所（味方の 町からは はなれる） */
+export function foeLot(this: World): { x: number; z: number } | null {
+  const fs = this.stage.foeStart
+  if (!fs) return null
+  const here = this.stageIndex
+  const h = this.stage.heightAt
+  const GAP = 3.0 * BUILD_SCALE
+  const all = [...this.houses, ...this.foeHouses].filter((o) => o.stage === here)
+  const bs = this.structs.filter((b) => b.stage === here && b.kind !== 'wall' && b.kind !== 'bridge')
+  const ac = this.townCenter()
+  const allyR = ((this.townWalls[here] ?? []).slice(-1)[0]?.r ?? 8 * BUILD_SCALE) + 2 * BUILD_SCALE
+  const rings = this.foeWalls[here] ?? []
+  for (let n = 2; n < 10; n++) {
+    const r = n * GAP * 0.9
+    const cnt = Math.max(5, Math.round((Math.PI * 2 * r) / 3.1))
+    for (let i = 0; i < cnt; i++) {
+      const a = n * 1.7 + ((i * 2) % cnt) * ((Math.PI * 2) / cnt)
+      const x = fs.x + Math.cos(a) * r
+      const z = fs.z + Math.sin(a) * r
+      if (Math.abs(x) > HALF - 1.4 || Math.abs(z) > HALF - 1.4) continue
+      if (Math.max(Math.abs(h(x + 0.6, z) - h(x - 0.6, z)), Math.abs(h(x, z + 0.6) - h(x, z - 0.6))) > 0.45) continue
+      if (Math.hypot(x - ac.x, z - ac.z) < allyR) continue
+      if (all.some((o) => Math.hypot(o.x - x, o.z - z) < 2.6 * BUILD_SCALE)) continue
+      if (bs.some((o) => Math.hypot(o.x - x, o.z - z) < STRUCTS[o.kind].r + 1.6 * BUILD_SCALE)) continue
+      if (this.stage.obstacles.some((o) => Math.hypot(o.x - x, o.z - z) < o.r + 1.3)) continue
+      const d0 = Math.hypot(x - fs.x, z - fs.z)
+      if (rings.some((rg) => Math.abs(d0 - rg.r) < 1.9 * BUILD_SCALE)) continue
+      return { x, z }
     }
   }
-  if (changed || !this.wallMesh) {
+  return null
+}
+
+/**
+ * 敵の 町（計画 B6）：`Stage.foeStart`（森は 北東の 高台）で、敵が 勝手に 家を 建てて 町と 城を そだてる。12 秒ごと。
+ * 形は 味方と 同じ（`eraHouse` / `eraKeep` / `eraWall`）、枝は 味方と 反対。のんびりでも 建てるだけは する
+ */
+export function updateFoeTown(this: World, dt: number) {
+  const fs = this.stage.foeStart
+  if (!fs) return
+  this.foeT -= dt
+  if (this.foeT > 0) return
+  this.foeT = 28
+  const here = this.stageIndex
+  const workers = this.foeWorkers()
+  if (!workers) return
+  const fh = this.foeHouses.filter((h) => h.stage === here)
+  const step = eraStep(fh.filter((h) => h.level >= 3).length * 1.2)
+  if (step >= 6 && !this.foePath[here]) this.foePath[here] = this.eraPath[here] === 'white' ? 'steam' : this.eraPath[here] === 'steam' ? 'white' : 'steam'
+  const era = this.foeEra()
+  // 建てかけの 家を すすめる → 新しい 家 → 古い 時代の 家を 建てかえ
+  const half = fh.find((h) => h.level < 3)
+  if (half) {
+    half.mats = Math.min(8, half.mats + (workers >= 3 ? 2 : 1))
+    half.level = houseLevel(half.mats)
+    this.refreshHouse(half)
+    this.burst(half.x, this.stage.heightAt(half.x, half.z) + 0.8, half.z, 'spark', 4, 1.4)
+  } else {
+    const lot = fh.length < Math.min(14, 3 + era * 1.4) ? this.foeLot() : null
+    if (lot) {
+      const h: House = { stage: here, x: lot.x, z: lot.z, owner: null, ownerSp: 'noiz', mats: 0, hp: 0, mesh: null, shake: 0, level: 0, alerted: 0, era, age: 0, foe: true }
+      this.foeHouses.push(h)
+      this.mountHouse(h)
+      if (fh.length === 0) {
+        this.say('きたの たかだいに てきが すみつきはじめた…')
+        this.mark(lot.x, lot.z, 3)
+      }
+    } else {
+      const old = fh.filter((h) => h.era !== era).sort((a, b) => Math.hypot(a.x - fs.x, a.z - fs.z) - Math.hypot(b.x - fs.x, b.z - fs.z))[0]
+      if (old) {
+        old.era = era
+        old.age = 0
+        this.refreshHouse(old, true)
+      }
+    }
+  }
+  if (this.foeKeepMesh?.userData.era !== era && fh.length) {
     this.mountWalls()
-    for (let i = 0; i < rings.length - 1; i++) if (this.wallMesh) this.wallMesh.userData[`w${i}`] = rings[i].age > 2400 ? 2 : rings[i].age > 600 ? 1 : 0
+    if (era > 1) this.say(`てきの まちが「${ERA_NAME[era]}」に なった`)
   }
 }
 
@@ -1563,6 +1683,8 @@ export function townLot(this: World, clear: number, outer = false, tight = false
       if (this.stage.obstacles.some((o) => Math.hypot(o.x - x, o.z - z) < o.r + 1.3)) continue
       // 城壁の 上と、門から まんなかへの 大通りには 建てない
       const d0 = Math.hypot(x - c.x, z - c.z)
+      const fs0 = this.stage.foeStart
+      if (fs0 && Math.hypot(x - fs0.x, z - fs0.z) < ((this.foeWalls[here] ?? []).slice(-1)[0]?.r ?? 7 * BUILD_SCALE) + 2.5 * BUILD_SCALE) continue
       if (this.stage.start && d0 < 3.4 * BUILD_SCALE) continue
       if ((this.townWalls[here] ?? []).some((rg) => Math.abs(d0 - rg.r) < 1.9 * BUILD_SCALE)) continue
       const ga = Math.atan2(-c.z, -c.x)

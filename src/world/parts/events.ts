@@ -482,8 +482,17 @@ export function launchArmy(this: World, a: Army) {
     const boss = i === 0 && a.wave % 3 === 0
     // 編成：ふつうの兵は もとの敵 + そのステージの亜種、3 回に 1 回は専用の姿のボス
     const id: SpeciesId = boss ? armyBoss(this.stageIndex, a.wave) : armyMember(this.stageIndex, a.wave)
-    const x = THREE.MathUtils.clamp((Math.random() * 2 - 1) * (HALF - 1), -HALF, HALF)
-    const z = -HALF + 0.6 + Math.random() * 1.2
+    // 敵の 町が あれば、その 門から 出てくる（無ければ 北の はし）
+    const fs = this.stage.foeStart
+    const gate = fs && this.foeHouses.some((h) => h.stage === this.stageIndex && h.level >= 3) ? (this.foeWalls[this.stageIndex] ?? []).slice(-1)[0] : undefined
+    let x = THREE.MathUtils.clamp((Math.random() * 2 - 1) * (HALF - 1), -HALF, HALF)
+    let z = -HALF + 0.6 + Math.random() * 1.2
+    if (fs) {
+      const gx = gate ? gate.cx + Math.cos(gate.gate) * (gate.r + 1.5) : fs.x + Math.cos(Math.atan2(-fs.z, -fs.x)) * 5
+      const gz = gate ? gate.cz + Math.sin(gate.gate) * (gate.r + 1.5) : fs.z + Math.sin(Math.atan2(-fs.z, -fs.x)) * 5
+      x = THREE.MathUtils.clamp(gx + (Math.random() - 0.5) * 2.5, -HALF + 1, HALF - 1)
+      z = THREE.MathUtils.clamp(gz + (Math.random() - 0.5) * 2.5, -HALF + 1, HALF - 1)
+    }
     const c = this.spawn(id, 'wild', x, z)
     c.army = true
     c.maxHp = Math.round(c.sp.hp * mult * (boss ? 2.5 : 1))

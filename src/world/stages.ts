@@ -47,6 +47,8 @@ export interface Stage {
   treasures?: { x: number; z: number; mesh: THREE.Object3D }[]
   /** はじめに 立つ場所（町が 始まる所）。無ければ まんなか */
   start?: { x: number; z: number }
+  /** 敵の 町が 育つ 場所（計画 B6）。無ければ 敵の 町は 無い */
+  foeStart?: { x: number; z: number }
   /** 夜のヤミカゲの数の上限（既定 2） */
   shadows?: number
   update(t: number, night: number): void
@@ -537,7 +539,7 @@ function seedGrove(): Stage {
   group.add(sky.mesh, vs.group, mt)
 
   return {
-    id: 0, start: START, name: 'はじまりの森', sub: 'SEED GROVE', group, heightAt, obstacles, foodSpots, treasures,
+    id: 0, start: START, foeStart: { x: 2.4 * k, z: -2.4 * k }, name: 'はじまりの森', sub: 'SEED GROVE', group, heightAt, obstacles, foodSpots, treasures,
     food: { name: 'ほしリンゴ', color: '#ff5a6e', leaf: '#5cc25a' },
     residents: ['noiz', 'togebug'],
     fog: '#bfe6ff', sky: ['#3f7fe0', '#a8dcff', '#1b2a5a'],
