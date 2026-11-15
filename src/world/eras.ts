@@ -1349,3 +1349,87 @@ export function eraKeep(era: Era, ctx: EraCtx, wear: Wear = 0): THREE.Group {
   put(eraHouse(era, ctx, wear, 101), 0, 1.1, 1.0)
   return g
 }
+
+/**
+ * 完成した 建物の 形を 材質ごとに 1 つに まとめる（描く 回数を へらす）。
+ * mergeByColor と ちがい、名前つきの 部品（旗・羽根・窓の あかり・雪・ふんすいの 水 など 動かす 物）は
+ * その 下の 部品ごと そのまま のこす。位置は root から 見た 位置に そろえる。userData も うけつぐ
+ */
+export function mergeStatic(root: THREE.Object3D, join: string[] = ['lit', 'snow']): THREE.Group {
+  root.updateMatrixWorld(true)
+  const inv = root.matrixWorld.clone().invert()
+  const rel = (o: THREE.Object3D) => inv.clone().multiply(o.matrixWorld)
+  const by = new Map<string, { mat: THREE.Material; geos: THREE.BufferGeometry[] }>()
+  const keep: { o: THREE.Object3D; m: THREE.Matrix4 }[] = []
+  const keyOf = (mat: THREE.Material) => {
+    const m = mat as THREE.MeshLambertMaterial
+    return [m.type, m.color?.getHexString(), m.emissive?.getHexString(), m.map?.uuid, m.vertexColors, m.transparent, m.opacity, m.side, JSON.stringify(m.userData.fx ?? null)].join('|')
+  }
+  // join の 名前の 部品（窓の あかり・雪の 屋根）は、同じ 名前・同じ 材質どうしで 1 つに まとめる（色や 見え方を まとめて かえるだけの 物）
+  const joined = new Map<string, { name: string; mat: THREE.Material; geos: THREE.BufferGeometry[] }>()
+  const walk = (o: THREE.Object3D) => {
+    for (const ch of o.children) {
+      const jm = ch as THREE.Mesh
+      if (ch.name && join.includes(ch.name) && jm.isMesh && !ch.children.length && !Array.isArray(jm.material)) {
+        const geo = (jm.geometry.index ? jm.geometry.toNonIndexed() : jm.geometry.clone()).applyMatrix4(rel(ch))
+        for (const a of Object.keys(geo.attributes)) if (a !== 'position' && a !== 'normal' && a !== 'uv') geo.deleteAttribute(a)
+        const k = ch.name + '#' + jm.material.uuid
+        const e = joined.get(k)
+        if (e) e.geos.push(geo)
+        else joined.set(k, { name: ch.name, mat: jm.material, geos: [geo] })
+        continue
+      }
+      if (ch.name) {
+        keep.push({ o: ch, m: rel(ch) })
+        continue
+      }
+      const m = ch as THREE.Mesh
+      if (m.isMesh) {
+        if (Array.isArray(m.material)) keep.push({ o: ch, m: rel(ch) })
+        else {
+          const geo = (m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone()).applyMatrix4(rel(ch))
+          for (const a of Object.keys(geo.attributes)) if (a !== 'position' && a !== 'normal' && a !== 'uv') geo.deleteAttribute(a)
+          if (!geo.attributes.normal) geo.computeVertexNormals()
+          const k = keyOf(m.material)
+          const e = by.get(k)
+          if (e) e.geos.push(geo)
+          else by.set(k, { mat: m.material, geos: [geo] })
+        }
+        // まとめた 形の 子も 見る（名前つきは のこす）
+        if (!Array.isArray(m.material)) walk(ch)
+        continue
+      }
+      walk(ch)
+    }
+  }
+  walk(root)
+  const out = new THREE.Group()
+  for (const { mat, geos } of by.values()) {
+    // uv の ある 形と ない 形が まざると まとめられないので、そろえる
+    if (geos.some((g) => !g.attributes.uv)) for (const g of geos) g.deleteAttribute('uv')
+    const merged = mergeGeometries(geos)
+    for (const g of geos) g.dispose()
+    if (merged) out.add(new THREE.Mesh(merged, mat))
+  }
+  for (const { name, mat, geos } of joined.values()) {
+    if (geos.some((g) => !g.attributes.uv)) for (const g of geos) g.deleteAttribute('uv')
+    const merged = mergeGeometries(geos)
+    for (const g of geos) g.dispose()
+    if (!merged) continue
+    const mesh = new THREE.Mesh(merged, mat)
+    mesh.name = name
+    out.add(mesh)
+  }
+  for (const { o, m } of keep) {
+    o.removeFromParent()
+    m.decompose(o.position, o.quaternion, o.scale)
+    out.add(o)
+  }
+  out.userData = { ...root.userData }
+  out.position.copy(root.position)
+  out.quaternion.copy(root.quaternion)
+  out.scale.copy(root.scale)
+  // もとの 形（まとめた 分）は すてる
+  root.traverse((o) => (o as THREE.Mesh).geometry?.dispose())
+  return out
+}

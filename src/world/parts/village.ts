@@ -10,7 +10,7 @@ import { STRUCTS, STRUCT_SCALED, buildScaffold, buildStructModel, styleOf, type 
 import { ITEM_INFO, ITEM_SPEC, buildItem, disposeItem, tickItem, type ItemKind } from '../items'
 import type { World } from '../World'
 import { SHOP, type ShopItem } from '../shop'
-import { BUILD_SCALE, WALL_H, WINDOW_LIT, ERA_NAME, ERA_STYLE, eraGate, eraHouse, eraKeep, eraOf, eraStep, eraTower, eraWall, mergeByColor, type Era, type Wear } from '../eras'
+import { BUILD_SCALE, WALL_H, WINDOW_LIT, ERA_NAME, ERA_STYLE, eraGate, eraHouse, eraKeep, eraOf, eraStep, eraTower, eraWall, mergeByColor, mergeStatic, type Era, type Wear } from '../eras'
 import { familyOf } from '../monsters'
 import { type TownRing, Creature, House, Struct, Festival, Peddler, FoodKind, Food, Item, STRUCT_DONE, FOODS, HOUSE_STEPS, MAX_STRUCTS, FORT_RANGE, MAX_HOUSES, MAX_RES, houseLevel, houseMaxHp, BOSSES } from '../World'
 
@@ -529,7 +529,8 @@ export function mountHouse(this: World, h: House) {
   if (h.level >= 2) {
     const ctx = this.eraCtx()
     const seed = Math.round(Math.abs(h.x * 13.7 + h.z * 7.3)) + h.era
-    const model = eraHouse(Math.min(9, Math.max(1, h.era)) as Era, ctx, wear, seed)
+    // 窓の あかりと 雪の 屋根は まとめて 1 つに（描く 回数を へらす）
+    const model = mergeStatic(eraHouse(Math.min(9, Math.max(1, h.era)) as Era, ctx, wear, seed))
     // 家の 正面は 町の まんなかへ むける
     const c = h.foe && this.stage.foeStart ? this.stage.foeStart : this.townCenter()
     model.rotation.y = Math.round(Math.atan2(c.x - h.x, c.z - h.z) / (Math.PI / 2)) * (Math.PI / 2)
@@ -793,6 +794,8 @@ export function mountStruct(this: World, b: Struct) {
     model.userData.look = this.townEra() * 10
   }
   b.q = p >= 1 ? 4 : Math.floor(p * 4)
+  // できあがった 建物は 材質ごとに まとめて 描く 回数を へらす（動く 部品は のこす）
+  if (p >= 1) model = mergeStatic(model)
   const g = new THREE.Group()
   // 家と 同じ 大きさに（へい・はしは そのまま）。ぽよんは 外の g に かかるので 中の 箱で 大きくする
   const inner = new THREE.Group()
