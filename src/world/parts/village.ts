@@ -9,6 +9,7 @@ import { STRUCTS, buildScaffold, buildStructModel, styleOf, type StructKind } fr
 import { ITEM_INFO, ITEM_SPEC, buildItem, disposeItem, tickItem, type ItemKind } from '../items'
 import type { World } from '../World'
 import { SHOP, type ShopItem } from '../shop'
+import { eraHouse, eraTower, type Era } from '../eras'
 import { Creature, House, Struct, Festival, Peddler, FoodKind, Food, Item, STRUCT_DONE, FOODS, HOUSE_STEPS, MAX_STRUCTS, FORT_RANGE, MAX_HOUSES, MAX_RES, houseLevel, houseMaxHp, ROOF, BOSSES } from '../World'
 
 export function makeFoodMesh(this: World, kind: FoodKind) {
@@ -1252,6 +1253,30 @@ export function villageName(this: World) {
 }
 
 /** 箱庭をひろげる（ステージを作り直す。家・建物・置き物・たまごはそのまま残る） */
+/** 見本（計画 B の 見た目）：7 つの時代の 家と塔を、新しい / 古びた で ならべる。確認用（`world.showEras()`） */
+export function showEras(this: World, aged = false) {
+  const ctx = { lam: (c: string) => this.lam(c), basic: (c: string) => new THREE.MeshBasicMaterial({ color: c }) }
+  const g = new THREE.Group()
+  // みおろしの画面で 左 → 右に ならぶように、ななめ（x+ / z-）に 置く
+  const pad = new THREE.Mesh(new THREE.BoxGeometry(40, 0.3, 5), this.lam(aged ? '#6f8456' : '#7f9a5c'))
+  pad.position.y = -0.15
+  pad.rotation.y = Math.PI / 4
+  g.add(pad)
+  for (let e = 1; e <= 7; e++) {
+    const d = (e - 4) * 3.3
+    const turn = Math.PI / 4 + (aged ? -0.55 : 0.55)
+    const h = eraHouse(e as Era, ctx, aged, e * 3 + (aged ? 1 : 0))
+    h.position.set(d + 0.75, 0, -d - 0.75)
+    h.rotation.y = turn
+    const t = eraTower(e as Era, ctx, aged, e * 5 + (aged ? 1 : 0))
+    t.position.set(d - 0.75, 0, -d + 0.75)
+    t.rotation.y = turn
+    g.add(h, t)
+  }
+  this.scene.add(g)
+  return g
+}
+
 /** ちゅうもん（計画 B1）：買った物は 列に ならぶ。だいくたちが 順番に 取りかかる */
 export function addOrder(this: World, s: ShopItem) {
   this.orders.push({ id: s.id, stage: this.stageIndex })

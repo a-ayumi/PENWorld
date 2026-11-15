@@ -440,6 +440,7 @@ export class World {
   removeFood = Vi.removeFood
   lam = Vi.lam
   addOrder = Vi.addOrder
+  showEras = Vi.showEras
   pendingOf = Ui.pendingOf
   updateOrders = Vi.updateOrders
   orderNames = Vi.orderNames
