@@ -1315,7 +1315,7 @@ export function townLot(this: World, clear: number, outer = false, tight = false
 }
 
 /** 見本（計画 B の 見た目）：7 つの時代の 家と塔を、新しい / 古びた で ならべる。確認用（`world.showEras()`） */
-export function showEras(this: World, wear: Wear = 0, from = 1, to = 9) {
+export function showEras(this: World, wear: Wear = 0, from = 1, to = 9, scale = 1) {
   const ctx = { lam: (c: string) => this.lam(c), basic: (c: string) => new THREE.MeshBasicMaterial({ color: c }) }
   const g = new THREE.Group()
   // みおろしの画面で 左 → 右に ならぶように、ななめ（x+ / z-）に 置く
@@ -1325,14 +1325,16 @@ export function showEras(this: World, wear: Wear = 0, from = 1, to = 9) {
   g.add(pad)
   const mid = (from + to) / 2
   for (let e = from; e <= to; e++) {
-    const d = (e - mid) * 3.9
+    const d = (e - mid) * 3.9 * scale
     const turn = Math.PI / 4 + 0.55
     const h = eraHouse(e as Era, ctx, wear, e * 3 + wear)
-    h.position.set(d + 0.95, 0, -d - 0.95)
+    h.position.set(d + 0.95 * scale, 0, -d - 0.95 * scale)
     h.rotation.y = turn
+    h.scale.setScalar(scale)
     const t = eraTower(e as Era, ctx, wear, e * 5 + wear)
-    t.position.set(d - 0.95, 0, -d + 0.95)
+    t.position.set(d - 0.95 * scale, 0, -d + 0.95 * scale)
     t.rotation.y = turn
+    t.scale.setScalar(scale)
     g.add(h, t)
   }
   this.scene.add(g)
