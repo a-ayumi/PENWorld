@@ -56,6 +56,8 @@ export interface Stage {
   cull?(x: number, z: number, r: number): void
   /** 大きな世界：その 場所の 地方（id = 天気・たまごの 表の 番号） */
   region?(x: number, z: number): { id: number; name: string; sub: string; family: EggKind }
+  /** 大きな世界：地方の まんなか（0〜8・左上から 右へ）。戦争の 拠点を 置く */
+  tiles?: { ox: number; oz: number; name: string }[]
   /** 夜のヤミカゲの数の上限（既定 2） */
   shadows?: number
   update(t: number, night: number): void

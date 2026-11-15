@@ -330,6 +330,7 @@ export function buildWorldMap(): Stage {
      * 読みこみ範囲（重さ対策）：見ている 所から 遠い 地方は 描かない。近くは 今の 見た目の まま。
      * 地方の 小物の 箱と 地面を、見える 範囲 r に かからなければ かくす
      */
+    tiles: tiles.map((t) => ({ ox: t.ox, oz: t.oz, name: t.s.name })),
     region(x: number, z: number) {
       const i = Math.max(0, Math.min(2, Math.floor((x + WORLD_SIZE / 2) / TILE)))
       const j = Math.max(0, Math.min(2, Math.floor((z + WORLD_SIZE / 2) / TILE)))
