@@ -10,6 +10,7 @@ import * as THREE from 'three'
 import { OUT, RES } from './psx'
 import { DioramaLook } from './diorama'
 import { NavGrid } from './nav'
+import { Paths } from './paths'
 import { SkyFx } from './sky'
 import { SpriteAnim, iconSheet } from './sprites'
 import { EGG_COLORS, NEW_SKILLS, SPECIES, enemyFor, newSeed, type Care, type EggKind, type MonsterView, type Species, type SpeciesId } from './monsters'
@@ -849,6 +850,11 @@ export class World {
   mealT = 0
   /** つぎの ひっこしまでの 秒（はじめは 3 分） */
   settleT = 180
+  /** ふみかためた 道（paths.ts）と その 見なおしの 時計 */
+  paths = new Paths()
+  pathT = 0
+  pathDecay = 30
+  pathsStage = -1
   /** 視点：top = 見下ろし / behind = ペットの少し後ろ / eye = ペットの目線 */
   view: 'top' | 'behind' | 'eye' = 'top'
   /** 見た目：ピクセル・ジオラマ（diorama.ts）。みおろしは平行投影、うしろ・めせんは this.camera（遠近）で同じ仕上げ */

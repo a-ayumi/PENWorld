@@ -29,6 +29,8 @@ export function save(this: World) {
     friends: friends.map(c2),
     houses: this.houses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, ownerSp: h.ownerSp, owner: ownerKey(h), mats: h.mats, hp: Math.round(h.hp), era: h.era, age: Math.round(h.age) })),
     eraPath: this.eraPath,
+    paths: this.paths.save(),
+    pathStage: this.stageIndex,
     petPlan: this.petPlan,
     world: this.worldMode || undefined,
     townWalls: this.townWalls,
@@ -134,6 +136,9 @@ export function load(this: World): boolean {
     if (d.foePath && typeof d.foePath === 'object') for (const [k, v] of Object.entries(d.foePath as Record<string, unknown>)) if ((v === 'white' || v === 'steam') && Number.isInteger(+k) && +k >= 0 && +k < STAGES.length) this.foePath[+k] = v
     // 町の 枝（white / steam だけ）
     this.petPlan = PET_PLANS.includes(d.petPlan as PetPlan) ? (d.petPlan as PetPlan) : 'auto'
+    // ふみかためた 道（いまの 箱庭の 分だけ。大きな世界への 引っこしでは 持ってこない）
+    if (d.pathStage === this.stageIndex && (d.world === true) === this.worldMode) this.paths.load(d.paths)
+    else this.paths.clear(this.scene)
     this.eraPath = {}
     if (d.eraPath && typeof d.eraPath === 'object') for (const [k, v] of Object.entries(d.eraPath as Record<string, unknown>)) if ((v === 'white' || v === 'steam') && Number.isInteger(+k) && +k >= 0 && +k < STAGES.length) this.eraPath[+k] = v
     type SavedStruct = { kind: unknown; stage: number; x: number; z: number; rot: number; len: number; mats: number; hp: number; item?: unknown; ordered?: unknown; stock?: unknown }

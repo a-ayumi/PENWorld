@@ -124,6 +124,8 @@ export function moveTo(this: World, c: Creature, tx: number, tz: number, speed: 
     c.lx = c.x
     c.lz = c.z
     c.mvT = 0
+    // なかまが 歩いた 所は ふみかためられて 道に なっていく
+    if (moved > 0.2 && c.team !== 'wild') this.paths.tread(c.x, c.z)
     if (moved < speed * 0.5 * 0.3) c.stuck++
     else {
       c.stuck = 0
@@ -199,7 +201,9 @@ export function moveTo(this: World, c: Creature, tx: number, tz: number, speed: 
   const d = Math.hypot(dx, dz) || 1
   // 坂道を登るときは少し遅くなる
   const slope = this.stage.heightAt(c.x + (dx / d) * 0.3, c.z + (dz / d) * 0.3) - this.stage.heightAt(c.x, c.z)
-  const step = Math.min(d, speed * dt * (slope > 0 ? Math.max(0.55, 1 - slope * 1.5) : 1))
+  // 道の 上は すこし 速い（うすい 道 1.1 倍・はっきりした 道 1.2 倍）
+  const road = 1 + this.paths.level(c.x, c.z) * 0.1
+  const step = Math.min(d, speed * road * dt * (slope > 0 ? Math.max(0.55, 1 - slope * 1.5) : 1))
   // 進む先にある物を、横へそれてよける（まっすぐ当たる時は、その子がいつも使う側へ）
   const bx = dx / d
   const bz = dz / d

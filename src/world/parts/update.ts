@@ -123,6 +123,22 @@ export function update(this: World, dt: number) {
   this.coinPop.t = Math.max(0, this.coinPop.t - dt)
   this.updateEggs(dt)
   this.updateSettlers(dt)
+  // ふみかためた 道：8 秒ごとに 形を 見なおし、30 秒ごとに 歩かない 所が 草に もどる
+  this.pathT -= dt
+  if (this.pathT <= 0) {
+    this.pathT = 8
+    // べつの 箱庭へ ワープしたら 道は はじめから（1 まいずつの ステージの 時）
+    if (this.pathsStage !== this.stageIndex) {
+      if (this.pathsStage >= 0) this.paths.clear(this.scene)
+      this.pathsStage = this.stageIndex
+    }
+    if ((this.pathDecay -= 8) <= 0) {
+      this.pathDecay = 30
+      this.paths.decay()
+    }
+    const obs = this.obstacles()
+    this.paths.rebuild(this.scene, this.stage.heightAt, (x, z) => obs.some((o) => Math.hypot(o.x - x, o.z - z) < o.r * 0.9))
+  }
   this.tryBreed(dt)
   this.updateFx(dt)
   this.updateSecretFx(dt)
