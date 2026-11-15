@@ -308,3 +308,7 @@ button:focus-visible, .chip:focus-visible, input:focus-visible, textarea:focus-v
 .tips-btns { display: flex; gap: 8px; justify-content: flex-end; }
 .chip.tips-primary { background: #f2b134; border-color: #f2b134; color: #3a2a00; font-weight: 700; }
 body.clean #tips, body.clean #update-bar { display: none !important; }
+
+/* 使わなくなった あそび（World の EXTRAS = false）：ボタンと ずかんの ひみつ欄を 出さない */
+body.no-extras #play-btn, body.no-extras #lucky-btn, body.no-extras #road-btn, body.no-extras #mission-btn,
+body.no-extras #lucky-panel, body.no-extras #road-panel, body.no-extras #mission-panel, body.no-extras .extras { display: none !important; }

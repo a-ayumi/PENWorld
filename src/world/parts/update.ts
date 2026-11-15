@@ -11,7 +11,7 @@ import { ITEM_SPEC, slidePath } from '../items'
 import { DINER_MAX, roomNeed } from './village'
 import { SHOP, catIndexes, catOf, shopTap } from '../shop'
 import type { World } from '../World'
-import { Creature, FOODS, CARE_NAME, FX_SHEETS, CAM_OFF, HOUSE_STEPS, MAX_FRIENDS } from '../World'
+import { EXTRAS, Creature, FOODS, CARE_NAME, FX_SHEETS, CAM_OFF, HOUSE_STEPS, MAX_FRIENDS } from '../World'
 
 export function update(this: World, dt: number) {
   this.obsFrame++
@@ -126,7 +126,7 @@ export function update(this: World, dt: number) {
   this.coinPop.t = Math.max(0, this.coinPop.t - dt)
   this.updateEggs(dt)
   this.updateSettlers(dt)
-  this.updateWish(dt)
+  if (EXTRAS) this.updateWish(dt)
   // ふみかためた 道：8 秒ごとに 形を 見なおし、30 秒ごとに 歩かない 所が 草に もどる
   this.pathT -= dt
   if (this.pathT <= 0) {

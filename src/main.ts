@@ -16,7 +16,7 @@ import { BokehPass } from 'three/addons/postprocessing/BokehPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
-import { World, type Sfx } from './world/World'
+import { EXTRAS, World, type Sfx } from './world/World'
 import { buildDevice } from './device'
 import { FinishShader, MOODS, dustParticles, moodForHour, type Mood } from './scene'
 import { PLACES, buildPlace, type PlaceId, type PlaceInst } from './places'
@@ -848,6 +848,11 @@ document.getElementById('dex-close')!.addEventListener('click', () => {
 const missionBtn = document.getElementById('mission-btn') as HTMLButtonElement
 // 「あそび ▸」：おねがい・もくひょう・うんだめし の 3 つを出す / しまう
 const playBtn = document.getElementById('play-btn') as HTMLButtonElement
+// 使わなくなった あそびは 画面から 外す（`EXTRAS`。うんだめしの ボタン・ずかんの ひみつ欄も）
+if (!EXTRAS) {
+  document.body.classList.add('no-extras')
+  playBtn.hidden = roadBtn.hidden = missionBtn.hidden = true
+}
 playBtn.addEventListener('click', () => {
   const open = !document.body.classList.contains('play-open')
   document.body.classList.toggle('play-open', open)
@@ -1019,7 +1024,7 @@ function setMode(m: Mode) {
   dressBtn.hidden = m === 'inside'
   dexBtn.hidden = m === 'inside'
   luckyUI.setInside(m === 'inside')
-  roadBtn.hidden = missionBtn.hidden = playBtn.hidden = m === 'inside'
+  roadBtn.hidden = missionBtn.hidden = playBtn.hidden = !EXTRAS || m === 'inside'
   syncCamBar()
   enterBtn.hidden = m !== 'device'
   if (m === 'inside') {

@@ -3,7 +3,7 @@ import { psx, SNAP_GLSL, snapUniform } from './psx'
 import { Tex, rng } from './textures'
 import { fxU } from './fx'
 import { floaters, grass, swayify, waterSurface } from './fxprops'
-import type { SpeciesId } from './monsters'
+import type { EggKind, SpeciesId } from './monsters'
 import { STAGES2 } from './stages2'
 import { FLORA, tree } from './flora'
 
@@ -55,7 +55,7 @@ export interface Stage {
   /** 読みこみ範囲（ひとつづきの 世界）：見ている 所 x, z から r より 遠い 所を かくす */
   cull?(x: number, z: number, r: number): void
   /** 大きな世界：その 場所の 地方（id = 天気・たまごの 表の 番号） */
-  region?(x: number, z: number): { id: number; name: string; sub: string }
+  region?(x: number, z: number): { id: number; name: string; sub: string; family: EggKind }
   /** 夜のヤミカゲの数の上限（既定 2） */
   shadows?: number
   update(t: number, night: number): void
