@@ -50,6 +50,23 @@ const scene = new THREE.Scene()
 const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 60)
 /** 液晶とボタンの中心あたりを見る（本体全体ではなく「遊ぶ部分」を大きく映す） */
 const LOOK = new THREE.Vector3(0, 0.08, 0)
+/**
+ * 本体ビューの 液晶の 大きさ（せってい の「がめん」）。h / w = 画面に 入れる 本体の 高さ・はば、y = 見る 高さ。
+ * ひろめ = 本体の ロゴまで 入る 昔の 見え方 / ふつう = 液晶と ボタンが 入る / おおきめ = 液晶を 大きく（ボタンの 下は はみ出す）
+ */
+const SCREEN_SIZES = {
+  wide: { name: 'ひろめ', h: 3.6, w: 2.25, y: 0 },
+  normal: { name: 'ふつう', h: 2.75, w: 1.85, y: 0.08 },
+  large: { name: 'おおきめ', h: 2.3, w: 1.62, y: 0.2 },
+}
+type ScreenSize = keyof typeof SCREEN_SIZES
+let screenSize: ScreenSize = 'normal'
+try {
+  const v = localStorage.getItem('pulsar-size')
+  if (v === 'wide' || v === 'normal' || v === 'large') screenSize = v
+} catch {
+  /* noop */
+}
 scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture
 scene.environmentIntensity = 0.55
 
@@ -451,6 +468,11 @@ chips(document.getElementById('set-mode')!, PLAY_MODES, () => playMode, (id) => 
   playMode = id === 'lively' ? 'lively' : 'calm'
   save('pulsar-mode', playMode)
   world.calm = playMode === 'calm'
+})
+chips(document.getElementById('set-size')!, SCREEN_SIZES, () => screenSize, (id) => {
+  screenSize = id as ScreenSize
+  save('pulsar-size', id)
+  resize()
 })
 applyText()
 applyMotion()
@@ -1239,6 +1261,8 @@ window.addEventListener('keydown', (e) => {
 
 // ---------------- サイズ ----------------
 const baseCam = new THREE.Vector3()
+/** 本体ビューで 見ている 点（がめんの 大きさで 少し 上下する） */
+const lookAt = new THREE.Vector3()
 function resize() {
   const w = window.innerWidth
   const h = window.innerHeight
@@ -1248,11 +1272,13 @@ function resize() {
   // 液晶（幅 1.48）+ ボタンが画面いっぱいに収まる距離に。本体の縁や背景ははみ出してよい
   const halfV = THREE.MathUtils.degToRad(camera.fov / 2)
   // 液晶が大きく見えるよう、本体の縁は少しはみ出してよい（液晶とボタンは入る）
-  const needH = 3.6 / 2 / Math.tan(halfV)
-  const needW = 2.25 / 2 / (Math.tan(halfV) * camera.aspect)
+  const sz = SCREEN_SIZES[screenSize]
+  const needH = sz.h / 2 / Math.tan(halfV)
+  const needW = sz.w / 2 / (Math.tan(halfV) * camera.aspect)
   const dist = Math.max(needH, needW)
-  camera.position.set(0, LOOK.y + 0.12 + dist * 0.03, dist + 0.5)
-  camera.lookAt(LOOK)
+  camera.position.set(0, LOOK.y + sz.y + 0.12 + dist * 0.03, dist + 0.5)
+  lookAt.set(LOOK.x, LOOK.y + sz.y, LOOK.z)
+  camera.lookAt(lookAt)
   camera.updateProjectionMatrix()
   // ピントは本体の位置に合わせる（カメラ距離 = dist + 0.5）
   ;(bokeh.uniforms as Record<string, THREE.IUniform>).focus.value = dist + 0.5
@@ -1385,7 +1411,7 @@ renderer.setAnimationLoop((t) => {
     const k = Math.min(1, modeT / 0.9)
     const e = ease(mode === 'entering' ? k : 1 - k)
     camera.position.lerpVectors(baseCam, near, e)
-    camera.lookAt(LOOK.clone().lerp(screenPos, e))
+    camera.lookAt(lookAt.clone().lerp(screenPos, e))
     ;(bokeh.uniforms as Record<string, THREE.IUniform>).focus.value = camera.position.distanceTo(screenPos)
     if (k >= 1) {
       if (mode === 'entering') setMode('inside')
