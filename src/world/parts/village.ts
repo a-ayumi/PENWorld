@@ -9,7 +9,7 @@ import { STRUCTS, STRUCT_SCALED, buildScaffold, buildStructModel, styleOf, type 
 import { ITEM_INFO, ITEM_SPEC, buildItem, disposeItem, tickItem, type ItemKind } from '../items'
 import type { World } from '../World'
 import { SHOP, type ShopItem } from '../shop'
-import { BUILD_SCALE, WALL_H, WINDOW_LIT, ERA_NAME, eraGate, eraHouse, eraKeep, eraOf, eraStep, eraTower, eraWall, mergeByColor, type Era, type Wear } from '../eras'
+import { BUILD_SCALE, WALL_H, WINDOW_LIT, ERA_NAME, ERA_STYLE, eraGate, eraHouse, eraKeep, eraOf, eraStep, eraTower, eraWall, mergeByColor, type Era, type Wear } from '../eras'
 import { familyOf } from '../monsters'
 import { type TownRing, Creature, House, Struct, Festival, Peddler, FoodKind, Food, Item, STRUCT_DONE, FOODS, HOUSE_STEPS, MAX_STRUCTS, FORT_RANGE, MAX_HOUSES, MAX_RES, houseLevel, houseMaxHp, BOSSES } from '../World'
 
@@ -752,7 +752,8 @@ export function mountStruct(this: World, b: Struct) {
     basic: (c: string) => new THREE.MeshBasicMaterial({ color: c }),
     rock: this.rock(),
     bark: this.bark(),
-    style: styleOf(b.stage),
+    // 町の 時代の 色（ステージの 水の 色は のこす）
+    style: STRUCT_SCALED(b.kind) && b.kind !== 'crate' ? { ...styleOf(b.stage), ...ERA_STYLE[this.townEra()] } : styleOf(b.stage),
   }
   // みはりとうは 町の 時代の 塔（`eraTower`・1.5 倍・こわれると 古びる）
   let model: THREE.Group
@@ -770,7 +771,10 @@ export function mountStruct(this: World, b: Struct) {
     model = b.kind === 'castle' ? eraKeep(Math.max(3, this.townEra()) as Era, ectx, wear) : eraTower(Math.max(4, this.townEra()) as Era, ectx, wear, Math.round(Math.abs(b.x * 7 + b.z * 3)))
     model.scale.setScalar(b.kind === 'castle' ? 0.75 : 1.15)
     model.userData.look = this.townEra() * 10 + wear
-  } else model = buildStructModel(b.kind, ctx, b.len || 3)
+  } else {
+    model = buildStructModel(b.kind, ctx, b.len || 3)
+    model.userData.look = this.townEra() * 10
+  }
   b.q = p >= 1 ? 4 : Math.floor(p * 4)
   const g = new THREE.Group()
   // 家と 同じ 大きさに（へい・はしは そのまま）。ぽよんは 外の g に かかるので 中の 箱で 大きくする
@@ -862,8 +866,7 @@ export function onStructDone(this: World, b: Struct, by: Creature) {
   this.onSfx('built')
   this.earn(b.kind === 'castle' ? 40 : 10, b.x, b.z)
   if (b.kind === 'castle') {
-    this.say('おしろが かんせい！ まわりに へいを たてはじめた')
-    this.castleWalls(b)
+    this.say('おしろが かんせい！')
     this.shake = Math.max(this.shake, 0.4)
   } else {
     this.say(`${by.sp.name}たちが ${spec.name}を かんせいさせた！`)
@@ -948,9 +951,10 @@ export function updateStructs(this: World, dt: number) {
     b.shake = Math.max(0, b.shake - dt)
     this.popAnim(b.mesh, dt)
     // 時代の 形の 建物（みはりとう・おしろ・とりで）：町の 時代が すすむ・こわれると つくりなおす（ときどき 見る）
-    if ((b.kind === 'tower' || b.kind === 'castle' || b.kind === 'fort') && this.structDone(b) && Math.random() < dt * 0.2) {
+    if (STRUCT_SCALED(b.kind) && b.kind !== 'crate' && this.structDone(b) && Math.random() < dt * 0.2) {
       const hp = b.hp / Math.max(1, this.structMaxHp(b))
-      const look = this.townEra() * 10 + (hp < 0.25 ? 2 : hp < 0.55 ? 1 : 0)
+      const eraModel = b.kind === 'tower' || b.kind === 'castle' || b.kind === 'fort'
+      const look = this.townEra() * 10 + (eraModel ? (hp < 0.25 ? 2 : hp < 0.55 ? 1 : 0) : 0)
       if ((b.mesh.children[0]?.children[0]?.userData.look as number | undefined) !== look) {
         this.refreshStruct(b)
         continue

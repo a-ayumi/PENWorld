@@ -31,6 +31,18 @@ export function eraOf(step: number, path: EraPath | undefined): Era {
   if (path === 'white') return 6
   return Math.min(9, step + 1) as Era
 }
+/** 時代ごとの 建物の 色（いど・ふうしゃ・いちば など、形は 共通の 建物に つかう）。水の 色は ステージの まま */
+export const ERA_STYLE: Record<Era, { wall: string; stone: string; roof: string; accent: string }> = {
+  1: { wall: '#8a6038', stone: '#9a9488', roof: '#c9a850', accent: '#ffd23f' },
+  2: { wall: '#7a5230', stone: '#9a9488', roof: '#c9a850', accent: '#ffb347' },
+  3: { wall: '#a0703f', stone: '#9aa1ab', roof: '#b85a4a', accent: '#ffd23f' },
+  4: { wall: '#8e949e', stone: '#a4aab2', roof: '#5a6478', accent: '#5a9aff' },
+  5: { wall: '#9aa0aa', stone: '#868c96', roof: '#7a3a34', accent: '#ff5a5a' },
+  6: { wall: '#f2f0e8', stone: '#d8dce6', roof: '#3f6fc8', accent: '#d9b84a' },
+  7: { wall: '#a05a44', stone: '#7a4436', roof: '#4a4448', accent: '#b8763a' },
+  8: { wall: '#8f9a8c', stone: '#6f7a6c', roof: '#5a7a5a', accent: '#7dffc0' },
+  9: { wall: '#4a6078', stone: '#2e3848', roof: '#5a7490', accent: '#5ef2ff' },
+}
 /** 窓（夜に ともる 色）。画面・回路・文字は いつも 光る */
 export const WINDOW_LIT = new Set(['ffd27a', 'ffc46a', 'ffcf7a', '7fd8ff', 'ff9ecb', 'ffe27a', 'b48cff', 'fff4d8', 'ffb347'])
 export type Wear = 0 | 1 | 2

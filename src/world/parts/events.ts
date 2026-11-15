@@ -238,6 +238,8 @@ export function sparSide(this: World, c: Creature): SparSide {
 export function roadState(this: World): RoadState {
   const built = Object.fromEntries(Object.keys(STRUCTS).map((k) => [k, 0])) as Record<StructKind, number>
   for (const b of this.structs) if (this.structDone(b)) built[b.kind]++
+  // 町の 城壁（できた 区切り）も へいとして 数える
+  for (const rs of Object.values(this.townWalls)) for (const r of rs) built.wall += r.built
   const dex = this.dexInfo()
   let stages = 0
   for (let i = 0; i < STAGES.length; i++) if (this.road.visited & (1 << i)) stages++
