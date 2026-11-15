@@ -203,6 +203,13 @@ export const ROLE_DESC: Record<Role, string> = {
   cook: 'たべものを あつめて くばる', mason: 'しざいを はこんで へいを つむ',
 }
 /** ペットの 行動の ほうしん（情報ウィンドウで えらぶ） */
+/** 町の おふれ（人が 町ぜんたいに 出す ほうしん。町の まんなかの 建物を タップして えらぶ） */
+export type TownPlan = 'auto' | 'grow' | 'guard' | 'harvest'
+export const TOWN_PLANS: TownPlan[] = ['auto', 'grow', 'guard', 'harvest']
+export const TOWN_PLAN_NAME: Record<TownPlan, string> = { auto: 'おまかせ', grow: 'はってん', guard: 'そなえ', harvest: 'みのり' }
+export const TOWN_PLAN_DESC: Record<TownPlan, string> = {
+  auto: 'みんな すきに くらす', grow: '家と たてものを どんどん たてる', guard: 'へいと みはりを かためる', harvest: 'はたけと ごはんを ふやす',
+}
 export type PetPlan = 'auto' | 'fight' | 'build' | 'plant' | 'wall'
 export const PET_PLANS: PetPlan[] = ['auto', 'fight', 'build', 'plant', 'wall']
 export const PLAN_NAME: Record<PetPlan, string> = { auto: 'おまかせ', fight: 'たたかい', build: 'けんちく', plant: 'きと はな', wall: 'じょうへき' }
@@ -237,7 +244,7 @@ export interface Egg { x: number; z: number; t: number; anim: SpriteAnim; shadow
 export interface SparSide { name: string; fam: string; tier: number; hp: number; maxHp: number; atk: number; cheer: boolean; mine: boolean }
 export interface SparMatch { id: number; a: SparSide; b: SparSide }
 export interface Popup { pos: THREE.Vector3; text: string; color: string; t: number; big?: boolean }
-export type Pick = { type: 'creature' | 'house' | 'struct' | 'item' | 'egg' | 'res' | 'food' | 'chest'; ref: any; armed: boolean }
+export type Pick = { type: 'creature' | 'house' | 'struct' | 'item' | 'egg' | 'res' | 'food' | 'chest' | 'keep'; ref: any; armed: boolean }
 export const STATE_NAME: Record<string, string> = {
   idle: 'ぼんやり', wander: 'さんぽ', hunt: 'おいかけている', fight: 'たたかっている', seek: 'ごはんへ むかう', eat: 'たべている', sleep: 'ねむっている', rest: 'やすんでいる',
   play: 'あそんでいる', happy: 'うれしい', faint: 'きぜつ', dead: 'たおれた', train: 'トレーニング', come: 'よばれた', gather: 'しざいを ひろう', build: 'しざいを はこぶ',
@@ -845,6 +852,8 @@ export class World {
   roleT = 0
   /** ペットの 行動の ほうしん（セーブする） */
   petPlan: PetPlan = 'auto'
+  /** 町の おふれ（セーブする） */
+  townPlan: TownPlan = 'auto'
   /** ショップの 店主の ひとこと（買った・買えなかった 直後） */
   shopTalk: { text: string; t: number } | null = null
   /** いしくが へいを つんだ（次の updateTownWall で 描きなおす） */

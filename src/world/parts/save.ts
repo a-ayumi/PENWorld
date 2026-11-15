@@ -10,7 +10,7 @@ import { SHOP } from '../shop'
 import { MissionBook, isSeason, sanitizeStats } from '../../missions'
 import { backfill, loadRoad, newRoad, saveRoad } from '../../roadmap'
 import type { World } from '../World'
-import { type TownRing, type PetPlan, PET_PLANS, Creature, House, LIFESPAN, FRIEND_LIFE, MAX_ORDERS, newLife, isSpecies, num, SAVE_KEY, houseLevel } from '../World'
+import { type TownRing, type PetPlan, PET_PLANS, type TownPlan, TOWN_PLANS, Creature, House, LIFESPAN, FRIEND_LIFE, MAX_ORDERS, newLife, isSpecies, num, SAVE_KEY, houseLevel } from '../World'
 import { DINER_MAX } from './village'
 
 export function save(this: World) {
@@ -32,6 +32,7 @@ export function save(this: World) {
     paths: this.paths.save(),
     pathStage: this.stageIndex,
     petPlan: this.petPlan,
+    townPlan: this.townPlan,
     world: this.worldMode || undefined,
     townWalls: this.townWalls,
     foeHouses: this.foeHouses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, mats: h.mats, hp: Math.round(h.hp), era: h.era, age: Math.round(h.age) })),
@@ -136,6 +137,7 @@ export function load(this: World): boolean {
     if (d.foePath && typeof d.foePath === 'object') for (const [k, v] of Object.entries(d.foePath as Record<string, unknown>)) if ((v === 'white' || v === 'steam') && Number.isInteger(+k) && +k >= 0 && +k < STAGES.length) this.foePath[+k] = v
     // 町の 枝（white / steam だけ）
     this.petPlan = PET_PLANS.includes(d.petPlan as PetPlan) ? (d.petPlan as PetPlan) : 'auto'
+    this.townPlan = TOWN_PLANS.includes(d.townPlan as TownPlan) ? (d.townPlan as TownPlan) : 'auto'
     // ふみかためた 道（いまの 箱庭の 分だけ。大きな世界への 引っこしでは 持ってこない）
     if (d.pathStage === this.stageIndex && (d.world === true) === this.worldMode) this.paths.load(d.paths)
     else this.paths.clear(this.scene)

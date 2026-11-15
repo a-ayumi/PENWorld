@@ -1,7 +1,7 @@
 /** World.ts から分けた「ui」のメソッド。this は World（World.ts のクラスのつなぎの行から呼ばれる） */
 /** 中身：画面：タップ（pickAt / describe）・ボタン・ショップ・HUD の 文字・render() */
 import * as THREE from 'three'
-import { BUILD_SCALE } from '../eras'
+import { BUILD_SCALE, ERA_NAME, eraStepScore } from '../eras'
 import { RES, SCENE } from '../psx'
 import { FAMILY_NAME, LOOK_NAME, SPECIES, XP_NEED, familyOf, lookOf, portraitFor, type Care, type EggKind } from '../monsters'
 import { HALF, type Stage } from '../stages'
@@ -11,7 +11,7 @@ import { DINER_MAX } from './village'
 import { SHOP, shownCat, drawShop as drawShopWindow, type ShopCheck, type ShopItem } from '../shop'
 import { CHAPTERS, bossReady, nowGoal } from '../../roadmap'
 import type { World } from '../World'
-import { PET_PLANS, PLAN_NAME, PLAN_DESC, ROLE_DESC, Creature, Res, House, Struct, Food, ROLE_NAME, ROLE_COLOR, LIFESPAN, Item, Egg, Pick, STATE_NAME, STRUCT_DESC, ICONS, ICON_COLORS, ICON_BMP, FOODS, CARE_NAME, SeasonShop, FONT, HOUSE_STEPS, MAX_STRUCTS, MAX_ORDERS, FORT_RANGE, houseMaxHp, WEATHER_NAME, MAX_FRIENDS } from '../World'
+import { TOWN_PLANS, TOWN_PLAN_NAME, TOWN_PLAN_DESC, PET_PLANS, PLAN_NAME, PLAN_DESC, ROLE_DESC, Creature, Res, House, Struct, Food, ROLE_NAME, ROLE_COLOR, LIFESPAN, Item, Egg, Pick, STATE_NAME, STRUCT_DESC, ICONS, ICON_COLORS, ICON_BMP, FOODS, CARE_NAME, SeasonShop, FONT, HOUSE_STEPS, MAX_STRUCTS, MAX_ORDERS, FORT_RANGE, houseMaxHp, WEATHER_NAME, MAX_FRIENDS } from '../World'
 
 /** タップした場所（液晶の座標）にいちばん近い物をさがす */
 export function pickAt(this: World, x: number, y: number): Pick | null {
@@ -42,6 +42,8 @@ export function pickAt(this: World, x: number, y: number): Pick | null {
   for (const r of this.resources) test(r.x, r.z, 0.25, { type: 'res', ref: r, armed: false }, 8)
   for (const f of this.foods) test(f.x, f.z, 0.3, { type: 'food', ref: f, armed: false }, 8)
   for (const t of this.stage.treasures ?? []) test(t.x, t.z, 0.6, { type: 'chest', ref: t, armed: false }, 11)
+  // 町の まんなかの 建物（おふれを 出す 所）
+  if (this.keepMesh && this.stage.start) test(this.stage.start.x, this.stage.start.z, 3.2 * BUILD_SCALE, { type: 'keep', ref: this.stage.start, armed: false }, 16)
   return best
 }
 
@@ -55,6 +57,7 @@ export function pickValid(this: World, p: Pick) {
     case 'res': return this.resources.includes(p.ref)
     case 'food': return this.foods.includes(p.ref)
     case 'chest': return !!this.stage.treasures?.includes(p.ref)
+    case 'keep': return !!this.keepMesh
   }
 }
 
@@ -65,6 +68,7 @@ export function pickPos(this: World, p: Pick): { x: number; z: number; h: number
     case 'house': return { x: r.x, z: r.z, h: (r.level >= 3 ? 2.4 : 1.4) * BUILD_SCALE }
     case 'struct': return { x: r.x, z: r.z, h: STRUCT_H[r.kind as StructKind][1] }
     case 'item': return { x: r.x, z: r.z, h: (r.kind === 'sapling' ? 1.0 + r.grow * 1.3 : ITEM_SPEC[r.kind as ItemKind].pickH) + 0.4 + (r.fall ?? 0) }
+    case 'keep': return { x: r.x, z: r.z, h: 3.6 * BUILD_SCALE }
     default: return { x: r.x, z: r.z, h: 1.2 }
   }
 }
@@ -152,6 +156,18 @@ export function describe(this: World, p: Pick): { title: string; sub: string; li
         bars.push(['つぎまで', Math.min(1, (this.time - at) / 480), '#ffd23f'])
       }
       return { title: 'たからばこ', sub: 'ごほうび', lines, bars, del: null }
+    }
+    case 'keep': {
+      const here = this.stageIndex
+      const allies = this.creatures.filter((c) => this.ally(c) && c.state !== 'dead')
+      const hs = this.houses.filter((h) => h.stage === here && (!h.owner || this.ally(h.owner)))
+      const rings = this.townWalls[here] ?? []
+      lines.push(`じだい：${ERA_NAME[this.townEra()]}・てん ${this.vScore.toFixed(1)}`)
+      lines.push(`じゅうにん ${allies.length}・いえ ${hs.filter((h) => h.level >= 3).length}/${hs.length}・へい ${rings.length}じゅう`)
+      lines.push(`おふれ：${TOWN_PLAN_NAME[this.townPlan]}`, `　${TOWN_PLAN_DESC[this.townPlan]}`)
+      const next = eraStepScore(this.vScore)
+      if (next) bars.push(['つぎの じだい', next, '#ffd23f'])
+      return { title: this.villageName() || 'まち', sub: 'まちの まんなか', lines, bars, del: `おふれ ▸ ${TOWN_PLAN_NAME[TOWN_PLANS[(TOWN_PLANS.indexOf(this.townPlan) + 1) % TOWN_PLANS.length]]}` }
     }
   }
 }
@@ -313,6 +329,12 @@ export function tapInfo(this: World, x: number, y: number): boolean {
   const inside = (r: { x: number; y: number; w: number; h: number }) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h
   if (b.del && inside(b.del)) {
     // ペットの ほうしんは 押すたびに 次へ（2 回 押しの 確認は いらない）
+    if (p.type === 'keep') {
+      this.townPlan = TOWN_PLANS[(TOWN_PLANS.indexOf(this.townPlan) + 1) % TOWN_PLANS.length]
+      this.say(`おふれ：${TOWN_PLAN_NAME[this.townPlan]}（${TOWN_PLAN_DESC[this.townPlan]}）`)
+      this.onSfx('select')
+      return true
+    }
     if (p.type === 'creature' && p.ref === this.pet) {
       this.petPlan = PET_PLANS[(PET_PLANS.indexOf(this.petPlan) + 1) % PET_PLANS.length]
       this.say(`${this.pet.sp.name}の ほうしん：${PLAN_NAME[this.petPlan]}`)

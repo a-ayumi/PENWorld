@@ -51,7 +51,7 @@ export function update(this: World, dt: number) {
   // なかまが ふえると 実りも ふえる（1 匹 1 分に 1 こ ほど 食べる）
   const mouths = this.creatures.filter((c) => this.ally(c)).length
   const foodCap = Math.floor((5 + trees + beds + mouths / 2) * harvest)
-  const foodEvery = 7 / (1 + trees * 0.3 + beds * 0.2 + Math.max(0, mouths - 3) * 0.08)
+  const foodEvery = 7 / (1 + trees * 0.3 + beds * 0.2 + Math.max(0, mouths - 3) * 0.08) / (this.townPlan === 'harvest' ? 1.25 : 1)
   if (this.foodT > foodEvery && this.foods.length >= foodCap) {
     // いっぱいの 時は、町から とおくて だれも 食べに いかない 物を 1 つ かたづける
     const t = this.townCenter()
