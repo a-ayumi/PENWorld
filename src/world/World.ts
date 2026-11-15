@@ -95,6 +95,8 @@ export interface Creature {
   mealHeld?: boolean
   /** うえる 場所と 物 */
   plantAt?: { x: number; z: number; kind: ItemKind; water?: Item } | null
+  /** 手つだう 家（自分の 家が できた だいくが、ほかの 子の 建てかけの 家に しざいを はこぶ） */
+  helpHouse?: House | null
   tendTo: Struct | null
   /** あそびば（frolic）の場所 / おまつり（dance）の輪の角度と半径 */
   spot: Struct | null
@@ -357,7 +359,7 @@ export const HOUSE_STEPS = [0, 2, 5, 8, 12]
 export const MAX_STRUCTS = 26
 /** いしのとりでの力がとどく距離 */
 export const FORT_RANGE = 6.5
-export const MAX_HOUSES = 6
+export const MAX_HOUSES = 12
 export const MAX_RES = 12
 export const houseLevel = (mats: number) => (mats >= 12 ? 4 : mats >= 8 ? 3 : mats >= 5 ? 2 : mats >= 2 ? 1 : 0)
 export const houseMaxHp = (level: number) => level * 25
@@ -507,6 +509,7 @@ export class World {
   wallJob = Vi.wallJob
   wallSpot = Vi.wallSpot
   layWall = Vi.layWall
+  updateSettlers = Cr.updateSettlers
   regionId = Ev.regionId
   taskOf = Ui.taskOf
   cookJob = Cr.cookJob
@@ -844,6 +847,8 @@ export class World {
   wallDirty = false
   /** ごはんがかり・ごはんやの 見なおし */
   mealT = 0
+  /** つぎの ひっこしまでの 秒（はじめは 3 分） */
+  settleT = 180
   /** 視点：top = 見下ろし / behind = ペットの少し後ろ / eye = ペットの目線 */
   view: 'top' | 'behind' | 'eye' = 'top'
   /** 見た目：ピクセル・ジオラマ（diorama.ts）。みおろしは平行投影、うしろ・めせんは this.camera（遠近）で同じ仕上げ */

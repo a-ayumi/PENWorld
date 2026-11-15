@@ -513,7 +513,11 @@ export function think(this: World, c: Creature) {
     if (!h) h = this.claimHouse(c)
     const site = this.openSite(c)
     const wantHouse = !!h && (h.level < 4 || h.hp < houseMaxHp(h.level))
-    if (site || wantHouse) {
+    // 自分の 家が できていて 現場も ない だいくは、町の 建てかけの 家を 手つだう
+    const help = !site && (!h || h.level >= 3) && (c.role === 'builder' || c.role === 'free' || (c === p && this.petPlan === 'build'))
+      ? this.nearestHouse(c, (o) => o !== h && !o.foe && o.level < 3 && (!o.owner || this.ally(o.owner)), 20)
+      : null
+    if (site || wantHouse || help) {
       const r = this.resources
         .filter((r) => !r.taken)
         .sort((a, b) => Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z))[0]
@@ -521,6 +525,7 @@ export function think(this: World, c: Creature) {
         r.taken = c
         c.res = r
         c.wallRing = null
+        c.helpHouse = !site && help && (!wantHouse || Math.random() < 0.6) ? help : null
         c.site = site && (!wantHouse || c.role === 'builder' || (c === p && this.petPlan === 'build') || Math.random() < 0.7) ? site : null
         return this.setState(c, 'gather', 14)
       }
@@ -1398,7 +1403,10 @@ export function updateVillage(this: World, dt: number) {
     const has = (k: StructKind) => this.structs.some((b) => b.stage === this.stageIndex && b.kind === k)
     // やることが何もない時は、村に足りない建物を自分たちで計画する（おしろ・はし・とうだい・いちば・とりでは人がせっけいずを買った時だけ）
     const next: [StructKind, number, number][] = [['farm', 2, 0], ['well', 3, 0], ['diner', 3, 3], ['tower', 3, 0], ['cradle', 4, 0], ['fountain', 4, 7], ['playground', 4, 8], ['windmill', 5, 9]]
-    const want = next.find(([k, n, sc]) => homes >= n && this.vScore >= sc && !has(k))
+    // はたけは なかまが ふえたら もう 1 つ（4 匹に 1 つ・3 つまで）
+    const farms = this.structs.filter((b) => b.stage === this.stageIndex && b.kind === 'farm').length
+    const mouths = this.creatures.filter((c) => this.ally(c)).length
+    const want = farms < Math.min(3, 1 + Math.floor(mouths / 4)) && homes >= 2 ? (['farm', 2, 0] as [StructKind, number, number]) : next.find(([k, n, sc]) => homes >= n && this.vScore >= sc && !has(k))
     if (want) this.planStruct(want[0], this.pet.x, this.pet.z, true)
   }
 }
@@ -1560,4 +1568,34 @@ export function plantJob(this: World, c: Creature): boolean {
     return true
   }
   return false
+}
+
+/**
+ * ひっこし：町に 家が あるのに 住む子が たりない時、よその 地方から 成長期の 子が 歩いて やってきて なかまに なる
+ * （寿命で へっても 町が 育ちつづける。アリの巣のように 人が ふえていく）。2〜3.5 分に 1 回まで
+ */
+export function updateSettlers(this: World, dt: number) {
+  this.settleT -= dt
+  if (this.settleT > 0) return
+  this.settleT = 120 + Math.random() * 90
+  const here = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 2)
+  const workers = this.creatures.filter((c) => c.team === 'friend' && c.grow === 0 && c.state !== 'dead').length
+  const empty = here.filter((h) => !h.owner).length
+  // 家が ない うちは こない。空き家が あるか、働き手が 家の 数より 少ない時だけ
+  if (!here.length || (empty === 0 && workers + 1 >= here.length)) return
+  if (this.friendCount() + this.eggs.filter((e) => !e.wild).length >= MAX_FRIENDS) return
+  const t = this.townCenter()
+  const a = Math.random() * Math.PI * 2
+  const p = this.freePos(0, t.x + Math.cos(a) * 20, t.z + Math.sin(a) * 20, 4)
+  if (Math.hypot(p.x - t.x, p.z - t.z) < 10) return
+  const fam = this.stageEggKind(p.x, p.z)
+  const care = (['power', 'guard', 'spirit'] as Care[])[Math.floor(Math.random() * 3)]
+  const id = nextForm(BABY[fam] as SpeciesId, 1, care)
+  const c = this.spawn(id, 'friend', p.x, p.z)
+  c.tx = t.x + (Math.random() - 0.5) * 4
+  c.tz = t.z + 2 + Math.random() * 2
+  this.setState(c, 'wander', 40)
+  this.updateDex()
+  this.say(`${c.sp.name}が ${empty ? 'あきやを みつけて ' : ''}まちに ひっこしてきた！`)
+  this.mark(p.x, p.z, 1)
 }

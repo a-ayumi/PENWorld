@@ -617,7 +617,16 @@ export function updateBoss(this: World, a: Army): boolean {
 }
 
 export function spawnResource(this: World, x?: number, z?: number, want?: ResKind, force = false) {
-  if (this.resources.length >= MAX_RES + (force ? 8 : 0)) return
+  // いっぱいの 時は、町から とおくて だれも ひろわない 物を 1 つ かたづけて あける（大きな世界で 枠が うまらないように）
+  if (this.resources.length >= MAX_RES + (force ? 8 : 0)) {
+    const c = this.townCenter()
+    const far = this.resources.filter((r) => !r.taken && Math.hypot(r.x - c.x, r.z - c.z) > 22).sort((a, b) => Math.hypot(b.x - c.x, b.z - c.z) - Math.hypot(a.x - c.x, a.z - c.z))[0]
+    if (!far) return
+    this.scene.remove(far.mesh)
+    far.mesh.geometry.dispose()
+    ;(far.mesh.material as THREE.Material).dispose()
+    this.resources.splice(this.resources.indexOf(far), 1)
+  }
   const kind: ResKind = want ?? (Math.random() < 0.55 ? 'wood' : 'stone')
   if (x === undefined || z === undefined) {
     // 木や岩のそばに落ちている
@@ -625,7 +634,7 @@ export function spawnResource(this: World, x?: number, z?: number, want?: ResKin
     const land = this.stage.obstacles.filter((o) => !o.water)
     const c = this.townCenter()
     const near = land.filter((o) => Math.hypot(o.x - c.x, o.z - c.z) < 16)
-    const pool = near.length && Math.random() < 0.7 ? near : land
+    const pool = near.length && Math.random() < 0.85 ? near : land
     const o = pool[Math.floor(Math.random() * pool.length)]
     if (!o) return
     const a = Math.random() * Math.PI * 2

@@ -47,7 +47,17 @@ export function update(this: World, dt: number) {
   this.foodT += dt * (this.weather === 'rain' ? 1.8 : 1) * harvest
   const trees = this.items.filter((it) => it.stage === this.stageIndex && it.kind === 'sapling' && it.grow >= 1).length
   const beds = this.items.filter((it) => it.stage === this.stageIndex && it.kind === 'flowerbed').length
-  if (this.foodT > 7 / (1 + trees * 0.3 + beds * 0.2) && this.foods.length < Math.floor((5 + trees + beds) * harvest)) {
+  // なかまが ふえると 実りも ふえる（1 匹 1 分に 1 こ ほど 食べる）
+  const mouths = this.creatures.filter((c) => this.ally(c)).length
+  const foodCap = Math.floor((5 + trees + beds + mouths / 2) * harvest)
+  const foodEvery = 7 / (1 + trees * 0.3 + beds * 0.2 + Math.max(0, mouths - 3) * 0.08)
+  if (this.foodT > foodEvery && this.foods.length >= foodCap) {
+    // いっぱいの 時は、町から とおくて だれも 食べに いかない 物を 1 つ かたづける
+    const t = this.townCenter()
+    const far = this.foods.filter((f) => f.landed && !f.taken && Math.hypot(f.x - t.x, f.z - t.z) > 22).sort((a, b) => Math.hypot(b.x - t.x, b.z - t.z) - Math.hypot(a.x - t.x, a.z - t.z))[0]
+    if (far) this.removeFood(far)
+  }
+  if (this.foodT > foodEvery && this.foods.length < foodCap) {
     this.foodT = 0
     this.dropFood()
   }
@@ -112,6 +122,7 @@ export function update(this: World, dt: number) {
   this.updateSeasonDeco()
   this.coinPop.t = Math.max(0, this.coinPop.t - dt)
   this.updateEggs(dt)
+  this.updateSettlers(dt)
   this.tryBreed(dt)
   this.updateFx(dt)
   this.updateSecretFx(dt)
@@ -507,7 +518,8 @@ export function updateCreature(this: World, c: Creature, dt: number) {
         break
       }
       const site = c.site && this.structs.includes(c.site) && c.site.mats < STRUCTS[c.site.kind].need ? c.site : null
-      const h = site ? null : this.homeOf(c)
+      const help = c.helpHouse && this.houses.includes(c.helpHouse) && c.helpHouse.level < 4 ? c.helpHouse : null
+      const h = site ? null : help ?? this.homeOf(c)
       if ((!site && !h) || c.t <= 0) {
         this.dropCarry(c, true)
         this.setState(c, 'idle', 0.5)
