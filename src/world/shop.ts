@@ -100,6 +100,8 @@ export interface ShopView {
   talk?: string
   /** うけている ちゅうもん（まだ 建ちはじめていない 物） */
   orders?: string[]
+  /** 住民の おねがい（ほしがっている 品の id と だれ） */
+  wish?: { id: string; who: string }
 }
 
 export interface ShopCtx {
@@ -366,7 +368,10 @@ export function drawShop(c: ShopCtx, v: ShopView) {
   const status = ord.length && ck.tone === 'ok' && Math.floor(v.time / 4) % 3 === 2
     ? `ちゅうもん ${ord.length}けん うけたまわり中\n${ord.slice(0, 2).join('・')}${ord.length > 2 ? ' ほか' : ''}`
     : null
-  const talk = v.talk ?? status ?? keeperLine(cur, ck, v.coins)
+  const wishLine = v.wish && (v.wish.id === cur.id || Math.floor(v.time / 4) % 3 === 1)
+    ? `${v.wish.who}が ${SHOP.find((s) => s.id === v.wish!.id)?.name.replace('せっけいず：', '') ?? ''}を\nほしがっておったぞ`
+    : null
+  const talk = v.talk ?? wishLine ?? status ?? keeperLine(cur, ck, v.coins)
   const blink = Math.floor(v.time * 1.3) % 5 === 0 && (v.time * 1.3) % 1 < 0.18
   drawKeeper(g, w.x + 20, w.y + 8, v.time, blink, !!v.talk)
   c.text('よろずや ハコジイ', w.x + 66, w.y + 4, '#ffd36b', 9)
@@ -434,6 +439,8 @@ export function drawShop(c: ShopCtx, v: ShopView) {
       c.text(`${sk.have}/${sk.max}`, w.x + w.w - 60, ry + 3, on ? '#5a4a30' : full ? '#ffb84d' : '#9fd0e8', 9, 'right', on)
     }
     if (sk.tone === 'lock') c.text('まだ', w.x + w.w - 60, ry + 3, ink('#7a5aa0'), 9, 'right', on)
+    // おねがいの 品には ハート
+    if (v.wish?.id === s.id) c.text('♥', w.x + w.w - 84, ry + 2, on ? '#c8405a' : '#ff8fb1', 10, 'right', on)
   }
   // スクロールの 目印（くさり）
   if (list.length > SHOP_ROWS) {

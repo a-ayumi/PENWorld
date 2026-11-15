@@ -510,6 +510,8 @@ export class World {
   wallJob = Vi.wallJob
   wallSpot = Vi.wallSpot
   layWall = Vi.layWall
+  updateWish = Vi.updateWish
+  grantWish = Vi.grantWish
   cullSmall = Up.cullSmall
   updateSettlers = Cr.updateSettlers
   regionId = Ev.regionId
@@ -860,6 +862,9 @@ export class World {
   small: { o: THREE.Object3D; x: number; z: number }[] = []
   smallOf: Stage | null = null
   smallT = 0
+  /** 住民の おねがい（ほしい 品の ショップ id・だれ・のこり 秒・つぶやきの 時計） */
+  wish: { id: string; who: Creature; t: number; say: number } | null = null
+  wishT = 150
   /** 視点：top = 見下ろし / behind = ペットの少し後ろ / eye = ペットの目線 */
   view: 'top' | 'behind' | 'eye' = 'top'
   /** 見た目：ピクセル・ジオラマ（diorama.ts）。みおろしは平行投影、うしろ・めせんは this.camera（遠近）で同じ仕上げ */
