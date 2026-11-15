@@ -19,7 +19,10 @@ const SUN_ELEV = THREE.MathUtils.degToRad(58)
 const SUN_GAIN = 1.9
 const HEMI_GAIN = 0.85
 
+const ZERO2 = new THREE.Vector2()
 export class DioramaLook {
+  /** 格子に 吸わせた カメラの ずれ（ドット 単位） */
+  readonly sub = new THREE.Vector2()
   readonly cam: THREE.OrthographicCamera
   private readonly rt: THREE.WebGLRenderTarget
   readonly post: THREE.ShaderMaterial
@@ -78,8 +81,12 @@ export class DioramaLook {
       this.cam.updateProjectionMatrix()
     }
     const px = (2 * h) / SCENE.h
-    const r = Math.round(target.dot(this.right) / px) * px
-    const u = Math.round(target.dot(this.up) / px) * px
+    const tr = target.dot(this.right) / px
+    const tu = target.dot(this.up) / px
+    const r = Math.round(tr) * px
+    const u = Math.round(tu) * px
+    // 格子に 吸わせた 分の ずれ（ドット 1 つ 未満）。仕上げで 絵を その 分 ずらして、ゆっくり 動く 時も なめらかに 見せる
+    this.sub.set(tr - Math.round(tr), tu - Math.round(tu))
     const f = target.dot(this.dir)
     const t = new THREE.Vector3().addScaledVector(this.right, r).addScaledVector(this.up, u).addScaledVector(this.dir, f)
     this.cam.position.copy(t).addScaledVector(this.dir, DIST)
@@ -165,6 +172,7 @@ export class DioramaLook {
     u.time.value = opt.time
     // 遠近のカメラ（うしろ・めせん）：深度を距離に直して使う
     u.persp.value = camera ? 1 : 0
+    u.sub.value.copy(camera ? ZERO2 : this.sub)
     if (camera) {
       u.near.value = camera.near
       u.far.value = camera.far
@@ -214,14 +222,14 @@ function makeDioramaPost(scene: THREE.Texture, depth: THREE.DepthTexture, hud: T
       res: { value: new THREE.Vector2(SCENE.w, SCENE.h) },
       skyTop: { value: new THREE.Color() }, skyBot: { value: new THREE.Color() }, haze: { value: new THREE.Color() },
       night: { value: 0 }, flash: { value: 0 }, time: { value: 0 }, glitch: { value: 0 }, heat: { value: 0 },
-      persp: { value: 0 }, near: { value: 0.1 }, far: { value: 160 },
+      persp: { value: 0 }, near: { value: 0.1 }, far: { value: 160 }, sub: { value: new THREE.Vector2() },
     },
     depthTest: false,
     depthWrite: false,
     vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
     fragmentShader: /* glsl */ `
       uniform sampler2D tScene; uniform sampler2D tDepth; uniform sampler2D tHud;
-      uniform vec2 res; uniform vec3 skyTop; uniform vec3 skyBot; uniform vec3 haze;
+      uniform vec2 res; uniform vec2 sub; uniform vec3 skyTop; uniform vec3 skyBot; uniform vec3 haze;
       uniform float night; uniform float flash; uniform float time; uniform float glitch; uniform float heat;
       uniform float persp; uniform float near; uniform float far;
       varying vec2 vUv;
@@ -243,7 +251,7 @@ function makeDioramaPost(scene: THREE.Texture, depth: THREE.DepthTexture, hud: T
       }
       float D(vec2 o) { return lin(texture2D(tDepth, uv + o / res).x); }
       void main() {
-        uv = vUv;
+        uv = vUv + sub / res;
         float tq = floor(time * 24.0);
         // ワープのグリッチ（行ごとに横ずれ）
         if (glitch > 0.0) {
@@ -257,7 +265,7 @@ function makeDioramaPost(scene: THREE.Texture, depth: THREE.DepthTexture, hud: T
           float wob = sin(row * 0.9 + time * 3.1) * 0.6 + sin(row * 0.37 - time * 1.9) * 0.4;
           uv.x += wob * 0.0042 * heat * mix(0.35, 1.0, 1.0 - vUv.y);
         }
-        vec2 px = floor(vUv * res);
+        vec2 px = floor(vUv * res + sub);
         float d = D(vec2(0.0));
         vec3 c;
         if (d >= 0.9999) {

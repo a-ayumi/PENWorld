@@ -539,6 +539,8 @@ export class World {
   wallJob = Vi.wallJob
   wallSpot = Vi.wallSpot
   layWall = Vi.layWall
+  rallyPoint = Ev.rallyPoint
+  rallyAllies = Ev.rallyAllies
   castleRooms = Vi.castleRooms
   castleHome = Vi.castleHome
   castleWants = Vi.castleWants
@@ -903,6 +905,8 @@ export class World {
   smallT = 0
   /** ドット絵の 生き物に かける 光の 色（applyLight が 決める） */
   creatureTint = new THREE.Color(1, 1, 1)
+  /** おまかせカメラの 速さ（なめらかに 動きだす） */
+  autoV = 0
   /** 住民の おねがい（ほしい 品の ショップ id・だれ・のこり 秒・つぶやきの 時計） */
   wish: { id: string; who: Creature; t: number; say: number } | null = null
   wishT = 150

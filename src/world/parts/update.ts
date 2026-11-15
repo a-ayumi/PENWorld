@@ -1093,22 +1093,33 @@ export function updateCamera(this: World, dt: number) {
       if (this.autoT <= 0) {
         const s = this.pickAutoSpot()
         this.autoTo.set(s.x, 0, s.z)
-        this.autoT = 9 + Math.random() * 5
+        this.autoT = 12 + Math.random() * 6
       }
-      this.freeLook.lerp(this.autoTo, 1 - Math.exp(-dt * 0.6))
+      // ゆっくり 動きだして ゆっくり 止まる（遠い 所へは すこし 速く。速さに 上限）
+      const dx = this.autoTo.x - this.freeLook.x
+      const dz = this.autoTo.z - this.freeLook.z
+      const dist = Math.hypot(dx, dz)
+      if (dist > 0.01) {
+        const want = Math.min(4 + dist * 0.25, dist * 0.9)
+        this.autoV += (want - this.autoV) * Math.min(1, dt * 1.5)
+        const step = Math.min(dist, this.autoV * dt)
+        this.freeLook.x += (dx / dist) * step
+        this.freeLook.z += (dz / dist) * step
+      } else this.autoV = 0
     }
     const target = this.dioLook.set(this.freeLook.x, this.stage.heightAt(this.freeLook.x, this.freeLook.z) + 0.4, this.freeLook.z)
     this.look.lerp(target, 1 - Math.exp(-dt * 6))
     this.camera.position.copy(this.look).addScaledVector(CAM_OFF, this.camZoom)
     this.camera.lookAt(this.look)
-    const k = THREE.MathUtils.clamp((this.camZoom - 1) / 0.7, 0, 1)
-    this.diorama.aim(this.dioCenter.copy(this.look).lerp(new THREE.Vector3(0, 0.4, 0), k * 0.5), this.camZoom)
+    // 引いても 見ている 所は うごかさない（昔は 島の まんなかへ 寄せていたが、大きな世界では 遠くへ すべって 見えた）
+    this.diorama.aim(this.dioCenter.copy(this.look), this.camZoom)
     jolt()
     return
   }
   if (this.view === 'top') {
     const target = new THREE.Vector3(p.x, 0, p.z)
-    if (p.state === 'fight' && p.foe) target.set((p.x + p.foe.x) / 2, 0, (p.z + p.foe.z) / 2)
+    // 家（城）の 中で 寝ている 間は 見えないので、入口あたりで 止める。たたかいの 時は あいてとの まんなか
+    if (p.state === 'fight' && p.foe && Math.hypot(p.foe.x - p.x, p.foe.z - p.z) < 6) target.set((p.x + p.foe.x) / 2, 0, (p.z + p.foe.z) / 2)
     // 2 本指でずらした分を足す（ペットを追いかけつつ、見たい所を見られる）
     target.x += this.camPan.x
     target.z += this.camPan.y
@@ -1122,7 +1133,8 @@ export function updateCamera(this: World, dt: number) {
     this.camera.lookAt(this.look)
     if (this.diorama) {
       // 引くほど、島のまんなかへ寄せる（いちばん引くと島ぜんたいが画面の中央に）
-      const k = THREE.MathUtils.clamp((this.camZoom - 1) / 0.7, 0, 1)
+      // 1 まいの 小さな 箱庭だけ、引くほど 島の まんなかへ 寄せる（島ぜんたいが 画面に 入る）
+      const k = this.worldMode ? 0 : THREE.MathUtils.clamp((this.camZoom - 1) / 0.7, 0, 1)
       this.diorama.aim(this.dioLook.copy(this.look).lerp(this.dioCenter.set(0, 0.4, 0), k), this.camZoom)
     }
     jolt()

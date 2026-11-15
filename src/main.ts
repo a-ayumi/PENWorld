@@ -60,6 +60,16 @@ const SCREEN_SIZES = {
   large: { name: 'おおきめ', h: 2.3, w: 1.62, y: 0.2 },
 }
 type ScreenSize = keyof typeof SCREEN_SIZES
+/** 1 秒に 描く 回数：なめらか 60 / せつでん 30（タッチの 端末は せつでん が 最初） */
+const FPS_MODES = { smooth: { name: 'なめらか' }, save: { name: 'せつでん' } }
+let fpsMode: keyof typeof FPS_MODES = matchMedia('(pointer: coarse)').matches ? 'save' : 'smooth'
+try {
+  const v = localStorage.getItem('pulsar-fps')
+  if (v === 'smooth' || v === 'save') fpsMode = v
+} catch {
+  /* noop */
+}
+let lastFrameAt = 0
 let screenSize: ScreenSize = 'normal'
 try {
   const v = localStorage.getItem('pulsar-size')
@@ -468,6 +478,10 @@ chips(document.getElementById('set-mode')!, PLAY_MODES, () => playMode, (id) => 
   playMode = id === 'lively' ? 'lively' : 'calm'
   save('pulsar-mode', playMode)
   world.calm = playMode === 'calm'
+})
+chips(document.getElementById('set-fps')!, FPS_MODES, () => fpsMode, (id) => {
+  fpsMode = id === 'smooth' ? 'smooth' : 'save'
+  save('pulsar-fps', fpsMode)
 })
 chips(document.getElementById('set-size')!, SCREEN_SIZES, () => screenSize, (id) => {
   screenSize = id as ScreenSize
@@ -1299,7 +1313,6 @@ let elapsed = 0
 let moodCheck = 0
 let musicT = 1
 let frames = 0
-let idleFlip = false
 let catchUp = 0
 let hiddenAt = 0
 // 裏に回ったら描画もシミュレーションも止める。戻ったら、止まっていた分のうち 1 秒ぶんまでを進める
@@ -1333,9 +1346,12 @@ const worldFps = new URLSearchParams(location.search).has('fps')
   : null
 renderer.setAnimationLoop((t) => {
   if (document.hidden) return
-  // 長いあいだ操作が無い時は 30fps に落として電池を節約（触るとすぐ戻る）
+  // 1 秒に 描く 回数の 上限（時間で 決める：120Hz の 画面でも 60 / 30 まで）。
+  // 長いあいだ 操作が 無い 時は さらに 半分（触ると すぐ もどる）。スマホが あつく ならないように
   const idle = performance.now() - lastInput > 60000
-  if (idle && (idleFlip = !idleFlip)) return
+  const cap = (fpsMode === 'save' ? 30 : 60) / (idle ? 2 : 1)
+  if (t - lastFrameAt < 1000 / cap - 3) return
+  lastFrameAt = t
   timer.update(t)
   const rawDt = timer.getDelta()
   if (!idle) fpsWatch.tick(rawDt)
