@@ -86,7 +86,7 @@ export const TEMPLATES: Template[] = [
   { id: 'buys', kind: 'count', key: 'buys', n: [1, 2, 4], text: (n) => `ショップで ${n}かい かいものする` },
   { id: 'dex', kind: 'count', key: 'dex', n: [1, 2, 3], text: (n) => `ずかんに ${n}しゅ とうろくする`, ok: (n, g) => g.dexSeen + n <= g.dexTotal },
   { id: 'hatched', kind: 'count', key: 'hatched', n: [0, 1, 2], text: (n) => `たまごを ${n}こ かえす` },
-  { id: 'eggs', kind: 'count', key: 'eggs', n: [0, 1, 2], text: (n) => `たまごを ${n}こ うみだす（かう・できる）` },
+  { id: 'eggs', kind: 'count', key: 'eggs', n: [0, 1, 2], text: (n) => `たまごが ${n}こ できる` },
   { id: 'houseDone', kind: 'count', key: 'houseDone', n: [0, 1, 2], text: (n) => `いえを ${n}けん かんせいさせる`, ok: (_n, g) => g.houses3 < 6 },
   { id: 'houseExp', kind: 'count', key: 'houseExp', n: [0, 0, 1], text: (n) => `いえを ${n}けん ぞうちくする`, ok: (_n, g) => g.houses4 < 6 },
   { id: 'structs', kind: 'count', key: 'structs', n: [0, 1, 2], text: (n) => `たてものを ${n}こ かんせいさせる` },

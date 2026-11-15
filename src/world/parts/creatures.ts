@@ -1417,7 +1417,8 @@ export function layEgg(this: World, x: number, z: number, parents: SpeciesId[], 
 export function updateWildEgg(this: World, dt: number) {
   this.wildEggT -= dt
   if (this.wildEggT > 0) return
-  this.wildEggT = 150 + Math.random() * 100
+  // 野生のたまごは めったに 落ちていない（8〜13 分に 1 回。仲間が 死んで へった時の すくい）
+  this.wildEggT = 480 + Math.random() * 300
   if (this.eggs.length >= 3 || this.calmWildCount() >= MAX_WILD_CALM) return
   const q = this.freePos(3)
   const kind = this.stageEggKind()
