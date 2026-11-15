@@ -29,6 +29,7 @@ export function update(this: World, dt: number) {
   this.stage.update(this.time, this.night)
   // 読みこみ範囲：引いて 見ている ほど 広く
   this.stage.cull?.(this.look.x, this.look.z, 18 + 16 * Math.max(1, this.camZoom))
+  this.cullSmall(dt)
 
   if (this.warp > 0) {
     this.warp = Math.max(0, this.warp - dt)
@@ -1259,4 +1260,54 @@ export function freePos(this: World, minFromPet: number, cx = 0, cz = 0, radius 
     return { x, z }
   }
   return { x: 0, z: 0 }
+}
+
+/**
+ * 小さな 小物（花・小石・きのこ など 半径 0.35 より 小さい 物）は、見ている 所から 遠いと かくす（描く 回数を へらす）。
+ * 引いて 見るほど 近くまで かくす（遠くからは 1 ドットにも ならない）。名前つきの 部品と 点の 粒は さわらない。
+ * 大きな世界だけ（1 まいの ステージは 小さいので いつも 出す）。0.5 秒ごと
+ */
+const ROUND = new Set(['IcosahedronGeometry', 'SphereGeometry', 'OctahedronGeometry', 'DodecahedronGeometry'])
+export function cullSmall(this: World, dt: number) {
+  if (!this.stage.cull) return
+  if ((this.smallT -= dt) > 0) return
+  this.smallT = 0.5
+  if (this.smallOf !== this.stage) {
+    this.smallOf = this.stage
+    this.small = []
+    this.stage.group.updateMatrixWorld(true)
+    // 地方の 中の 小物 1 つ（木なら 木ぜんたい）の 大きさで きめる。部品ごとに 見ると 木の みきだけ 消えたり するので
+    const box = new THREE.Box3()
+    const sph = new THREE.Sphere()
+    const named = (o: THREE.Object3D) => {
+      let n = false
+      o.traverse((q) => (n ||= !!q.name || !!q.userData.backdrop))
+      return n
+    }
+    for (const tile of this.stage.group.children) {
+      for (const o of tile.children) {
+        if (!o.visible || named(o) || (o as THREE.Points).isPoints) continue
+        box.setFromObject(o)
+        if (box.isEmpty()) continue
+        box.getBoundingSphere(sph)
+        if (sph.radius < 0.35) {
+          this.small.push({ o, x: sph.center.x, z: sph.center.z })
+          continue
+        }
+        // 大きな 小物（木）の 中の 小さな まるい 部品（木の実・花の たま）は 遠いと かくす。みきは のこす
+        o.traverse((q) => {
+          const m = q as THREE.Mesh
+          if (!m.isMesh || q === o || !ROUND.has(m.geometry.type)) return
+          if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere()
+          const e = q.matrixWorld.elements
+          const sc = Math.max(Math.hypot(e[0], e[1], e[2]), Math.hypot(e[4], e[5], e[6]), Math.hypot(e[8], e[9], e[10]))
+          if ((m.geometry.boundingSphere?.radius ?? 1) * sc < 0.3) this.small.push({ o: q, x: sph.center.x, z: sph.center.z })
+        })
+      }
+    }
+  }
+  const r = this.camZoom > 1.6 ? 0 : 11 + 5 * Math.max(1, this.camZoom)
+  const lx = this.look.x
+  const lz = this.look.z
+  for (const s of this.small) s.o.visible = r > 0 && Math.abs(s.x - lx) < r && Math.abs(s.z - lz) < r
 }

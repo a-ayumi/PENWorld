@@ -510,6 +510,7 @@ export class World {
   wallJob = Vi.wallJob
   wallSpot = Vi.wallSpot
   layWall = Vi.layWall
+  cullSmall = Up.cullSmall
   updateSettlers = Cr.updateSettlers
   regionId = Ev.regionId
   taskOf = Ui.taskOf
@@ -855,6 +856,10 @@ export class World {
   pathT = 0
   pathDecay = 30
   pathsStage = -1
+  /** 遠いと かくす 小さな 小物（cullSmall） */
+  small: { o: THREE.Object3D; x: number; z: number }[] = []
+  smallOf: Stage | null = null
+  smallT = 0
   /** 視点：top = 見下ろし / behind = ペットの少し後ろ / eye = ペットの目線 */
   view: 'top' | 'behind' | 'eye' = 'top'
   /** 見た目：ピクセル・ジオラマ（diorama.ts）。みおろしは平行投影、うしろ・めせんは this.camera（遠近）で同じ仕上げ */
