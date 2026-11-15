@@ -325,11 +325,6 @@ export const MAX_HOUSES = 6
 export const MAX_RES = 12
 export const houseLevel = (mats: number) => (mats >= 12 ? 4 : mats >= 8 ? 3 : mats >= 5 ? 2 : mats >= 2 ? 1 : 0)
 export const houseMaxHp = (level: number) => level * 25
-/** 家の屋根の色（建てた種族の色） */
-export const ROOF: Partial<Record<SpeciesId, string>> = {
-  mebu: '#5cc25a', pikori: '#ffd23f', gorota: '#8a94a6', mofuru: '#7fb2ff', giaru: '#8e6cff', hireru: '#3fc1c9',
-  fuwari: '#ff9ecb', garudora: '#4a6fa5', shioryu: '#2fb5c9', hoshikujira: '#2a3a7a',
-}
 export const WEATHER_NAME: Record<Weather, string> = { sun: 'はれ', cloud: 'くもり', rain: 'あめ', snow: 'ゆき', ember: 'ひのこ' }
 export const WEATHER_MSG: Record<Weather, string> = {
   sun: 'そらが はれてきた', cloud: 'くもが でてきた', rain: 'あめが ふってきた', snow: 'ゆきが ふってきた', ember: 'ひのこが まいはじめた…',
@@ -447,6 +442,18 @@ export class World {
   dropFood = Vi.dropFood
   removeFood = Vi.removeFood
   lam = Vi.lam
+  eraCtx = Vi.eraCtx
+  /** 色ごとに 使い回す ランバート（時代の 建物。すてない） */
+  private lamCache = new Map<string, THREE.Material>()
+  sharedLam(c: string) {
+    let m = this.lamCache.get(c)
+    if (!m) {
+      m = this.lam(c)
+      m.userData.shared = true
+      this.lamCache.set(c, m)
+    }
+    return m
+  }
   addOrder = Vi.addOrder
   worldForest = worldForest
   townEra = Vi.townEra
@@ -501,7 +508,6 @@ export class World {
   refreshStruct = Vi.refreshStruct
   addStructMaterial = Vi.addStructMaterial
   onStructDone = Vi.onStructDone
-  castleWalls = Vi.castleWalls
   damageStruct = Vi.damageStruct
   marchTarget = Vi.marchTarget
   updateStructs = Vi.updateStructs

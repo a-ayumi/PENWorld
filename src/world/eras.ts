@@ -46,12 +46,9 @@ export const ERA_STYLE: Record<Era, { wall: string; stone: string; roof: string;
 /** 窓（夜に ともる 色）。画面・回路・文字は いつも 光る */
 export const WINDOW_LIT = new Set(['ffd27a', 'ffc46a', 'ffcf7a', '7fd8ff', 'ff9ecb', 'ffe27a', 'b48cff', 'fff4d8', 'ffb347'])
 export type Wear = 0 | 1 | 2
-export const ERAS: Era[] = [1, 2, 3, 4, 5, 6, 7, 8, 9]
 export const ERA_NAME: Record<Era, string> = {
   1: 'のじゅく', 2: 'まるたの村', 3: '木ぐみの町', 4: '石の城下町', 5: '城', 6: '白い城', 7: 'じょうきの町', 8: 'まざりの町', 9: 'きかいの城',
 }
-/** 次の時代（枝分かれ） */
-export const ERA_NEXT: Record<Era, Era[]> = { 1: [2], 2: [3], 3: [4], 4: [5], 5: [6, 7], 6: [], 7: [8], 8: [9], 9: [] }
 export interface EraCtx {
   lam: (color: string) => THREE.Material
   basic: (color: string) => THREE.Material
@@ -1285,12 +1282,20 @@ export function mergeByColor(root: THREE.Object3D): THREE.Group {
     for (const g of geos) g.dispose()
     if (merged) out.add(new THREE.Mesh(merged, mat))
   }
+  const used = new Set<THREE.Material>()
+  for (const { mat } of by.values()) used.add(mat)
   for (const o of keep) {
     const m = o as THREE.Mesh
     const n = new THREE.Mesh(m.geometry.clone().applyMatrix4(o.matrixWorld), m.material)
     n.name = o.name
     out.add(n)
+    for (const x of Array.isArray(m.material) ? m.material : [m.material]) used.add(x)
   }
+  // まとめて いらなく なった 材質は すてる（使い回しの 材質は のこす）
+  root.traverse((o) => {
+    const m = (o as THREE.Mesh).material
+    for (const x of Array.isArray(m) ? m : m ? [m] : []) if (!used.has(x) && !x.userData.shared) x.dispose()
+  })
   return out
 }
 
