@@ -497,7 +497,7 @@ export function think(this: World, c: Creature) {
   // ペットの ほうしん「きと はな」：なえ・はなだんを うえる、そだちかけの なえに 水を やる
   if (c === p && this.petPlan === 'plant' && c.energy > 25 && Math.random() < 0.7 && this.plantJob(c)) return
   // いしく（と ペットの ほうしん「じょうへき」）：しざいを はこんで へいを つむ。ひまな だいくも ときどき 手つだう
-  const wallP = c.role === 'mason' || (c === p && this.petPlan === 'wall') ? 0.9 : c.role === 'builder' || c.role === 'free' ? 0.12 : 0
+  const wallP = c.role === 'mason' || (c === p && this.petPlan === 'wall') ? 0.9 : c.role === 'builder' || c.role === 'free' ? (this.townPlan === 'guard' ? 0.4 : 0.12) : 0
   if (!wild && c.team !== 'wild' && c.grow === 0 && c.energy > 30 && Math.random() < wallP) {
     const ring = this.wallJob()
     const r = ring && this.resources
@@ -512,7 +512,7 @@ export function think(this: World, c: Creature) {
     }
   }
   // 家づくり：資材を集めて自分の家を建てる・直す
-  if (!wild && c.grow === 0 && c.energy > 30 && Math.random() < (c.role === 'builder' || (c === p && this.petPlan === 'build') ? 0.95 : c.role === 'free' ? 0.85 : 0.5)) {
+  if (!wild && c.grow === 0 && c.energy > 30 && Math.random() < (c.role === 'builder' || (c === p && this.petPlan === 'build') ? 0.95 : c.role === 'free' ? (this.townPlan === 'grow' ? 0.95 : 0.85) : this.townPlan === 'grow' ? 0.7 : 0.5)) {
     let h = home
     if (!h) h = this.claimHouse(c)
     const site = this.openSite(c)
@@ -1154,12 +1154,12 @@ export function assignRoles(this: World) {
   const allies = this.creatures.filter((c) => c.team === 'friend' && c.grow === 0 && c.sp.tier >= 2 && this.alive(c))
   const done = (k: StructKind) => this.structs.filter((b) => b.stage === this.stageIndex && b.kind === k && this.structDone(b)).length
   const want: Record<Role, number> = {
-    farmer: done('farm'),
-    guard: done('tower') + done('castle') * 2 + done('fort') * 2 + done('lighthouse') + (this.vLv >= 1 ? 1 : 0),
+    farmer: done('farm') + (this.townPlan === 'harvest' && done('farm') ? 1 : 0),
+    guard: done('tower') + done('castle') * 2 + done('fort') * 2 + done('lighthouse') + (this.vLv >= 1 ? 1 : 0) + (this.townPlan === 'guard' ? 2 : 0),
     carer: done('playground'),
     seller: this.vLv >= 1 ? done('market') : 0,
-    cook: done('diner') * 2,
-    mason: this.wallJob() ? 2 : 0,
+    cook: done('diner') * 2 + (this.townPlan === 'harvest' && done('diner') ? 1 : 0),
+    mason: this.wallJob() ? (this.townPlan === 'guard' ? 4 : 2) : 0,
     builder: 99,
     free: 0,
   }
@@ -1401,7 +1401,7 @@ export function updateVillage(this: World, dt: number) {
   this.villageSeen = this.vLv
   // みんなで勝手に はたけ・いどを つくる（人が何もしなくても村は少しずつ育つ）
   this.autoPlanT += 1
-  if (this.autoPlanT >= 20 && !this.openSite(null)) {
+  if (this.autoPlanT >= (this.townPlan === 'grow' ? 10 : 20) && !this.openSite(null)) {
     this.autoPlanT = 0
     const homes = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 3).length
     const has = (k: StructKind) => this.structs.some((b) => b.stage === this.stageIndex && b.kind === k)
@@ -1410,7 +1410,7 @@ export function updateVillage(this: World, dt: number) {
     // はたけは なかまが ふえたら もう 1 つ（4 匹に 1 つ・3 つまで）
     const farms = this.structs.filter((b) => b.stage === this.stageIndex && b.kind === 'farm').length
     const mouths = this.creatures.filter((c) => this.ally(c)).length
-    const want = farms < Math.min(3, 1 + Math.floor(mouths / 4)) && homes >= 2 ? (['farm', 2, 0] as [StructKind, number, number]) : next.find(([k, n, sc]) => homes >= n && this.vScore >= sc && !has(k))
+    const want = farms < Math.min(3, 1 + Math.floor(mouths / 4) + (this.townPlan === 'harvest' ? 1 : 0)) && homes >= 2 ? (['farm', 2, 0] as [StructKind, number, number]) : next.find(([k, n, sc]) => homes >= n && this.vScore >= sc && !has(k))
     if (want) this.planStruct(want[0], this.pet.x, this.pet.z, true)
   }
 }
@@ -1581,7 +1581,7 @@ export function plantJob(this: World, c: Creature): boolean {
 export function updateSettlers(this: World, dt: number) {
   this.settleT -= dt
   if (this.settleT > 0) return
-  this.settleT = 120 + Math.random() * 90
+  this.settleT = (120 + Math.random() * 90) * (this.townPlan === 'grow' ? 0.7 : 1)
   const here = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 2)
   const workers = this.creatures.filter((c) => c.team === 'friend' && c.grow === 0 && c.state !== 'dead').length
   const empty = here.filter((h) => !h.owner).length

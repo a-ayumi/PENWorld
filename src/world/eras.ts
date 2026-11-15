@@ -21,6 +21,13 @@ export const BUILD_SCALE = 1.5
 export type EraPath = 'white' | 'steam'
 /** 町の 段（村の 点数で 上がる）→ 時代。6 段めから 枝で 分かれる */
 const STEP_SCORE = [0, 1, 3, 6, 10, 15, 21, 28]
+/** つぎの 段までの 進みぐあい（0〜1）。いちばん 上の 段なら null */
+export function eraStepScore(score: number): number | null {
+  const k = STEP_SCORE.findIndex((v) => v > score)
+  if (k < 0) return null
+  const lo = STEP_SCORE[k - 1] ?? 0
+  return Math.max(0, Math.min(1, (score - lo) / (STEP_SCORE[k] - lo)))
+}
 export function eraStep(score: number) {
   let s = 1
   for (let i = 0; i < STEP_SCORE.length; i++) if (score >= STEP_SCORE[i]) s = i + 1
