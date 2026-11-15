@@ -1,4 +1,5 @@
 /** World.ts から分けた「save」のメソッド。this は World（World.ts のクラスのつなぎの行から呼ばれる） */
+/** 中身：セーブと 読みこみ。読んだ 値は 信用せず isSpecies() / num() などで かならず 検査する */
 import { EGG_COLORS, SPECIES, familyOf, newSeed, type Care, type EggKind, type SpeciesId } from '../monsters'
 import type { Facts } from '../../journal'
 import { HALF, LAND_SIZES, STAGES, setLandSize } from '../stages'

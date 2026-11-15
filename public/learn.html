@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PULSAR のしくみ図鑑</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Noto+Sans+JP:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* レイアウト：1 本の 読みもの。章ごとに「図（うごく）」と「説明」と「本物の コード」を ならべる */
+:root {
+  --bg: #f3f1e8;
+  --panel: #fbfaf5;
+  --ink: #23271f;
+  --muted: #5f6656;
+  --line: #d9d6c6;
+  --lcd: #b9c79a;
+  --lcd-ink: #2b3a1f;
+  --accent: #c8573a;
+  --accent2: #2f7d8a;
+  --ok: #4f8a3c;
+  --code-bg: #2a2d26;
+  --code-ink: #e8e6d8;
+  --display: "DotGothic16", "Noto Sans JP", system-ui, sans-serif;
+  --body: "Noto Sans JP", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1b1d18; --panel: #23261f; --ink: #e9e7da; --muted: #a8ad9a; --line: #3a3e33;
+    --lcd: #4c5a37; --lcd-ink: #dfe8c4; --accent: #e8805f; --accent2: #6cc2cf; --ok: #8cc56f;
+    --code-bg: #121410; --code-ink: #e8e6d8; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1b1d18; --panel: #23261f; --ink: #e9e7da; --muted: #a8ad9a; --line: #3a3e33;
+  --lcd: #4c5a37; --lcd-ink: #dfe8c4; --accent: #e8805f; --accent2: #6cc2cf; --ok: #8cc56f;
+  --code-bg: #121410; --code-ink: #e8e6d8; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.8;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 64px;
+}
+.wrap { max-width: 920px; margin: 0 auto; }
+header.top { padding-block: 40px 24px; display: grid; gap: 14px; }
+.lcd {
+  background: var(--lcd); color: var(--lcd-ink); border-radius: 14px; padding: 18px 20px;
+  font-family: var(--display); box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--lcd-ink) 25%, transparent);
+}
+h1 { font-family: var(--display); font-weight: 400; font-size: clamp(30px, 6vw, 46px); line-height: 1.2; margin: 0; text-wrap: balance; }
+.lede { color: var(--muted); max-width: 62ch; margin: 0; }
+nav.toc { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+nav.toc a { font-size: 13px; text-decoration: none; color: var(--ink); border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; background: var(--panel); }
+nav.toc a:hover, nav.toc a:focus-visible { border-color: var(--accent); outline: none; }
+section { padding-block: 34px; border-top: 1px dashed var(--line); }
+h2 { font-family: var(--display); font-weight: 400; font-size: 26px; margin: 0 0 6px; text-wrap: balance; }
+h2 .no { color: var(--accent); margin-right: 10px; }
+h3 { font-size: 16px; margin: 20px 0 6px; }
+p { max-width: 66ch; margin: 8px 0; }
+.kicker { font-size: 12px; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; }
+.fig { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin: 14px 0; }
+.fig .cap { font-size: 13px; color: var(--muted); margin-top: 8px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.grid2 > * { min-width: 0; }
+button {
+  font-family: var(--body); font-size: 13px; border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+  border-radius: 8px; padding: 5px 12px; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+input[type=range] { accent-color: var(--accent); width: 180px; }
+label { font-size: 13px; color: var(--muted); display: inline-flex; gap: 8px; align-items: center; }
+canvas, svg { display: block; max-width: 100%; height: auto; }
+.scroll { overflow-x: auto; }
+pre {
+  background: var(--code-bg); color: var(--code-ink); font-family: var(--mono); font-size: 12.5px; line-height: 1.6;
+  padding: 12px 14px; border-radius: 10px; overflow-x: auto; margin: 10px 0;
+}
+pre .c { color: #9aa88a; } pre .k { color: #f0a27f; } pre .s { color: #b8d68a; } pre .f { color: #8fd0dc; }
+code { font-family: var(--mono); font-size: .9em; background: color-mix(in srgb, var(--line) 50%, transparent); padding: 1px 5px; border-radius: 4px; }
+pre code { background: none; padding: 0; }
+.file { font-family: var(--mono); font-size: 12px; color: var(--accent2); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 700; color: var(--muted); font-size: 12px; letter-spacing: .05em; }
+td:first-child { font-family: var(--mono); font-size: 12.5px; color: var(--accent2); white-space: nowrap; }
+.pill { display: inline-block; font-size: 12px; border-radius: 999px; padding: 1px 9px; border: 1px solid var(--line); }
+.tip { border-left: 3px solid var(--accent2); padding: 4px 12px; color: var(--muted); font-size: 14px; }
+.stat { font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 13px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+<header class="top">
+  <div class="lcd">
+    <div class="kicker" style="color:inherit;opacity:.75">PULSAR / src を のぞく</div>
+    <h1>PULSAR のしくみ図鑑</h1>
+  </div>
+  <p class="lede">机の上の液晶ペット「PULSAR」が、どんな部品で・どんな順番で動いているかを、うごく図と 本物のコードで たどるページです。図は さわって動かせます。コードの断片は リポジトリ <code>a-ayumi/PENWorld</code> の 実際のファイルから 抜き出しています（読みやすく 少し 省略）。</p>
+  <nav class="toc" aria-label="もくじ">
+    <a href="#map">1 全体の地図</a><a href="#loop">2 1 コマの流れ</a><a href="#brain">3 生き物の頭</a><a href="#path">4 道さがし A*</a>
+    <a href="#town">5 町が育つ</a><a href="#wall">6 城壁の年輪</a><a href="#world">7 つなぎ目なしの世界</a><a href="#look">8 見た目の仕上げ</a><a href="#light">9 重さ対策</a><a href="#files">10 ファイル早見表</a>
+  </nav>
+</header>
+
+<!-- 1 -->
+<section id="map">
+  <h2><span class="no">1</span>全体の地図</h2>
+  <p>PULSAR は <b>TypeScript + Three.js</b> で書かれた Web アプリ（PWA）です。大きく分けると「本体の 3D 模型」と、その液晶に映る「箱庭（World）」の 2 層になっています。箱庭は 毎コマ 小さな画面（480×480）に描かれ、その絵が 本体の液晶の テクスチャ として 貼りつけられます。</p>
+  <div class="fig scroll">
+    <svg id="mapSvg" viewBox="0 0 860 380" role="img" aria-label="モジュールの関係図"></svg>
+    <div class="cap">箱に カーソルを のせる（スマホは タップ）と、その部品の 役わりが 下に 出ます。</div>
+    <p id="mapInfo" class="tip">main.ts から 読んでいくのが おすすめです。</p>
+  </div>
+  <h3>World は「役わりごとの ファイル」に 分けてある</h3>
+  <p><code>World</code> は とても大きなクラスなので、メソッドの中身を <code>parts/</code> の 6 ファイルに 分け、クラスの頭で つなぎ合わせています。JavaScript の <code>this</code> の しくみを 使った 書き方です。</p>
+<pre><code><span class="c">// src/world/parts/village.ts — 関数の 1 番目の 引数に this の 型を 書く</span>
+<span class="k">export function</span> <span class="f">townEra</span>(<span class="k">this</span>: World): Era {
+  <span class="k">return</span> eraOf(eraStep(<span class="k">this</span>.vScore), <span class="k">this</span>.eraPath[<span class="k">this</span>.stageIndex])
+}
+
+<span class="c">// src/world/World.ts — クラスの 頭で「メソッド」として つなぐ</span>
+<span class="k">import</span> * <span class="k">as</span> Vi <span class="k">from</span> <span class="s">'./parts/village'</span>
+<span class="k">export class</span> World {
+  townEra = Vi.townEra   <span class="c">// world.townEra() と 呼べる</span>
+}</code></pre>
+  <p class="tip">ファイルを 分けても「world.○○()」という 呼び方は かわりません。大きくなった クラスを 読みやすく 保つ 工夫です。</p>
+</section>
+
+<!-- 2 -->
+<section id="loop">
+  <h2><span class="no">2</span>1 コマの流れ（ゲームループ）</h2>
+  <p>ブラウザは 1 秒に 約 60 回、<code>setAnimationLoop</code> の 関数を 呼びます。そのたびに「世界を少し進める（update）」→「絵を描く（render）」を くり返します。下の図の ▶ で 1 コマを ゆっくり 再生できます。</p>
+  <div class="fig">
+    <div class="row"><button id="loopPlay" class="on">▶ 再生</button><button id="loopStep">1 歩すすめる</button><span class="stat" id="loopStat"></span></div>
+    <div class="scroll"><canvas id="loopCv" width="860" height="300"></canvas></div>
+    <div class="cap">dt（前のコマからの 秒数）は 1/20 秒までに おさえる。タブが 裏に 回っている間は 止める。</div>
+  </div>
+<pre><code><span class="c">// src/main.ts（ようす）</span>
+renderer.<span class="f">setAnimationLoop</span>((t) => {
+  <span class="k">if</span> (document.hidden) <span class="k">return</span>          <span class="c">// 見えていない時は 何もしない</span>
+  <span class="k">const</span> dt = clamp(timer.getDelta(), <span class="s">0</span>, <span class="s">1 / 20</span>)
+  world.<span class="f">update</span>(dt)                           <span class="c">// 生き物・町・天気を すすめる</span>
+  world.<span class="f">render</span>(renderer)                     <span class="c">// 箱庭を 480×480 に 描く → 仕上げ</span>
+  renderer.<span class="f">render</span>(scene, camera)              <span class="c">// 本体と 机を 描く（液晶に 箱庭の 絵）</span>
+})</code></pre>
+</section>
+
+<!-- 3 -->
+<section id="brain">
+  <h2><span class="no">3</span>生き物の頭の中（状態マシン）</h2>
+  <p>モンスター 1 匹ずつが「いま 何をしているか」を 1 つの <b>状態（state）</b> として 持ちます。状態ごとに 決まった動きをし、時間が来たり 目的を果たしたりすると <code>think()</code> が 次の状態を えらびます。ゲームの AI で いちばん よく使われる、わかりやすい しくみです。</p>
+  <div class="fig">
+    <div class="row">
+      <label>おなか <input id="hunger" type="range" min="0" max="100" value="70"></label>
+      <label>げんき <input id="energy" type="range" min="0" max="100" value="70"></label>
+      <label><input id="isNight" type="checkbox"> よる</label>
+      <button id="thinkBtn">think() を 1 回</button>
+    </div>
+    <div class="scroll"><svg id="brainSvg" viewBox="0 0 860 300" role="img" aria-label="状態の 移りかわり"></svg></div>
+    <p id="brainLog" class="tip">スライダーを 動かして think() を 押すと、どの状態に 移るかが 光ります。</p>
+  </div>
+<pre><code><span class="c">// src/world/parts/creatures.ts の think()（とても 短く した もの）</span>
+<span class="k">if</span> (c.hunger &lt; <span class="s">45</span> &amp;&amp; food) <span class="k">return</span> setState(c, <span class="s">'seek'</span>)     <span class="c">// 食べ物へ</span>
+<span class="k">if</span> (c.energy &lt; <span class="s">25</span> || night)  <span class="k">return</span> setState(c, <span class="s">'sleep'</span>)    <span class="c">// ねむる</span>
+<span class="k">if</span> (site)                     <span class="k">return</span> setState(c, <span class="s">'gather'</span>)   <span class="c">// 資材を ひろって 建設現場へ</span>
+<span class="k">return</span> setState(c, Math.random() &lt; <span class="s">0.5</span> ? <span class="s">'wander'</span> : <span class="s">'idle'</span>)</code></pre>
+</section>
+
+<!-- 4 -->
+<section id="path">
+  <h2><span class="no">4</span>道さがし A*（エースター）</h2>
+  <p>箱庭の地面を 0.5 マスの 升目に区切り（<span class="file">nav.ts</span> の <code>NavGrid</code>）、木・家・水・急な崖を「通れない」と しるします。目的地へは <b>A*</b> という 方法で 道を さがします。「ここまでの 道のり + ゴールまでの 見こみ」が 小さい 升目から 順に しらべていく のが ポイントです。</p>
+  <div class="fig">
+    <div class="row"><button id="pathRun" class="on">▶ さがす</button><button id="pathClear">かべを けす</button><button id="pathMaze">めいろ</button><span class="stat" id="pathStat"></span></div>
+    <canvas id="pathCv" width="640" height="400" style="touch-action:none;cursor:crosshair"></canvas>
+    <div class="cap">升目を なぞると かべ（通れない 所）を 描けます。緑 = スタート、赤 = ゴール、うすい色 = しらべた 升目、オレンジ = 見つかった 道。</div>
+  </div>
+<pre><code><span class="c">// src/world/nav.ts（考え方）</span>
+open = [start]                        <span class="c">// これから しらべる 升目</span>
+<span class="k">while</span> (open.length) {
+  cur = open の中で f = g + h が いちばん 小さい 升目
+  <span class="k">if</span> (cur === goal) <span class="k">return</span> 道を たどって かえす
+  <span class="k">for</span> (となりの 8 マス) {
+    <span class="k">if</span> (通れない || 段差が CLIFF(0.75) より 高い) <span class="k">continue</span>
+    g2 = g[cur] + 歩く 長さ               <span class="c">// ここまでの 道のり</span>
+    <span class="k">if</span> (g2 &lt; g[next]) { g[next] = g2; from[next] = cur; open に 入れる }
+  }
+}</code></pre>
+  <p class="tip">本物では「まっすぐ 行ける時は さがさない」「1 コマに 6 回まで」など、重く ならない 工夫も しています（<code>moveTo()</code>）。</p>
+</section>
+
+<!-- 5 -->
+<section id="town">
+  <h2><span class="no">5</span>町が育つ しくみ</h2>
+  <p>町は 2 つの 数で 育ちます。<b>区画</b>：家は 町の まんなかから 外へ、輪を 1 つずつ ひろげて 空いた 場所に 建つ（<code>townLot()</code>）。<b>時代</b>：家と建物の 点数（<code>vScore</code>）が ふえると、のじゅく → 丸太 → 木組み → 石 → 城 → … と 時代が すすみ、まんなかから 新しい 形に 建てかわる。</p>
+  <div class="fig">
+    <div class="row"><button id="townAdd">家を 1 けん たてる</button><button id="townAuto" class="on">▶ 自動</button><button id="townReset">さいしょから</button><span class="stat" id="townStat"></span></div>
+    <canvas id="townCv" width="640" height="420"></canvas>
+    <div class="cap">点線の 円 = 区画の 輪。色 = その家が 建った 時代。外れの 家は 年を とると 灰色（くずれた 姿）に なる。</div>
+  </div>
+<pre><code><span class="c">// src/world/eras.ts — 点数 → 段 → 時代（6 段めで 枝わかれ）</span>
+<span class="k">const</span> STEP_SCORE = [<span class="s">0, 1, 3, 6, 10, 15, 21, 28</span>]
+<span class="k">export function</span> <span class="f">eraOf</span>(step, path) {
+  <span class="k">if</span> (step &lt;= <span class="s">5</span>) <span class="k">return</span> step                    <span class="c">// のじゅく … 城</span>
+  <span class="k">if</span> (path === <span class="s">'white'</span>) <span class="k">return</span> <span class="s">6</span>              <span class="c">// 白い城</span>
+  <span class="k">return</span> Math.min(<span class="s">9</span>, step + <span class="s">1</span>)                 <span class="c">// じょうき → まざり → きかい</span>
+}</code></pre>
+</section>
+
+<!-- 6 -->
+<section id="wall">
+  <h2><span class="no">6</span>城壁の 年輪</h2>
+  <p>町が 育つと 住民が まわりを へいで 囲みます（<code>growRings()</code>）。家が へいの 外に はみ出すと、もっと 外に 新しい 輪を 引きます。内がわの 古い 輪は のこって 古び、くずれて 通れる すきまが できます。木の 年輪の ような 入り組んだ 町に なります。</p>
+  <div class="fig">
+    <div class="row"><button id="wallGrow" class="on">▶ 町を 育てる</button><button id="wallReset">さいしょから</button><span class="stat" id="wallStat"></span></div>
+    <canvas id="wallCv" width="640" height="420"></canvas>
+    <div class="cap">門は いつも マップの まんなかの 向き。門から まんなかまでは 家を 建てない（大通り）。</div>
+  </div>
+</section>
+
+<!-- 7 -->
+<section id="world">
+  <h2><span class="no">7</span>つなぎ目なしの 大きな世界</h2>
+  <p>大きな世界は、森・砂丘・雪原 など 9 つの 地方を 3×3 に ならべた ものです。地方ごとの「高さの 式」を そのまま 使い、さかいめの 近く（はば 7）では となりの 地方の 高さと <b>重みを つけて まぜます</b>。山は となりの 山と つながり、地面の 模様も 升目ごとに すこし ゆらして まだらに まぜるので、まっすぐな 線が 出ません。</p>
+  <div class="fig">
+    <div class="row"><label>まぜる はば <input id="blendW" type="range" min="0" max="14" value="7"></label><span class="stat" id="blendStat"></span></div>
+    <canvas id="blendCv" width="760" height="260"></canvas>
+    <div class="cap">横に 2 つの 地方を ならべた 断面。点線 = それぞれの 地方の 高さ、太線 = まぜた 高さ。はばを 0 に すると 崖の ような 段差が 出ます。</div>
+  </div>
+<pre><code><span class="c">// src/world/worldmap.ts（ようす）</span>
+<span class="k">const</span> weight = (tile, x, z) => smooth(BLEND, -BLEND, さかいめからの 距離)
+<span class="k">const</span> heightAt = (x, z) => {
+  <span class="k">let</span> sum = <span class="s">0</span>, wsum = <span class="s">0</span>
+  <span class="k">for</span> (<span class="k">const</span> t <span class="k">of</span> tiles) { <span class="k">const</span> w = weight(t, x, z); sum += t.heightAt(x, z) * w; wsum += w }
+  <span class="k">return</span> sum / wsum                            <span class="c">// 重みつき 平均</span>
+}</code></pre>
+</section>
+
+<!-- 8 -->
+<section id="look">
+  <h2><span class="no">8</span>見た目の 仕上げ（ピクセル・ジオラマ）</h2>
+  <p>3D の 箱庭を わざと 小さな 画面（480×480）に 描き、そのあと <span class="file">diorama.ts</span> の シェーダーで「色を くすませる → 色の 段を へらす → 網点（ディザ）で つなぐ → 奥行きの さかいに 輪郭」を かけます。最後に 2 倍に 拡大して、ドットが 正方形に 並ぶ 絵に しています。</p>
+  <div class="fig">
+    <div class="row"><label>色の 段 <input id="ditherLv" type="range" min="2" max="24" value="6"></label><label><input id="ditherOn" type="checkbox" checked> ディザ</label><label><input id="edgeOn" type="checkbox" checked> 輪郭</label></div>
+    <div class="grid2"><div><canvas id="lookA" width="320" height="220"></canvas><div class="cap">元の 3D（なめらか）</div></div><div><canvas id="lookB" width="320" height="220"></canvas><div class="cap">仕上げ後</div></div></div>
+  </div>
+<pre><code><span class="c">// 4×4 の しきい値表（ベイヤー）で 段の あいだを 網点に する</span>
+<span class="k">float</span> b = bayer4(gl_FragCoord.xy) / <span class="s">16.0</span>;
+col = floor(col * levels + b) / levels;</code></pre>
+</section>
+
+<!-- 9 -->
+<section id="light">
+  <h2><span class="no">9</span>重さ対策（見た目を 落とさずに）</h2>
+  <div class="grid2">
+    <div class="fig"><b>形を まとめる</b><p>家 1 けんは 百を こえる 小さな 箱で できています。描く 回数（ドローコール）が 多いと 重いので、同じ色の 箱は 1 つの 形に まとめます（<code>Kit.done()</code> / <code>mergeByColor()</code>）。</p><canvas id="mergeCv" width="300" height="140"></canvas><div class="cap" id="mergeCap"></div></div>
+    <div class="fig"><b>材質を 使い回す</b><p>同じ色の 材質は 1 つだけ 作って みんなで 使います（<code>sharedLam()</code>）。作りなおす たびに 新しく 作ると、捨て忘れた 分が メモリに たまって いきます。</p></div>
+    <div class="fig"><b>読みこみ範囲</b><p>見ている 所から 遠い 地方は 描かない（<code>Stage.cull()</code>）。引いて 見るほど 広く 描きます。</p><canvas id="cullCv" width="300" height="200"></canvas></div>
+    <div class="fig"><b>止める・まびく</b><p>タブが 裏に 回ったら 止める。60 秒 さわらないと 30fps。HUD の 文字は 1 秒に 30 回まで。画質「低」では 草・粒・水の きらめきを へらす。</p></div>
+  </div>
+</section>
+
+<!-- 10 -->
+<section id="files">
+  <h2><span class="no">10</span>ファイル早見表</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>ファイル</th><th>なにを している</th></tr></thead>
+    <tbody>
+      <tr><td>src/main.ts</td><td>起動・本体の 3D・ボタン・ゲームループ・画質の 自動調整</td></tr>
+      <tr><td>src/world/World.ts</td><td>箱庭の クラス。ステージの 読みこみ・カメラ・各メソッドの つなぎ</td></tr>
+      <tr><td>src/world/parts/creatures.ts</td><td>生き物の 状態マシン（think）・進化・たまご・役わり</td></tr>
+      <tr><td>src/world/parts/village.ts</td><td>家・建物・ちゅうもんの 列・町の 区画・時代・城壁・敵の 町</td></tr>
+      <tr><td>src/world/parts/update.ts</td><td>毎コマの 更新（移動 moveTo・建築・食事 など）</td></tr>
+      <tr><td>src/world/parts/save.ts</td><td>セーブと 読みこみ（読んだ 値は かならず 検査）</td></tr>
+      <tr><td>src/world/nav.ts</td><td>歩ける 升目と 道さがし A*</td></tr>
+      <tr><td>src/world/worldmap.ts</td><td>9 地方を つなぐ 大きな 世界（高さを まぜる・読みこみ範囲）</td></tr>
+      <tr><td>src/world/stages.ts / stages2.ts</td><td>7 つの 地方の 地形（高さの 式）と 木や 岩</td></tr>
+      <tr><td>src/world/eras.ts</td><td>9 つの 時代の 家・塔・城・城壁の 3D の 形（部品 Kit）</td></tr>
+      <tr><td>src/world/monsters.ts</td><td>モンスターの ドット絵を 曲線で 描く</td></tr>
+      <tr><td>src/world/diorama.ts</td><td>ピクセル・ジオラマの 仕上げ シェーダー</td></tr>
+      <tr><td>src/music.ts / beep.ts</td><td>音楽と 効果音（音声ファイルを 使わず その場で 作る）</td></tr>
+    </tbody>
+  </table></div>
+  <p class="tip">はじめて 読むなら：main.ts → World.ts の update() → parts/update.ts の moveTo() → nav.ts の順が おすすめです。</p>
+</section>
+</div>
+
+<script>
+(() => {
+  const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim()
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  // ---------- 1 全体の地図 ----------
+  const NODES = [
+    { id: 'main', x: 20, y: 30, w: 170, t: 'main.ts', d: '起動とループ。本体の 3D 模型（device.ts）と 机の 景色（places.ts）を 置き、毎コマ world.update → world.render を 呼ぶ。' },
+    { id: 'device', x: 20, y: 150, w: 170, t: 'device.ts / places.ts', d: '液晶ペットの 本体と 後ろの 景色。液晶には World が 描いた 絵が テクスチャとして 貼られる。' },
+    { id: 'world', x: 260, y: 30, w: 200, t: 'World.ts', d: '箱庭の 中心。生き物・家・建物・天気・カメラを 持つ。メソッドの 中身は parts/ に 分けてある。' },
+    { id: 'parts', x: 260, y: 150, w: 200, t: 'parts/*.ts', d: 'creatures（生き物）/ village（町）/ events（天気・敵軍）/ ui（タップ・HUD）/ save / update の 6 つ。' },
+    { id: 'nav', x: 260, y: 270, w: 200, t: 'nav.ts', d: '0.5 マスの 升目で 歩ける所を 管理し、A* で 道を さがす。' },
+    { id: 'stage', x: 530, y: 30, w: 300, t: 'worldmap.ts + stages*.ts', d: '地方ごとの 高さの 式・木・岩・水。大きな 世界は 9 地方を まぜて つなぐ。' },
+    { id: 'eras', x: 530, y: 120, w: 300, t: 'eras.ts / structures.ts', d: '家・塔・城・城壁の 3D の 形。時代（1〜9）と 古び（0〜2）で 形が かわる。' },
+    { id: 'mon', x: 530, y: 210, w: 300, t: 'monsters.ts / sprites.ts', d: 'モンスターの ドット絵を 曲線で 描き、陰影と 輪郭を つけて 焼く。' },
+    { id: 'dio', x: 530, y: 300, w: 300, t: 'diorama.ts / psx.ts', d: '480×480 に 描いた 箱庭を くすませ・減色・ディザ・輪郭で ピクセルの 絵に 仕上げる。' },
+  ]
+  const EDGES = [['main', 'world'], ['main', 'device'], ['world', 'parts'], ['parts', 'nav'], ['world', 'stage'], ['parts', 'eras'], ['world', 'mon'], ['world', 'dio'], ['dio', 'device']]
+  const svg = document.getElementById('mapSvg')
+  const ns = 'http://www.w3.org/2000/svg'
+  const el = (tag, attrs, parent) => { const e = document.createElementNS(ns, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e }
+  const info = document.getElementById('mapInfo')
+  const byId = Object.fromEntries(NODES.map((n) => [n.id, n]))
+  const mid = (n) => [n.x + n.w / 2, n.y + 24]
+  const edgeEls = EDGES.map(([a, b]) => {
+    const [x1, y1] = mid(byId[a]); const [x2, y2] = mid(byId[b])
+    return { a, b, e: el('path', { d: `M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`, fill: 'none', stroke: css('--line'), 'stroke-width': 2 }, svg) }
+  })
+  NODES.forEach((n) => {
+    const g = el('g', { tabindex: 0, style: 'cursor:pointer' }, svg)
+    const r = el('rect', { x: n.x, y: n.y, width: n.w, height: 48, rx: 9, fill: css('--panel'), stroke: css('--ink'), 'stroke-width': 1.5 }, g)
+    const tx = el('text', { x: n.x + n.w / 2, y: n.y + 30, 'text-anchor': 'middle', 'font-family': 'JetBrains Mono, monospace', 'font-size': 13, fill: css('--ink') }, g)
+    tx.textContent = n.t
+    const on = () => {
+      info.textContent = n.t + '：' + n.d
+      edgeEls.forEach((E) => E.e.setAttribute('stroke', E.a === n.id || E.b === n.id ? css('--accent') : css('--line')))
+      svg.querySelectorAll('rect').forEach((x) => x.setAttribute('stroke', css('--ink')))
+      r.setAttribute('stroke', css('--accent'))
+    }
+    g.addEventListener('mouseenter', on); g.addEventListener('focus', on); g.addEventListener('click', on)
+  })
+
+  // ---------- 2 ループ ----------
+  const STEPS = [
+    ['フレーム開始', 'requestAnimationFrame', 0],
+    ['update: 生き物', 'think / moveTo / 食べる・建てる', 1],
+    ['update: 町', 'ちゅうもん → 時代 → 城壁 → 敵の町', 1],
+    ['update: 天気', '雨・雪・雲・雷', 1],
+    ['render: 箱庭', '480×480 に 3D を 描く', 2],
+    ['render: 仕上げ', '減色・ディザ・輪郭', 2],
+    ['render: HUD', '文字・アイコン 320×320', 2],
+    ['本体に 貼る', '960×960 → 液晶の テクスチャ', 3],
+  ]
+  const lcv = document.getElementById('loopCv'), lg = lcv.getContext('2d')
+  let lStep = 0, lPlay = !reduce, lT = 0
+  const lStat = document.getElementById('loopStat')
+  function drawLoop() {
+    const W = lcv.width, H = lcv.height
+    lg.clearRect(0, 0, W, H)
+    lg.font = '13px "Noto Sans JP", sans-serif'
+    const cols = [css('--muted'), css('--accent2'), css('--accent'), css('--ok')]
+    STEPS.forEach(([t, d, kind], i) => {
+      const x = 14 + (i % 4) * 210, y = 22 + Math.floor(i / 4) * 140
+      const on = i === lStep
+      lg.fillStyle = on ? cols[kind] : css('--bg'); lg.strokeStyle = cols[kind]; lg.lineWidth = on ? 3 : 1.5
+      lg.beginPath(); lg.roundRect(x, y, 190, 96, 10); lg.fill(); lg.stroke()
+      lg.fillStyle = on ? '#fff' : css('--ink'); lg.font = 'bold 14px "Noto Sans JP", sans-serif'; lg.fillText(t, x + 12, y + 32)
+      lg.font = '12px "Noto Sans JP", sans-serif'; lg.fillStyle = on ? '#fff' : css('--muted')
+      lg.fillText(d, x + 12, y + 62, 170)
+      if (i < STEPS.length - 1 && i % 4 !== 3) { lg.strokeStyle = css('--line'); lg.lineWidth = 2; lg.beginPath(); lg.moveTo(x + 192, y + 48); lg.lineTo(x + 210, y + 48); lg.stroke() }
+    })
+    lg.strokeStyle = css('--line'); lg.lineWidth = 2; lg.setLineDash([5, 5]); lg.beginPath(); lg.moveTo(820, 166); lg.lineTo(845, 166); lg.lineTo(845, 280); lg.lineTo(8, 280); lg.lineTo(8, 70); lg.lineTo(14, 70); lg.stroke(); lg.setLineDash([])
+    lStat.textContent = `いま：${STEPS[lStep][0]}　（${lStep + 1}/${STEPS.length}）`
+  }
+  document.getElementById('loopPlay').onclick = (e) => { lPlay = !lPlay; e.target.classList.toggle('on', lPlay); e.target.textContent = lPlay ? '▶ 再生' : '❚❚ 止めた' }
+  document.getElementById('loopStep').onclick = () => { lStep = (lStep + 1) % STEPS.length; drawLoop() }
+
+  // ---------- 3 状態マシン ----------
+  const ST = { idle: [80, 150, 'ぼんやり'], wander: [230, 60, 'さんぽ'], seek: [430, 60, 'ごはんへ'], eat: [620, 60, 'たべる'], sleep: [430, 240, 'ねむる'], gather: [230, 240, 'しざいを ひろう'], build: [620, 240, 'はこぶ・建てる'] }
+  const TR = [['idle', 'wander'], ['idle', 'seek'], ['seek', 'eat'], ['eat', 'idle'], ['idle', 'sleep'], ['sleep', 'idle'], ['idle', 'gather'], ['gather', 'build'], ['build', 'idle'], ['wander', 'idle']]
+  const bs = document.getElementById('brainSvg')
+  const trEls = TR.map(([a, b]) => {
+    const [x1, y1] = ST[a], [x2, y2] = ST[b]
+    return { a, b, e: el('line', { x1, y1, x2, y2, stroke: css('--line'), 'stroke-width': 2 }, bs) }
+  })
+  const stEls = {}
+  for (const k in ST) {
+    const [x, y, t] = ST[k]
+    const g = el('g', {}, bs)
+    stEls[k] = el('circle', { cx: x, cy: y, r: 44, fill: css('--panel'), stroke: css('--ink'), 'stroke-width': 1.5 }, g)
+    const tt = el('text', { x, y: y - 2, 'text-anchor': 'middle', 'font-size': 13, fill: css('--ink'), 'font-family': 'Noto Sans JP, sans-serif' }, g); tt.textContent = t
+    const t2 = el('text', { x, y: y + 16, 'text-anchor': 'middle', 'font-size': 11, fill: css('--muted'), 'font-family': 'JetBrains Mono, monospace' }, g); t2.textContent = k
+  }
+  let cur = 'idle'
+  const blog = document.getElementById('brainLog')
+  function paintBrain(prev) {
+    for (const k in stEls) { stEls[k].setAttribute('fill', k === cur ? css('--accent') : css('--panel')); stEls[k].setAttribute('stroke', k === cur ? css('--accent') : css('--ink')) }
+    trEls.forEach((T) => T.e.setAttribute('stroke', T.a === prev && T.b === cur ? css('--accent') : css('--line')))
+  }
+  paintBrain()
+  document.getElementById('thinkBtn').onclick = () => {
+    const h = +document.getElementById('hunger').value, e = +document.getElementById('energy').value, night = document.getElementById('isNight').checked
+    const prev = cur
+    let why
+    if (cur === 'seek') { cur = 'eat'; why = '食べ物に ついた → たべる' }
+    else if (cur === 'eat') { cur = 'idle'; why = 'たべおわった → ぼんやり' }
+    else if (cur === 'gather') { cur = 'build'; why = '資材を ひろった → 現場へ はこぶ' }
+    else if (cur !== 'idle') { cur = 'idle'; why = 'やることが おわった → ぼんやりに もどる' }
+    else if (h < 45) { cur = 'seek'; why = `おなか ${h} < 45 → ごはんを さがす` }
+    else if (e < 25 || night) { cur = 'sleep'; why = night ? 'よる → ねむる' : `げんき ${e} < 25 → ねむる` }
+    else if (Math.random() < 0.5) { cur = 'gather'; why = 'ひま・建設現場が ある → 資材を ひろう（建築が 既定の 行動）' }
+    else { cur = 'wander'; why = 'とくに 何もない → さんぽ' }
+    blog.textContent = `${prev} → ${cur}：${why}`
+    paintBrain(prev)
+  }
+
+  // ---------- 4 A* ----------
+  const pc = document.getElementById('pathCv'), pg = pc.getContext('2d')
+  const GW = 32, GH = 20, CS = 20
+  let walls = new Uint8Array(GW * GH)
+  const S = [2, 10], G = [29, 9]
+  function maze() { walls.fill(0); for (let x = 6; x < 26; x += 5) for (let y = 0; y < GH; y++) if (!(y > (x * 7) % 15 && y < (x * 7) % 15 + 4)) walls[y * GW + x] = 1 }
+  maze()
+  let search = null
+  function startSearch() {
+    const g = new Float32Array(GW * GH).fill(Infinity), from = new Int32Array(GW * GH).fill(-1), closed = new Uint8Array(GW * GH)
+    const s = S[1] * GW + S[0], goal = G[1] * GW + G[0]
+    g[s] = 0
+    search = { g, from, closed, open: [s], goal, done: false, path: null, n: 0 }
+  }
+  const hcost = (i) => { const x = i % GW, y = (i / GW) | 0; const dx = Math.abs(x - G[0]), dy = Math.abs(y - G[1]); return Math.max(dx, dy) + 0.414 * Math.min(dx, dy) }
+  function stepSearch(k) {
+    const s = search
+    for (let t = 0; t < k && !s.done; t++) {
+      if (!s.open.length) { s.done = true; break }
+      let bi = 0; for (let i = 1; i < s.open.length; i++) if (s.g[s.open[i]] + hcost(s.open[i]) < s.g[s.open[bi]] + hcost(s.open[bi])) bi = i
+      const c = s.open.splice(bi, 1)[0]
+      if (s.closed[c]) continue
+      s.closed[c] = 1; s.n++
+      if (c === s.goal) { s.done = true; const p = []; for (let i = c; i !== -1; i = s.from[i]) p.push(i); s.path = p; break }
+      const cx = c % GW, cy = (c / GW) | 0
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue
+        const nx = cx + dx, ny = cy + dy
+        if (nx < 0 || ny < 0 || nx >= GW || ny >= GH) continue
+        const ni = ny * GW + nx
+        if (walls[ni] || s.closed[ni]) continue
+        if (dx && dy && (walls[cy * GW + nx] || walls[ny * GW + cx])) continue
+        const g2 = s.g[c] + (dx && dy ? 1.414 : 1)
+        if (g2 < s.g[ni]) { s.g[ni] = g2; s.from[ni] = c; s.open.push(ni) }
+      }
+    }
+  }
+  function drawPath() {
+    pg.fillStyle = css('--bg'); pg.fillRect(0, 0, pc.width, pc.height)
+    for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+      const i = y * GW + x
+      if (walls[i]) pg.fillStyle = css('--ink')
+      else if (search && search.closed[i]) pg.fillStyle = 'color-mix(in srgb, ' + css('--accent2') + ' 28%, transparent)'
+      else continue
+      pg.fillRect(x * CS, y * CS, CS, CS)
+    }
+    pg.strokeStyle = css('--line'); pg.lineWidth = 0.5
+    for (let x = 0; x <= GW; x++) { pg.beginPath(); pg.moveTo(x * CS, 0); pg.lineTo(x * CS, GH * CS); pg.stroke() }
+    for (let y = 0; y <= GH; y++) { pg.beginPath(); pg.moveTo(0, y * CS); pg.lineTo(GW * CS, y * CS); pg.stroke() }
+    if (search && search.path) {
+      pg.strokeStyle = css('--accent'); pg.lineWidth = 5; pg.lineJoin = 'round'; pg.beginPath()
+      search.path.forEach((i, k) => { const x = (i % GW) * CS + CS / 2, y = ((i / GW) | 0) * CS + CS / 2; k ? pg.lineTo(x, y) : pg.moveTo(x, y) }); pg.stroke()
+    }
+    for (const [p, c] of [[S, css('--ok')], [G, '#d23a3a']]) { pg.fillStyle = c; pg.beginPath(); pg.arc(p[0] * CS + CS / 2, p[1] * CS + CS / 2, 8, 0, 7); pg.fill() }
+    const st = document.getElementById('pathStat')
+    if (search) st.textContent = search.done ? (search.path ? `しらべた 升目 ${search.n}・道の 長さ ${search.path.length}` : `道が ない（しらべた ${search.n}）`) : `しらべ中… ${search.n}`
+  }
+  let painting = -1
+  const cell = (e) => { const r = pc.getBoundingClientRect(); return [Math.floor((e.clientX - r.left) / r.width * GW), Math.floor((e.clientY - r.top) / r.height * GH)] }
+  pc.addEventListener('pointerdown', (e) => { const [x, y] = cell(e); const i = y * GW + x; if ((x === S[0] && y === S[1]) || (x === G[0] && y === G[1])) return; painting = walls[i] ? 0 : 1; walls[i] = painting; search = null; drawPath(); pc.setPointerCapture(e.pointerId) })
+  pc.addEventListener('pointermove', (e) => { if (painting < 0) return; const [x, y] = cell(e); if (x < 0 || y < 0 || x >= GW || y >= GH) return; if ((x === S[0] && y === S[1]) || (x === G[0] && y === G[1])) return; walls[y * GW + x] = painting; drawPath() })
+  pc.addEventListener('pointerup', () => { painting = -1 })
+  document.getElementById('pathRun').onclick = () => { startSearch(); if (reduce) stepSearch(1e5) }
+  document.getElementById('pathClear').onclick = () => { walls.fill(0); search = null; drawPath() }
+  document.getElementById('pathMaze').onclick = () => { maze(); search = null; drawPath() }
+  startSearch()
+
+  // ---------- 5 町 ----------
+  const tc = document.getElementById('townCv'), tg = tc.getContext('2d')
+  const ERA_COL = ['#c8b288', '#8a6038', '#b85a4a', '#8e949e', '#7a3a34', '#3f6fc8', '#a05a44', '#5f8a5f', '#4a6078']
+  const ERA_NAME = ['のじゅく', '丸太', '木組み', '石', '城', '白い城', 'じょうき', 'まざり', 'きかい']
+  const STEP_SCORE = [0, 1, 3, 6, 10, 15, 21, 28]
+  let houses = [], townAuto = !reduce, tTick = 0
+  const eraStep = (s) => { let k = 1; STEP_SCORE.forEach((v, i) => { if (s >= v) k = i + 1 }); return k }
+  const eraOf = (step) => step <= 5 ? step : Math.min(9, step + 1)
+  const GAP = 34
+  function lot() {
+    for (let n = 1; n < 6; n++) {
+      const r = n * GAP, cnt = Math.max(5, Math.round(2 * Math.PI * r / 30))
+      for (let i = 0; i < cnt; i++) {
+        const k = (i * 2) % cnt + (i * 2 >= cnt && cnt % 2 === 0 ? 1 : 0)
+        const a = n * 2.4 + (k / cnt) * Math.PI * 2
+        const x = Math.cos(a) * r, y = Math.sin(a) * r
+        if (houses.some((h) => Math.hypot(h.x - x, h.y - y) < 26)) continue
+        return { x, y }
+      }
+    }
+    return null
+  }
+  function addHouse() {
+    const p = lot(); if (!p) return
+    const era = eraOf(eraStep(houses.length))
+    houses.push({ ...p, era, age: 0 })
+    // まんなかに 近い 古い 家を 1 けん 建てかえ
+    const old = houses.filter((h) => h.era !== era && Math.hypot(h.x, h.y) < 90).sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y))[0]
+    if (old) { old.era = era; old.age = 0 }
+  }
+  function drawTown() {
+    const W = tc.width, H = tc.height, cx = W / 2, cy = H / 2
+    tg.fillStyle = css('--bg'); tg.fillRect(0, 0, W, H)
+    tg.setLineDash([4, 6]); tg.strokeStyle = css('--line'); tg.lineWidth = 1.2
+    for (let n = 1; n < 6; n++) { tg.beginPath(); tg.arc(cx, cy, n * GAP, 0, 7); tg.stroke() }
+    tg.setLineDash([])
+    tg.fillStyle = css('--accent'); tg.beginPath(); tg.arc(cx, cy, 12, 0, 7); tg.fill()
+    for (const h of houses) {
+      const ruin = h.age > 2 * (1 + Math.hypot(h.x, h.y) / 80)
+      tg.fillStyle = ruin ? '#8a8a80' : ERA_COL[h.era - 1]
+      tg.fillRect(cx + h.x - 10, cy + h.y - 8, 20, 16)
+      tg.beginPath(); tg.moveTo(cx + h.x - 12, cy + h.y - 8); tg.lineTo(cx + h.x, cy + h.y - 18); tg.lineTo(cx + h.x + 12, cy + h.y - 8); tg.fill()
+    }
+    const era = eraOf(eraStep(houses.length))
+    document.getElementById('townStat').textContent = `家 ${houses.length}・点数 ${houses.length}・時代 ${era}（${ERA_NAME[era - 1]}）`
+    tg.font = '12px "Noto Sans JP", sans-serif'
+    ERA_COL.forEach((c, i) => { tg.fillStyle = c; tg.fillRect(10, 10 + i * 18, 12, 12); tg.fillStyle = css('--muted'); tg.fillText(ERA_NAME[i], 28, 20 + i * 18) })
+  }
+  document.getElementById('townAdd').onclick = () => { addHouse(); drawTown() }
+  document.getElementById('townAuto').onclick = (e) => { townAuto = !townAuto; e.target.classList.toggle('on', townAuto) }
+  document.getElementById('townReset').onclick = () => { houses = []; drawTown() }
+
+  // ---------- 6 城壁 ----------
+  const wc = document.getElementById('wallCv'), wg = wc.getContext('2d')
+  let wHouses = [], rings = [], wGrow = !reduce, wT = 0
+  function wallTick() {
+    // 家を 1 つ 足す（外へ ひろがる）
+    const n = wHouses.length, r = 40 + Math.sqrt(n) * 22, a = n * 2.399
+    if (n < 70) wHouses.push({ x: Math.cos(a) * r, y: Math.sin(a) * r * 0.9 })
+    let far = 0; for (const h of wHouses) far = Math.max(far, Math.hypot(h.x, h.y))
+    const last = rings[rings.length - 1]
+    if (n >= 3 && (!last || (far > last.r - 6 && last.built > 0.6))) rings.push({ r: Math.max(far + 18, last ? last.r + 32 : 0), built: 0, age: 0 })
+    rings.forEach((rg, i) => { if (i === rings.length - 1) rg.built = Math.min(1, rg.built + 0.12); else rg.age++ })
+  }
+  function drawWall() {
+    const W = wc.width, H = wc.height, cx = W / 2, cy = H / 2
+    wg.fillStyle = css('--bg'); wg.fillRect(0, 0, W, H)
+    const gate = 0 // 門は 右（マップの まんなか）
+    rings.forEach((rg, i) => {
+      const inner = i < rings.length - 1, segs = Math.round(rg.r / 4)
+      for (let k = 0; k < segs; k++) {
+        const a0 = (k / segs) * Math.PI * 2, a1 = ((k + 1) / segs) * Math.PI * 2
+        let da = Math.abs(((a0 - gate + Math.PI * 3) % (Math.PI * 2)) - Math.PI)
+        if (da < 0.22) continue
+        if (k / segs > rg.built) continue
+        if (inner && rg.age > 6 && (k % 7 === 3 || (rg.age > 14 && k % 3 === 0))) continue
+        wg.strokeStyle = inner ? (rg.age > 14 ? '#8a8a80' : '#9a9488') : css('--ink')
+        wg.lineWidth = inner ? 4 : 6
+        wg.beginPath(); wg.arc(cx, cy, rg.r, a0, a1); wg.stroke()
+      }
+      if (rg.built > 0.2) { wg.fillStyle = css('--accent'); wg.fillRect(cx + rg.r - 5, cy - 14, 10, 6); wg.fillRect(cx + rg.r - 5, cy + 8, 10, 6) }
+    })
+    wg.fillStyle = 'color-mix(in srgb, ' + css('--accent') + ' 16%, transparent)'; wg.fillRect(cx, cy - 12, W, 24)
+    for (const h of wHouses) { wg.fillStyle = css('--accent2'); wg.fillRect(cx + h.x - 5, cy + h.y - 5, 10, 10) }
+    wg.fillStyle = css('--accent'); wg.beginPath(); wg.arc(cx, cy, 10, 0, 7); wg.fill()
+    document.getElementById('wallStat').textContent = `家 ${wHouses.length}・へいの 輪 ${rings.length}`
+  }
+  document.getElementById('wallGrow').onclick = (e) => { wGrow = !wGrow; e.target.classList.toggle('on', wGrow) }
+  document.getElementById('wallReset').onclick = () => { wHouses = []; rings = []; drawWall() }
+
+  // ---------- 7 まぜる ----------
+  const bc = document.getElementById('blendCv'), bg = bc.getContext('2d')
+  const hA = (x) => 1.2 + Math.sin(x * 0.09) * 0.6 + (x > 300 ? (x - 300) * 0.03 : 0)
+  const hB = (x) => 0.6 + Math.sin(x * 0.05 + 1) * 0.4 + Math.max(0, 1 - Math.abs(x - 470) / 90) * 3
+  const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t) }
+  function drawBlend() {
+    const W = bc.width, H = bc.height, mid = W / 2, bw = +document.getElementById('blendW').value * 6
+    bg.fillStyle = css('--bg'); bg.fillRect(0, 0, W, H)
+    const Y = (h) => H - 30 - h * 40
+    bg.fillStyle = 'color-mix(in srgb, ' + css('--accent2') + ' 12%, transparent)'; bg.fillRect(mid - bw, 0, bw * 2, H)
+    const curve = (f, col, dash, width) => { bg.strokeStyle = col; bg.setLineDash(dash); bg.lineWidth = width; bg.beginPath(); for (let x = 0; x <= W; x += 3) { const y = Y(f(x)); x ? bg.lineTo(x, y) : bg.moveTo(x, y) } bg.stroke(); bg.setLineDash([]) }
+    curve(hA, css('--ok'), [5, 5], 1.5); curve(hB, css('--accent'), [5, 5], 1.5)
+    curve((x) => {
+      if (!bw) return x < mid ? hA(x) : hB(x)
+      const wa = smooth(bw, -bw, x - mid), wb = smooth(bw, -bw, mid - x)
+      return (hA(x) * wa + hB(x) * wb) / (wa + wb || 1)
+    }, css('--ink'), [], 3.5)
+    bg.fillStyle = css('--muted'); bg.font = '12px "Noto Sans JP", sans-serif'
+    bg.fillText('森の 地方', 20, 20); bg.fillText('雪原の 地方', W - 100, 20); bg.fillText('さかいめ', mid - 24, H - 8)
+    document.getElementById('blendStat').textContent = bw ? `はば ±${bw / 6}` : 'はば 0（まぜない）'
+  }
+  document.getElementById('blendW').oninput = drawBlend
+
+  // ---------- 8 仕上げ ----------
+  const la = document.getElementById('lookA').getContext('2d'), lb = document.getElementById('lookB').getContext('2d')
+  function scene(g, W, H) {
+    const sky = g.createLinearGradient(0, 0, 0, H); sky.addColorStop(0, '#8fc4f0'); sky.addColorStop(1, '#e8f0d8'); g.fillStyle = sky; g.fillRect(0, 0, W, H)
+    const gr = g.createLinearGradient(0, H * 0.55, 0, H); gr.addColorStop(0, '#7fb05a'); gr.addColorStop(1, '#3f6e34'); g.fillStyle = gr; g.fillRect(0, H * 0.55, W, H)
+    const hill = g.createRadialGradient(W * 0.3, H * 0.5, 4, W * 0.3, H * 0.6, 120); hill.addColorStop(0, '#a8c87a'); hill.addColorStop(1, '#4f7a3c'); g.fillStyle = hill
+    g.beginPath(); g.ellipse(W * 0.3, H * 0.62, 120, 50, 0, Math.PI, 0); g.fill()
+    const wall = g.createLinearGradient(W * 0.55, 0, W * 0.8, 0); wall.addColorStop(0, '#f0e4c6'); wall.addColorStop(1, '#a89878'); g.fillStyle = wall; g.fillRect(W * 0.58, H * 0.42, 80, 60)
+    const roof = g.createLinearGradient(0, H * 0.25, 0, H * 0.42); roof.addColorStop(0, '#e07a5a'); roof.addColorStop(1, '#8a3a2a'); g.fillStyle = roof
+    g.beginPath(); g.moveTo(W * 0.56, H * 0.43); g.lineTo(W * 0.58 + 40, H * 0.22); g.lineTo(W * 0.58 + 88, H * 0.43); g.fill()
+    g.fillStyle = '#ffd27a'; g.fillRect(W * 0.58 + 30, H * 0.5, 18, 16)
+  }
+  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
+  function drawLook() {
+    const W = 320, H = 220
+    scene(la, W, H)
+    const small = document.createElement('canvas'); small.width = W / 2; small.height = H / 2
+    const sg = small.getContext('2d'); scene(sg, W / 2, H / 2)
+    const im = sg.getImageData(0, 0, W / 2, H / 2), d = im.data
+    const lv = +document.getElementById('ditherLv').value, dith = document.getElementById('ditherOn').checked, edge = document.getElementById('edgeOn').checked
+    const lum = new Float32Array((W / 2) * (H / 2))
+    for (let y = 0; y < H / 2; y++) for (let x = 0; x < W / 2; x++) {
+      const i = (y * (W / 2) + x) * 4, b = dith ? BAYER[(y % 4) * 4 + (x % 4)] / 16 : 0.5
+      for (let c = 0; c < 3; c++) {
+        let v = d[i + c] / 255
+        v = v * 0.85 + 0.08 // くすませる
+        d[i + c] = Math.min(255, Math.floor(v * lv + b) / lv * 255)
+      }
+      lum[y * (W / 2) + x] = d[i] + d[i + 1] + d[i + 2]
+    }
+    if (edge) for (let y = 1; y < H / 2; y++) for (let x = 1; x < W / 2; x++) {
+      const k = y * (W / 2) + x
+      if (Math.abs(lum[k] - lum[k - 1]) + Math.abs(lum[k] - lum[k - W / 2]) > 160) { const i = k * 4; d[i] *= 0.55; d[i + 1] *= 0.5; d[i + 2] *= 0.5 }
+    }
+    sg.putImageData(im, 0, 0)
+    lb.imageSmoothingEnabled = false; lb.clearRect(0, 0, W, H); lb.drawImage(small, 0, 0, W, H)
+  }
+  ;['ditherLv', 'ditherOn', 'edgeOn'].forEach((id) => (document.getElementById(id).oninput = drawLook))
+
+  // ---------- 9 まとめる・読みこみ範囲 ----------
+  const mc = document.getElementById('mergeCv').getContext('2d')
+  let mt = 0
+  function drawMerge() {
+    const k = (Math.sin(mt) + 1) / 2
+    mc.fillStyle = css('--bg'); mc.fillRect(0, 0, 300, 140)
+    const cols = ['#b85a4a', '#eadcba', '#4a3526', '#9aa1ab']
+    for (let i = 0; i < 24; i++) {
+      const c = i % 4, sx = 20 + (i % 6) * 22, sy = 20 + Math.floor(i / 6) * 26
+      const tx = 180 + c * 26, ty = 50
+      mc.fillStyle = cols[c]; mc.fillRect(sx + (tx - sx) * k, sy + (ty - sy) * k, 18, 18)
+    }
+    document.getElementById('mergeCap').textContent = k > 0.9 ? '同じ色を 1 つに → 描く回数 4 回' : k < 0.1 ? 'ばらばらの 箱 → 描く回数 24 回' : 'まとめ中…'
+  }
+  const cc = document.getElementById('cullCv').getContext('2d')
+  let cAng = 0
+  function drawCull() {
+    cc.fillStyle = css('--bg'); cc.fillRect(0, 0, 300, 200)
+    const lx = 150 + Math.cos(cAng) * 60, ly = 100 + Math.sin(cAng * 1.3) * 40, r = 70
+    for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) {
+      const x = 30 + i * 80, y = 10 + j * 60
+      const dx = Math.max(0, Math.abs(lx - (x + 40)) - 40), dy = Math.max(0, Math.abs(ly - (y + 30)) - 30)
+      const vis = Math.hypot(dx, dy) < r
+      cc.fillStyle = vis ? 'color-mix(in srgb, ' + css('--ok') + ' 45%, transparent)' : css('--panel'); cc.fillRect(x, y, 78, 58)
+      cc.strokeStyle = css('--line'); cc.strokeRect(x, y, 78, 58)
+      cc.fillStyle = css('--muted'); cc.font = '11px "Noto Sans JP", sans-serif'; cc.fillText(vis ? '描く' : 'かくす', x + 6, y + 16)
+    }
+    cc.strokeStyle = css('--accent'); cc.setLineDash([4, 4]); cc.beginPath(); cc.arc(lx, ly, r, 0, 7); cc.stroke(); cc.setLineDash([])
+    cc.fillStyle = css('--accent'); cc.beginPath(); cc.arc(lx, ly, 5, 0, 7); cc.fill()
+  }
+
+  // ---------- まとめて うごかす ----------
+  let last = performance.now()
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now
+    if (lPlay) { lT += dt; if (lT > 0.7) { lT = 0; lStep = (lStep + 1) % STEPS.length; drawLoop() } }
+    if (search && !search.done) { stepSearch(6); drawPath() }
+    if (townAuto) { tTick += dt; if (tTick > 0.8) { tTick = 0; if (houses.length < 40) addHouse(); houses.forEach((h) => h.age += 0.25); drawTown() } }
+    if (wGrow) { wT += dt; if (wT > 0.35) { wT = 0; wallTick(); drawWall() } }
+    mt += dt * 1.2; drawMerge(); cAng += dt * 0.6; drawCull()
+    requestAnimationFrame(frame)
+  }
+  drawLoop(); drawPath(); drawTown(); for (let i = 0; i < 12; i++) wallTick(); drawWall(); drawBlend(); drawLook(); drawMerge(); drawCull()
+  for (let i = 0; i < 8; i++) addHouse(); drawTown()
+  if (!reduce) requestAnimationFrame(frame)
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { drawLoop(); drawPath(); drawTown(); drawWall(); drawBlend() })
+})()
+</script>
+</body>
+</html>

@@ -1,3 +1,11 @@
+/**
+ * 液晶の 中の 箱庭（しくみの 図は public/learn.html）。
+ *
+ * このクラスは データ（生き物・家・建物・天気・カメラ）と ステージの 読みこみだけを 持つ。
+ * メソッドの 中身は 役わりごとに parts/*.ts に 分けてあり、クラスの 頭の
+ * `名前 = Cr.名前` の 行で つなぐ（parts の 関数は `this: World` を 1 番目の 引数に 書く）。
+ * 毎コマの 入り口は update()（parts/update.ts）と render()（parts/ui.ts）。
+ */
 import * as THREE from 'three'
 import { OUT, RES } from './psx'
 import { DioramaLook } from './diorama'

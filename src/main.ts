@@ -1,3 +1,12 @@
+/**
+ * PULSAR の 入り口（しくみの 図は public/learn.html）。
+ *
+ * 1. 本体の 3D 模型（device.ts）と 後ろの 景色（places.ts）を 置く
+ * 2. 箱庭 World を 作り、その絵（480×480 → 960×960）を 液晶の テクスチャに する
+ * 3. ボタン・タップ・キーを World に わたす
+ * 4. 毎コマ：world.update(dt) → world.render() → 本体を 描く（タブが 裏の 間は 止める）
+ * 5. 画質の 自動調整・せってい・セーブの 呼び出し
+ */
 import './style.css'
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'

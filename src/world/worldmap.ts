@@ -1,3 +1,12 @@
+/**
+ * ひとつづきの 大きな 世界（計画 C）。
+ *
+ * 9 つの 地方（広さ 40 の ステージ）を 3×3 に ならべ、1 つの Stage として かえす。
+ * - 高さ：地方ごとの heightAt を そのまま 使い、さかいめ BLEND の はばで 重みつき 平均（山が つながる）
+ * - 地面：地方ごとに terrain() を 作りなおし、面の もちぬしを 升目ごとに ゆらして まだらに まぜる
+ * - 外がわ：のぼれない 山なみ（海の そばは 海が ふちまで）
+ * - 重さ：cull(x, z, r) で 見ている 所から 遠い 地方の 小物と 地面を かくす
+ */
 import * as THREE from 'three'
 import { Tex } from './textures'
 import { STAGES, SIZE, base, edge, lambert, setEdgeOff, setLandSize, smooth, terrain } from './stages'

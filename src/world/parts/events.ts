@@ -1,4 +1,5 @@
 /** World.ts から分けた「events」のメソッド。this は World（World.ts のクラスのつなぎの行から呼ばれる） */
+/** 中身：できごと：敵軍・天気・ひみつ・もくひょう・ミッション・うんだめし・季節・資材の 出現 */
 import * as THREE from 'three'
 import { RES } from '../psx'
 import { SpriteAnim, iconSheet } from '../sprites'
