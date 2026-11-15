@@ -45,6 +45,8 @@ export interface Stage {
   fogRange?: [number, number]
   /** たからばこの場所（行き止まりの ごほうび。World が あける・しばらくして中身がもどる） */
   treasures?: { x: number; z: number; mesh: THREE.Object3D }[]
+  /** はじめに 立つ場所（町が 始まる所）。無ければ まんなか */
+  start?: { x: number; z: number }
   /** 夜のヤミカゲの数の上限（既定 2） */
   shadows?: number
   update(t: number, night: number): void
@@ -331,7 +333,9 @@ function seedGrove(): Stage {
   // 地形は 20 マスの島を元に作り、広さに合わせて ひろげる（k = 広さ / 20。u() = 島の上の位置 → 元の 20 マスの位置）
   const k = SIZE / 20
   const HU = HALF / k
-  const spring = { x: 4.5 * k, z: -3.5 * k, r: 1.6 * Math.sqrt(k) }
+  // 計画 B3（2026-11-15）：西半分は 町と城の ための 広い 平地。山なみ（北と 東）・高台・岩の壁・川は 東へ 寄せた（もとの形の 左右を 入れかえ）
+  const spring = { x: -1.6 * k, z: 7.0 * k, r: 1.3 * Math.sqrt(k) }
+  const START = { x: -5.2 * k, z: 1.0 * k }
   // 入り組んだ地形（計画 D の見本）：北西の高台（まわりは崖・東の坂だけ のぼれる）/ 高台のふもとから南へ流れる川（まんなかに浅瀬）/ 南東の深い森の帯
   // 入り組んだ地形（計画 D の見本）：
   //  奥（北と西のふち）= のぼれない山なみ / 北西 = 2 段の高台（東の坂 → 南の坂の つづら折り）
@@ -341,13 +345,15 @@ function seedGrove(): Stage {
   const mountains = (x: number, z: number) => {
     // x, z は元の 20 マスの位置
     const north = smooth(B, B - 2.2, z)
-    const west = smooth(B, B - 2.2, x) * smooth(1.6, -0.4, z)
+    // 東西の ふちの 山なみは 無くした（計画 B3：手前に 来て 町を かくすため）。北だけ
+    const west = 0 * x
     const m = Math.max(north, west)
     if (m <= 0) return 0
     const ridge = Math.abs(Math.sin(x * 0.55 + 0.7) + 0.6 * Math.sin(x * 1.35 + z * 0.8) + 0.45 * Math.sin(z * 1.15 - 0.4))
     // 峰は 高く・とがらせる（いちばん高い所で 16 ほど）。広げた島ほど 高く
     const peak = Math.pow(ridge / 2.05, 1.6)
-    return m * (4.5 + 10 * peak) * Math.sqrt(k) * 0.85 * borderDrop(x, z)
+    // 島のふちの ぎりぎりまで のぼりつづける（てっぺんに 平らな所を 作らない）
+    return m * (4.5 + 10 * peak) * Math.sqrt(k) * 0.85 * smooth(SIZE / 2, SIZE / 2 - 0.2 * k, Math.max(Math.abs(x), Math.abs(z)) * k)
   }
   // 段々の高台：1 段目（x, z < -1.2・高さ 1.2・東の z -4.8〜-3.0 だけ坂）/ 2 段目（x, z < -3.8・高さ 2.4・南の x -5.9〜-4.6 だけ坂）
   const step = (out: number, soft: number) => smooth(soft, 0, out)
@@ -359,14 +365,14 @@ function seedGrove(): Stage {
     return t1 + t2
   }
   // 岩の壁：くねりながら南へ。切り通しが 3 つ（z 1.6 / 4.2 / 7.4 のあたりは 通れる）
-  const wallX = (z: number) => -3.4 + Math.sin(z * 0.55) * 0.9
+  const wallX = (z: number) => 3.4 - Math.sin(z * 0.55) * 0.9
   const wall = (x: number, z: number) => {
     if (z < 0) return 0
     const cut = Math.min(Math.abs(z - 1.6), Math.abs(z - 4.2), Math.abs(z - 7.4))
     const gap = smooth(0.0, 0.5, cut - 0.6)
     return 2.6 * smooth(0.8, 0.05, Math.abs(x - wallX(z))) * gap * smooth(0, 1.2, z) * borderDrop(x, z)
   }
-  const riverXu = (z: number) => -6.4 + Math.sin(z * 0.6 + 0.5) * 1.0
+  const riverXu = (z: number) => 6.4 - Math.sin(z * 0.6 + 0.5) * 1.0
   const riverX = (z: number) => riverXu(z / k) * k
   const RIVER_Z0 = -0.6
   // 浅瀬（歩いてわたれる所）は 2 つ
@@ -376,13 +382,14 @@ function seedGrove(): Stage {
   const heightAt = (wx: number, wz: number) => {
     const x = wx / k
     const z = wz / k
-    let h = 0.25 + (Math.sin(x * 0.42) * Math.cos(z * 0.36) * 0.25 + mounds(x, z, [[5.6, 4.2, 2.6, 2.0], [2.2, 7.2, 2.2, 1.5], [7.2, -1.2, 2.0, 1.4]])) * edge(wx, wz)
+    let h = 0.25 + (Math.sin(x * 0.42) * Math.cos(z * 0.36) * 0.25 + mounds(x, z, [[1.6, 7.6, 1.6, 1.0]])) * edge(wx, wz)
     const ds = Math.hypot(wx - spring.x, wz - spring.z)
     h = THREE.MathUtils.lerp(0.24, h, smooth(spring.r, spring.r + 1.2, ds))
     // 村を建てる まんなかは 広く平らに
-    h = THREE.MathUtils.lerp(0.3, h, smooth(3.4, 5.4, Math.hypot(x - 1.5, z - 0.5)))
-    h += terraces(x, z) * borderDrop(x, z)
-    h = Math.max(h, mountains(x, z) + 0.25)
+    // 西半分（町と城の土地）は 平らに
+    h = THREE.MathUtils.lerp(0.3, h, smooth(-0.2, 1.8, x))
+    h += terraces(-x, z) * borderDrop(x, z)
+    h = Math.max(h, mountains(0.45 - x, z) + 0.25)
     h += wall(x, z)
     // 川は少し低く（浅瀬は ほんの少し）
     h -= river(x, z) * (isFord(z) ? 0.06 : 0.22)
@@ -404,23 +411,11 @@ function seedGrove(): Stage {
     group.add(disk)
     if (!ford) obstacles.push({ x, z, r: 0.5 * k, water: true })
   }
-  // 深い森の帯（南東）：木を すきまなく ならべ、まんなかに 1 本だけ 小道
+  // 深い森の帯は 無くした（東は 高台・壁・川で いっぱい）
   const band: { x: number; z: number }[] = []
-  const bandA = { x: 1.2 * k, z: HALF + 0.4 }
-  const bandB = { x: HALF + 0.4, z: 1.6 * k }
-  const bandLen = Math.hypot(bandB.x - bandA.x, bandB.z - bandA.z)
-  // 木と木のあいだは すこし あけて、すきまを ぬって歩ける（行けない所を つくらない）
-  for (let t = 0; t <= 1.0001; t += 1.6 / bandLen) {
-    const x = THREE.MathUtils.lerp(bandA.x, bandB.x, t)
-    const z = THREE.MathUtils.lerp(bandA.z, bandB.z, t)
-    // まんなかに 小道（2 マスほど）
-    if (Math.abs(t - 0.5) * bandLen < 1.3) continue
-    band.push({ x, z })
-    obstacles.push({ x, z, r: 0.36 })
-  }
   // たからばこ：高台のおく と 森の帯のむこう（行き止まりの ごほうび）
   const treasures: { x: number; z: number; mesh: THREE.Object3D }[] = []
-  for (const [tx, tz] of [[-5.2 * k, -5.2 * k], [HALF - 1.0, HALF - 1.0], [-HALF + 1.0, HALF - 1.4]]) {
+  for (const [tx, tz] of [[5.2 * k, -5.2 * k], [4.9 * k, HALF - 1.6], [HALF - 1.0, HALF - 1.4]]) {
     const ch = chestModel()
     ch.position.set(tx, heightAt(tx, tz), tz)
     ch.rotation.y = Math.PI * 0.25
@@ -428,7 +423,8 @@ function seedGrove(): Stage {
     treasures.push({ x: tx, z: tz, mesh: ch })
     obstacles.push({ x: tx, z: tz, r: 0.3 })
   }
-  const put = placer(11, obstacles, [], heightAt)
+  // 町が 始まる所の まわりは 木を 置かない（ひらけた 土地）
+  const put = placer(11, obstacles, [{ x: START.x, z: START.z, r: 4.0 * k }], heightAt)
 
   // データの泉（光る水面。さざ波・泡・きらめきは waterSurface）
   const springMat = waterSurface({ deep: '#1f8fd8', shallow: '#78f0ff', rings: true })
@@ -541,7 +537,7 @@ function seedGrove(): Stage {
   group.add(sky.mesh, vs.group, mt)
 
   return {
-    id: 0, name: 'はじまりの森', sub: 'SEED GROVE', group, heightAt, obstacles, foodSpots, treasures,
+    id: 0, start: START, name: 'はじまりの森', sub: 'SEED GROVE', group, heightAt, obstacles, foodSpots, treasures,
     food: { name: 'ほしリンゴ', color: '#ff5a6e', leaf: '#5cc25a' },
     residents: ['noiz', 'togebug'],
     fog: '#bfe6ff', sky: ['#3f7fe0', '#a8dcff', '#1b2a5a'],

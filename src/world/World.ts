@@ -816,13 +816,14 @@ export class World {
     if (this.worldMode) this.saveLocked = true
     if (this.worldMode || !this.load()) {
       this.loadStage(0)
-      this.pet = this.spawn('mebu', 'pet', 0, 1.5)
+      const st = this.stage.start ?? { x: 0, z: 0 }
+      this.pet = this.spawn('mebu', 'pet', st.x, st.z + 1.5)
       this.say('メブが うまれた！')
       // はじめの仲間 2 匹（計画 B2：たまごは 交配と 寿命だけなので、さいしょから 3 匹で 始める）
       {
         const kinds = (['cat', 'dog', 'bird', 'water', 'machine', 'monster', 'dragon'] as EggKind[]).sort(() => Math.random() - 0.5)
-        this.spawn(BABY[kinds[0]] as SpeciesId, 'friend', -1.6, 2.4, 0.01, { seed: newSeed(), rare: false })
-        this.spawn(BABY[kinds[1]] as SpeciesId, 'friend', 1.6, 2.4, 0.01, { seed: newSeed(), rare: false })
+        this.spawn(BABY[kinds[0]] as SpeciesId, 'friend', st.x - 1.6, st.z + 2.4, 0.01, { seed: newSeed(), rare: false })
+        this.spawn(BABY[kinds[1]] as SpeciesId, 'friend', st.x + 1.6, st.z + 2.4, 0.01, { seed: newSeed(), rare: false })
         this.say('なかまが 2ひき いっしょに くらしはじめた')
       }
     }
@@ -905,8 +906,8 @@ export class World {
     for (let k = 0; k < 3; k++) this.dropFood()
     let k = 0
     for (const c of this.creatures) {
-      c.x = (k % 3) - 1
-      c.z = 1.5 + Math.floor(k / 3) * 0.8
+      c.x = (this.stage.start?.x ?? 0) + (k % 3) - 1
+      c.z = (this.stage.start?.z ?? 0) + 1.5 + Math.floor(k / 3) * 0.8
       c.foe = null
       c.food = null
       this.setState(c, 'happy', 1.5)
