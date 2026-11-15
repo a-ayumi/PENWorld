@@ -1444,7 +1444,7 @@ export function mountWalls(this: World) {
  * 城壁の 輪を そだてる（味方・敵 共通）。ds = まんなかからの 建物の 遠さ / start = 中心の 建物の 半径 / workers = 働く 数。
  * 新しい 輪を 引く・時代を 合わせる・区切りを のばす。かわったら true
  */
-function growRings(w: World, rings: TownRing[], c: { x: number; z: number }, era: number, ds: number[], start: number, workers: number, say: boolean) {
+function growRings(w: World, rings: TownRing[], c: { x: number; z: number }, era: number, ds: number[], start: number, workers: number, say: boolean, auto = true) {
   ds.sort((a, b) => a - b)
   let far = start
   for (const d of ds) if (d <= far + 4.4 * BUILD_SCALE) far = Math.max(far, d)
@@ -1466,7 +1466,8 @@ function growRings(w: World, rings: TownRing[], c: { x: number; z: number }, era
     changed = true
     if (say) w.say('へいが あたらしい じだいの すがたに なった')
   }
-  if (ring.built < segs.length && workers > 0) {
+  // 敵の 町は 勝手に のびる。味方の 町は いしくが しざいを はこんで つむ（layWall）
+  if (auto && ring.built < segs.length && workers > 0) {
     ring.built = Math.min(segs.length, ring.built + (workers >= 4 ? 2 : 1))
     const sg = segs[ring.built - 1]
     if (sg) {
@@ -1495,9 +1496,10 @@ export function updateTownWall(this: World, dt: number) {
   const foeRings = (this.foeWalls[here] ??= [])
   for (const rs of [rings, foeRings]) for (let i = 0; i < rs.length - 1; i++) rs[i].age += dt
   this.wallT -= dt
-  if (this.wallT > 0) return
-  this.wallT = 6
-  let changed = false
+  if (this.wallT > 0 && !this.wallDirty) return
+  if (this.wallT <= 0) this.wallT = 6
+  let changed = this.wallDirty
+  this.wallDirty = false
   const era = this.townEra()
   const c = this.townCenter()
   const town = this.houses.filter((h) => h.stage === here && h.level >= 2 && Math.hypot(h.x - c.x, h.z - c.z) < 30 * BUILD_SCALE)
@@ -1508,7 +1510,7 @@ export function updateTownWall(this: World, dt: number) {
       ...this.structs.filter((b) => b.stage === here && b.kind !== 'wall' && b.kind !== 'crate' && b.kind !== 'bridge').map((b) => Math.hypot(b.x - c.x, b.z - c.z) + STRUCTS[b.kind].r),
     ]
     const workers = this.creatures.filter((k) => this.ally(k) && k.state !== 'dead' && k.state !== 'faint' && k.grow === 0).length
-    changed = growRings(this, rings, c, era, ds, this.stage.start ? 3.4 * BUILD_SCALE : 0, workers, true)
+    changed = growRings(this, rings, c, era, ds, this.stage.start ? 3.4 * BUILD_SCALE : 0, workers, true, false)
   }
   // 敵の 町の へい
   const fs = this.stage.foeStart
@@ -2148,4 +2150,61 @@ export function updateDecor(this: World, dt: number) {
   this.obstacles()
   this.decor = buildDecor({ heightAt: this.stage.heightAt, nav: this.nav, nodes, high: this.high })
   this.scene.add(this.decor)
+}
+
+/** いしくの しごと：いちばん 外の へいの 輪が できかけなら それ（無ければ null） */
+export function wallJob(this: World): TownRing | null {
+  const rings = this.townWalls[this.stageIndex] ?? []
+  const r = rings[rings.length - 1]
+  if (!r) return null
+  return r.built < this.wallSegs(r, false).length ? r : null
+}
+
+/** つぎに つむ 区切りの 内がわの 立ち位置 */
+export function wallSpot(this: World, ring: TownRing): { x: number; z: number } | null {
+  const sg = this.wallSegs(ring, false)[ring.built]
+  if (!sg) return null
+  const a = Math.atan2(sg.z - ring.cz, sg.x - ring.cx)
+  return { x: sg.x - Math.cos(a) * 0.9, z: sg.z - Math.sin(a) * 0.9 }
+}
+
+/** いしくが はこんだ しざいで へいを n 区切り つむ */
+export function layWall(this: World, ring: TownRing, n: number) {
+  const segs = this.wallSegs(ring, false)
+  if (ring.built >= segs.length) return
+  ring.built = Math.min(segs.length, ring.built + n)
+  const sg = segs[ring.built - 1]
+  if (sg) {
+    this.burst(sg.x, this.stage.heightAt(sg.x, sg.z) + 1, sg.z, 'spark', 5, 1.6)
+    if (ring.built % 6 === 1) this.mark(sg.x, sg.z, 1)
+  }
+  if (ring.built === segs.length) this.say('へいが ぐるりと かこんだ！')
+  this.wallDirty = true
+}
+
+/** ごはんやに ためられる たべものの 数 */
+export const DINER_MAX = 8
+
+/** ごはんやの 店先に たべものを 1 つ 出す（ためてある分から） */
+export function dinerServe(this: World, dn: Struct): Food | null {
+  if ((dn.stock ?? 0) <= 0) return null
+  dn.stock = (dn.stock ?? 0) - 1
+  const f = this.dropFood(dn.x + (Math.random() - 0.5) * 0.6, dn.z + STRUCTS.diner.r + 0.45, 0.4)
+  f.landed = true
+  f.y = this.stage.heightAt(f.x, f.z) + 0.16
+  return f
+}
+
+/** はこんでいる 子が いなくなった たべものを 地面に もどす（1 秒ごと） */
+export function releaseFoods(this: World) {
+  for (const f of this.foods) {
+    const c = f.taken
+    if (!c) continue
+    const ok = this.alive(c) && ((c.food === f && (c.state === 'seek' || c.state === 'eat')) || (c.meal === f && c.state === 'deliver'))
+    if (ok) continue
+    f.taken = null
+    if (c.meal === f) c.meal = null
+    f.landed = false
+    f.vy = 0
+  }
 }

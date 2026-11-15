@@ -54,6 +54,7 @@ export const SHOP: ShopItem[] = [
 
   { id: 'kit', cat: 'plan', icon: 'kit', name: 'ざいもくセット', price: 35, desc: '木3つと 石2つを まとめて おく。\n家づくりの ざいりょうに', kit: true },
   { id: 'bp-well', cat: 'plan', icon: 'well', name: 'せっけいず：いど', price: 35, desc: 'ちかくの みんなの たいりょくが\nすこしずつ かいふくする', plan: 'well' },
+  { id: 'bp-diner', cat: 'plan', icon: 'diner', name: 'せっけいず：ごはんや', price: 55, desc: 'たべもの 1 つを 2 にんぶんに りょうり。\nごはんがかりが みんなに くばる', plan: 'diner' },
   { id: 'bp-farm', cat: 'plan', icon: 'farm', name: 'せっけいず：はたけ', price: 40, desc: 'たべものが じわじわ みのる。\nはたけがかりが せわをする', plan: 'farm' },
   { id: 'bp-bridge', cat: 'plan', icon: 'bridge', name: 'せっけいず：はし', price: 45, desc: 'みずうみを あるいて わたれる\nようになる（みずうみのある所）', plan: 'bridge' },
   { id: 'bp-cradle', cat: 'plan', icon: 'cradle', name: 'せっけいず：ゆりかご', price: 60, desc: 'たまごが できやすくなる。\nたまごを 3つまで おける', plan: 'cradle' },
@@ -161,6 +162,7 @@ const ICONS: Record<string, string[]> = {
   egg: ['....h....', '...hh#...', '..h###d..', '..##o##d.', '.###o###d', '.#o###o#d', '.#######d', '..#####d.', '...ddd...'],
   'egg?': ['....w....', '...ww#...', '..w###d..', '..#yyy#d.', '.##..y##d', '.###yy##d', '.###..##d', '..##y##d.', '...ddd...'],
   kit: ['.........', '.........', '.bBBB..ss', 'bBtBbB.sS', 'bBBBbBssS', '.bBBBb.ss', '.bBBB.sss', '..bbb..ss', '.........'],
+  diner: ['..w.w.w..', '.w.w.w...', '..w.w.w..', '.........', 'ooooooooo', '.oyyoyyo.', '.ooooooo.', '..ooooo..', '...bbb...'],
   well: ['..bbbbb..', '..b.r.b..', '..b.r.b..', '.sssssss.', 'sSSSSSSSs', 'sSCCCCCSs', 'sSSSSSSSs', '.sssssss.', '.........'],
   farm: ['.........', '..g...g..', '.ggg.ggg.', '..g...g..', 'bbbbbbbbb', 'BBbBBbBBb', 'bbbbbbbbb', 'BBbBBbBBb', '.........'],
   bridge: ['.........', '.........', 'bbbbbbbbb', 'BbBbBbBbB', 'b.b.b.b.b', 'CCCCCCCCC', 'cCcCcCcCc', 'CCCCCCCCC', '.........'],

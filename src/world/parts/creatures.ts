@@ -9,9 +9,10 @@ import { HALF } from '../stages'
 import { isSecretId } from '../secrets'
 import { STRUCTS, type StructKind } from '../structures'
 import { ITEM_SPEC, type ItemKind } from '../items'
+import { DINER_MAX } from './village'
 import { SEASON_INFO, type Season } from '../../missions'
 import type { World } from '../World'
-import { Team, State, Creature, Evo, Skill, SKILLS, Struct, Role, ROLE_NAME, LIFESPAN, newLife, Item, DECO_SHEET, houseMaxHp, MAX_FRIENDS, MAX_KIDS, MAX_WILD_CALM, BOSSES, RARE_RATE, RARE_RATE_LUCKY, CREATURE_SCALE } from '../World'
+import { Team, State, Creature, Evo, Skill, SKILLS, Struct, Food, Role, ROLE_NAME, LIFESPAN, newLife, Item, DECO_SHEET, houseMaxHp, MAX_FRIENDS, MAX_KIDS, MAX_WILD_CALM, BOSSES, RARE_RATE, RARE_RATE_LUCKY, CREATURE_SCALE } from '../World'
 
 export function spawn(this: World, id: SpeciesId, team: Team, x: number, z: number, grow = 0, look?: { seed: number; rare: boolean }): Creature {
   const sp = SPECIES[id]
@@ -371,6 +372,14 @@ export function think(this: World, c: Creature) {
     c.foe = p.foe
     return this.setState(c, 'assist', 8)
   }
+  // ペットの ほうしん「たたかい」：のんびりでも 近くの 敵を さがして たたかう
+  if (c === p && this.petPlan === 'fight' && c.grow === 0 && c.hp > c.maxHp * 0.4 && c.energy > 20) {
+    const enemy = this.nearest(c, (o) => o.sp.temper === 'wild' && o.team === 'wild', 9)
+    if (enemy) {
+      c.foe = enemy
+      return this.setState(c, 'hunt', 8)
+    }
+  }
   // ペットから けんかを しかけるのは 2 だんめ（成長期）から
   if (c.team === 'pet' && !this.calm && c.sp.tier >= 2 && c.hp > c.maxHp * 0.5 && c.energy > 30) {
     const enemy = this.nearest(c, (o) => o.sp.temper === 'wild', 3)
@@ -414,10 +423,14 @@ export function think(this: World, c: Creature) {
     const f = this.foods
       .filter((f) => f.landed && !f.taken)
       .sort((a, b) => Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z))[0]
-    if (f) {
-      f.taken = c
-      c.food = f
-      return this.setState(c, 'seek', 10)
+    // 落ちている 物が 遠ければ、ごはんやに ためてある 分を もらいに 行く
+    const dn = this.doneStruct('diner', c.x, c.z)
+    const fd = f ? Math.hypot(f.x - c.x, f.z - c.z) : 99
+    const g = dn && (dn.stock ?? 0) > 0 && Math.hypot(dn.x - c.x, dn.z - c.z) < Math.min(20, fd - 2) ? this.dinerServe(dn) : f
+    if (g) {
+      g.taken = c
+      c.food = g
+      return this.setState(c, 'seek', 12)
     }
   }
   if (c.energy < 20 || (this.night > 0.5 && Math.random() < 0.5)) {
@@ -475,8 +488,27 @@ export function think(this: World, c: Creature) {
       return this.setState(c, 'tend', 12)
     }
   }
+  // ごはんがかり：たべものを ひろって、おなかの すいた子に とどける / ごはんやに ためる
+  if (c.role === 'cook' && c.energy > 20 && Math.random() < 0.85 && this.cookJob(c)) return
+  // ペットの ほうしん「きと はな」：なえ・はなだんを うえる、そだちかけの なえに 水を やる
+  if (c === p && this.petPlan === 'plant' && c.energy > 25 && Math.random() < 0.7 && this.plantJob(c)) return
+  // いしく（と ペットの ほうしん「じょうへき」）：しざいを はこんで へいを つむ。ひまな だいくも ときどき 手つだう
+  const wallP = c.role === 'mason' || (c === p && this.petPlan === 'wall') ? 0.9 : c.role === 'builder' || c.role === 'free' ? 0.12 : 0
+  if (!wild && c.team !== 'wild' && c.grow === 0 && c.energy > 30 && Math.random() < wallP) {
+    const ring = this.wallJob()
+    const r = ring && this.resources
+      .filter((r) => !r.taken)
+      .sort((a, b) => Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z))[0]
+    if (ring && r && Math.hypot(r.x - c.x, r.z - c.z) < 16) {
+      r.taken = c
+      c.res = r
+      c.site = null
+      c.wallRing = ring
+      return this.setState(c, 'gather', 14)
+    }
+  }
   // 家づくり：資材を集めて自分の家を建てる・直す
-  if (!wild && c.grow === 0 && c.energy > 30 && Math.random() < (c.role === 'builder' ? 0.95 : c.role === 'free' ? 0.85 : 0.5)) {
+  if (!wild && c.grow === 0 && c.energy > 30 && Math.random() < (c.role === 'builder' || (c === p && this.petPlan === 'build') ? 0.95 : c.role === 'free' ? 0.85 : 0.5)) {
     let h = home
     if (!h) h = this.claimHouse(c)
     const site = this.openSite(c)
@@ -488,7 +520,8 @@ export function think(this: World, c: Creature) {
       if (r && Math.hypot(r.x - c.x, r.z - c.z) < 14) {
         r.taken = c
         c.res = r
-        c.site = site && (!wantHouse || c.role === 'builder' || Math.random() < 0.7) ? site : null
+        c.wallRing = null
+        c.site = site && (!wantHouse || c.role === 'builder' || (c === p && this.petPlan === 'build') || Math.random() < 0.7) ? site : null
         return this.setState(c, 'gather', 14)
       }
     }
@@ -1116,15 +1149,17 @@ export function assignRoles(this: World) {
     guard: done('tower') + done('castle') * 2 + done('fort') * 2 + done('lighthouse') + (this.vLv >= 1 ? 1 : 0),
     carer: done('playground'),
     seller: this.vLv >= 1 ? done('market') : 0,
+    cook: done('diner') * 2,
+    mason: this.wallJob() ? 2 : 0,
     builder: 99,
     free: 0,
   }
-  const count: Record<Role, number> = { free: 0, builder: 0, farmer: 0, guard: 0, carer: 0, seller: 0 }
+  const count: Record<Role, number> = { free: 0, builder: 0, farmer: 0, guard: 0, carer: 0, seller: 0, cook: 0, mason: 0 }
   let said = false
   for (const c of allies) {
     // 性格ごとの希望順（だいくは何人でも入れる受け皿なので、ほかの役を先に並べる）
     const pref: Role[] =
-      c.bias === 'power' ? ['guard', 'seller', 'builder', 'carer', 'farmer'] : c.bias === 'guard' ? ['carer', 'builder', 'guard', 'farmer', 'seller'] : ['farmer', 'carer', 'seller', 'builder', 'guard']
+      c.bias === 'power' ? ['guard', 'mason', 'seller', 'builder', 'carer', 'farmer', 'cook'] : c.bias === 'guard' ? ['carer', 'mason', 'cook', 'builder', 'guard', 'farmer', 'seller'] : ['farmer', 'cook', 'carer', 'seller', 'builder', 'mason', 'guard']
     const role = pref.find((r) => count[r] < want[r]) ?? 'free'
     count[role]++
     if (role !== c.role) {
@@ -1343,6 +1378,7 @@ export function updateVillage(this: World, dt: number) {
   this.updateDex()
   this.updateRoad()
   this.updateSecrets()
+  this.releaseFoods()
   this.roleT += 1
   if (this.roleT >= 15) {
     this.roleT = 0
@@ -1361,7 +1397,7 @@ export function updateVillage(this: World, dt: number) {
     const homes = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 3).length
     const has = (k: StructKind) => this.structs.some((b) => b.stage === this.stageIndex && b.kind === k)
     // やることが何もない時は、村に足りない建物を自分たちで計画する（おしろ・はし・とうだい・いちば・とりでは人がせっけいずを買った時だけ）
-    const next: [StructKind, number, number][] = [['farm', 2, 0], ['well', 3, 0], ['tower', 3, 0], ['cradle', 4, 0], ['fountain', 4, 7], ['playground', 4, 8], ['windmill', 5, 9]]
+    const next: [StructKind, number, number][] = [['farm', 2, 0], ['well', 3, 0], ['diner', 3, 3], ['tower', 3, 0], ['cradle', 4, 0], ['fountain', 4, 7], ['playground', 4, 8], ['windmill', 5, 9]]
     const want = next.find(([k, n, sc]) => homes >= n && this.vScore >= sc && !has(k))
     if (want) this.planStruct(want[0], this.pet.x, this.pet.z, true)
   }
@@ -1481,4 +1517,47 @@ export function updateEggs(this: World, dt: number) {
       }
     }
   }
+}
+
+/** ごはんがかりの しごとを 1 つ えらぶ（できたら true） */
+export function cookJob(this: World, c: Creature): boolean {
+  const dn = this.doneStruct('diner', c.x, c.z)
+  if (!dn) return false
+  const hungry = this.creatures
+    .filter((o) => o !== c && this.ally(o) && this.alive(o) && o.hunger < 50 && o.state !== 'seek' && o.state !== 'eat' && o.state !== 'sleep' && !this.creatures.some((k) => k.mealTo === o && k.state === 'deliver'))
+    .sort((a, b) => a.hunger - b.hunger)[0]
+  const free = (f: Food) => f.landed && !f.taken && Math.hypot(f.x - dn.x, f.z - dn.z) < 18
+  const food = this.foods.filter(free).sort((a, b) => Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z))[0]
+  let f: Food | null = null
+  if (hungry) f = (dn.stock ?? 0) > 0 && (!food || Math.hypot(dn.x - c.x, dn.z - c.z) < Math.hypot(food.x - c.x, food.z - c.z)) ? this.dinerServe(dn) : food ?? null
+  else if ((dn.stock ?? 0) < DINER_MAX) f = food ?? null
+  if (!f) return false
+  f.taken = c
+  c.meal = f
+  c.mealTo = hungry ?? null
+  c.mealHeld = false
+  this.setState(c, 'deliver', 20)
+  return true
+}
+
+/** ペットの「きと はな」：うえる 場所を きめる（できたら true） */
+export function plantJob(this: World, c: Creature): boolean {
+  const here = this.items.filter((it) => it.stage === this.stageIndex)
+  const n = (k: ItemKind) => here.filter((it) => it.kind === k).length
+  const young = here.filter((it) => it.kind === 'sapling' && it.grow < 1).sort((a, b) => Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z))[0]
+  const kind: ItemKind | null = n('sapling') < ITEM_SPEC.sapling.max ? 'sapling' : n('flowerbed') < ITEM_SPEC.flowerbed.max ? 'flowerbed' : null
+  if (kind && (!young || Math.random() < 0.5)) {
+    const t = this.townCenter()
+    const p = this.freePos(0, (c.x + t.x) / 2, (c.z + t.z) / 2, 6)
+    if (Math.hypot(p.x - c.x, p.z - c.z) > 14) return false
+    c.plantAt = { x: p.x, z: p.z, kind }
+    this.setState(c, 'plant', 14)
+    return true
+  }
+  if (young) {
+    c.plantAt = { x: young.x + 0.6, z: young.z + 0.4, kind: 'sapling', water: young }
+    this.setState(c, 'plant', 12)
+    return true
+  }
+  return false
 }
