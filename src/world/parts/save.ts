@@ -2,6 +2,7 @@
 import { EGG_COLORS, SPECIES, familyOf, newSeed, type Care, type EggKind, type SpeciesId } from '../monsters'
 import type { Facts } from '../../journal'
 import { HALF, LAND_SIZES, STAGES, setLandSize } from '../stages'
+import { WORLD_SIZE } from '../worldmap'
 import { STRUCTS, isStructKind, type StructKind } from '../structures'
 import { ITEM_SPEC, isItemKind, type ItemKind } from '../items'
 import { SHOP } from '../shop'
@@ -26,6 +27,7 @@ export function save(this: World) {
     friends: friends.map(c2),
     houses: this.houses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, ownerSp: h.ownerSp, owner: ownerKey(h), mats: h.mats, hp: Math.round(h.hp), era: h.era, age: Math.round(h.age) })),
     eraPath: this.eraPath,
+    world: this.worldMode || undefined,
     townWalls: this.townWalls,
     foeHouses: this.foeHouses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, mats: h.mats, hp: Math.round(h.hp), era: h.era, age: Math.round(h.age) })),
     foeWalls: this.foeWalls,
@@ -65,7 +67,8 @@ export function load(this: World): boolean {
     this.stats.lineage = (Array.isArray(this.stats.lineage) ? this.stats.lineage : []).filter((n: unknown) => typeof n === 'string').slice(-12).map((n: string) => n.slice(0, 12))
     this.oldWarned = this.stats.petAge / LIFESPAN > 0.85
     this.land = Math.round(num(d.land, 0, LAND_SIZES.length - 1, 0))
-    setLandSize(LAND_SIZES[this.land])
+    // 大きな 世界の セーブは 世界の 広さで 読む（古い 1 まいの セーブは その 広さで 読んで あとで ずらす）
+    setLandSize(this.worldMode && d.world ? WORLD_SIZE : LAND_SIZES[this.land])
     this.dex = {}
     if (d.dex && typeof d.dex === 'object' && !Array.isArray(d.dex))
       for (const [k, v] of Object.entries(d.dex)) if (isSpecies(k) && (v === 1 || v === 2)) this.dex[k] = v
@@ -146,7 +149,27 @@ export function load(this: World): boolean {
       .filter((o) => o && typeof o.id === 'string' && SHOP.some((x) => x.id === o.id && (x.plan || x.item)))
       .slice(0, MAX_ORDERS)
       .map((o) => ({ id: o.id as string, stage: Math.round(num(o.stage as number, 0, STAGES.length - 1)) }))
-    this.loadStage(Math.min(STAGES.length - 1, Math.round(num(d.stage, 0, STAGES.length - 1))))
+    // 大きな 世界へ はじめて 読む 古い セーブ：森（ステージ 0）の 町を 世界の 森へ ずらす。ほかの ステージの 物と へい・敵の 町は 持ってこない
+    if (this.worldMode && !d.world) {
+      const oldK = LAND_SIZES[this.land] / 20
+      const to = this.worldForest()
+      const mv = (o: { x: number; z: number }) => {
+        o.x = o.x + 5.2 * oldK + to.x
+        o.z = o.z - 1.0 * oldK + to.z
+      }
+      this.houses = this.houses.filter((h) => h.stage === 0)
+      this.houses.forEach(mv)
+      this.structs = this.structs.filter((b) => b.stage === 0 && b.kind !== 'wall' && b.kind !== 'bridge')
+      this.structs.forEach(mv)
+      this.items = this.items.filter((it) => it.stage === 0)
+      this.items.forEach(mv)
+      this.townWalls = {}
+      this.foeHouses = []
+      this.foeWalls = {}
+      this.orders = this.orders.filter((o) => o.stage === 0)
+    }
+    // 古い 1 まいの セーブを 大きな 世界から もどす 時も ステージ 0 から
+    this.loadStage(this.worldMode ? 0 : Math.min(STAGES.length - 1, Math.round(num(d.stage, 0, STAGES.length - 1))))
     type Saved = { sp: SpeciesId; hp: number; maxHp: number; atk: number; hunger: number; energy: number; grow: number; xp?: number; care?: Record<Care, number>; bias?: Care; seed?: number; rare?: boolean; age?: number; life?: number }
     /** 見た目のシード（古いセーブには無いので、その時は新しく決める）。色ちがいは 保存されたものだけ */
     const lookOfSaved = (s: Saved) => ({ seed: Math.round(num(s.seed, 0, 0x7fffffff, newSeed())), rare: s.rare === true && SPECIES[s.sp].tier > 0 })
@@ -162,11 +185,12 @@ export function load(this: World): boolean {
       }
       c.anim.setHeight(this.size(c))
     }
-    this.pet = this.spawn(d.pet.sp, 'pet', 0, 1.5, 0, lookOfSaved(d.pet))
+    const st0 = this.stage.start ?? { x: 0, z: 0 }
+    this.pet = this.spawn(d.pet.sp, 'pet', st0.x, st0.z + 1.5, 0, lookOfSaved(d.pet))
     apply(this.pet, d.pet)
     const friends: Creature[] = []
     for (const f of ((Array.isArray(d.friends) ? d.friends : []) as Saved[]).slice(0, 40)) if (f && isSpecies(f.sp)) {
-      const c = this.spawn(f.sp, 'friend', (Math.random() - 0.5) * 2, 2.2, 0, lookOfSaved(f))
+      const c = this.spawn(f.sp, 'friend', st0.x + (Math.random() - 0.5) * 2, st0.z + 2.2, 0, lookOfSaved(f))
       apply(c, f)
       friends.push(c)
     }

@@ -385,6 +385,7 @@ export function shopCheck(this: World, s: ShopItem): ShopCheck {
   let have: number | undefined
   let max: number | undefined
   const no = (tone: ShopCheck['tone'], why: string): ShopCheck => ({ ok: false, tone, why, have, max })
+  if (s.land && this.worldMode) return no('lock', 'おおきな せかいでは かいたくは いらない')
   if (s.land) {
     if (this.land >= s.land) return no('done', 'この かいたくは もう すんでいる')
     if (this.land < s.land - 1) return no('lock', 'さきに かいたく ① を しよう')

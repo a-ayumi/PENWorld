@@ -1279,7 +1279,7 @@ document.addEventListener('visibilitychange', () => {
   fpsWatch.reset(2)
 })
 /** ひとつづきの世界の 見本（`?world=1`）：左上に 速さ（FPS）と 描く回数を 出す。スマホで はかるため */
-const worldFps = world.worldMode
+const worldFps = new URLSearchParams(location.search).has('fps')
   ? (() => {
       const el = document.createElement('div')
       el.style.cssText = 'position:fixed;left:6px;top:6px;z-index:99;padding:3px 7px;border-radius:6px;background:rgba(0,0,0,.6);color:#fff;font:12px monospace;pointer-events:none'
@@ -1291,7 +1291,7 @@ const worldFps = world.worldMode
         acc += raw
         n++
         if (acc < 1) return
-        el.textContent = `ONE WORLD  ${Math.round(n / acc)} fps  draw ${renderer.info.render.calls}  quality ${quality}`
+        el.textContent = `${Math.round(n / acc)} fps  draw ${renderer.info.render.calls}  quality ${quality}`
         acc = n = 0
       }
     })()
