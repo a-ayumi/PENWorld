@@ -1126,3 +1126,158 @@ export function eraTower(era: Era, ctx: EraCtx, wear: Wear = 0, seed = 2): THREE
   }
   return k.done()
 }
+
+// ======================= 城壁（計画 B4） =======================
+/** 城壁の 高さ（時代ごと・BUILD_SCALE を 掛ける前） */
+export const WALL_H: Record<Era, number> = { 1: 0.5, 2: 1.1, 3: 1.2, 4: 1.5, 5: 1.8, 6: 1.8, 7: 1.7, 8: 1.6, 9: 1.8 }
+
+/**
+ * 城壁の 1 区切り（x 方向に 長さ len・まんなかが 原点・外がわは -z）。
+ * 2 丸太の さく / 3 石の 足もとに 丸太と 通路 / 4・5 石の かべと 胸かべ / 6 白い かべと 金の ふち / 7 れんがと 鉄の 帯・パイプ / 8 こけた 石と ケーブル・やぶれ目 / 9 金ぞくの 板と 光る すじ
+ * wear 2 = くずれて 低い・がれき（そこは 通れる 扱いに する）
+ */
+export function eraWall(era: Era, ctx: EraCtx, wear: Wear, len: number, seed: number): THREE.Group {
+  const k = new Kit(ctx, wear, seed)
+  const H = WALL_H[era] * (k.ruin ? 0.25 + k.r() * 0.35 : 1)
+  if (era <= 3) {
+    // 丸太の さく：とがった 先・横木
+    const n = Math.max(2, Math.round(len / 0.2))
+    for (let i = 0; i < n; i++) {
+      const x = -len / 2 + (i + 0.5) * (len / n)
+      const hh = H * (0.9 + k.r() * 0.2) * (k.ruin && k.r() < 0.5 ? 0.3 : 1)
+      const o = k.cyl(0.085, 0.095, hh, 6, i % 2 ? '#7a5230' : '#8a6038', x, hh / 2, 0)
+      if (k.old) o.rotation.z = (k.r() - 0.5) * 0.25
+      if (!k.ruin) k.cyl(0.0, 0.085, 0.16, 6, '#9a7048', x, hh + 0.08, 0)
+    }
+    for (const y of [0.3, H - 0.25]) if (!k.ruin) k.box(len, 0.06, 0.06, DARK, 0, y, 0.1)
+    if (era === 3) {
+      k.masonry(len, 0.3, 0.4, '#9aa1ab', 0, 0.15, 0, 4)
+      if (!k.ruin) {
+        k.box(len, 0.06, 0.4, '#8a6038', 0, H - 0.3, 0.3)
+        for (const x of [-len / 2 + 0.1, len / 2 - 0.1]) k.box(0.07, H - 0.3, 0.07, DARK, x, (H - 0.3) / 2, 0.45)
+      }
+    }
+  } else {
+    const c = era === 6 ? '#f2f0e8' : era === 7 ? '#a05a44' : era === 8 ? '#8f9a8c' : era === 9 ? '#4a6078' : era === 5 ? '#9aa0aa' : STONE
+    const T = 0.5
+    if (era === 9) {
+      k.box(len, H, T, c, 0, H / 2, 0)
+      for (let i = 0; i < Math.round(len / 0.5); i++) k.box(0.03, H * 0.9, 0.02, IRON, -len / 2 + 0.25 + i * 0.5, H / 2, -T / 2 - 0.01)
+      if (!k.ruin) for (const y of [0.4, H - 0.3]) k.box(len, 0.04, 0.02, k.glow(k.old ? '#3f7a80' : '#5ef2ff'), 0, y, -T / 2 - 0.02).name = 'lit'
+    } else {
+      k.masonry(len, H, T, c, 0, H / 2, 0, Math.round(len * 5))
+      // 外がわにも 石目
+      for (let i = 0; i < Math.round(len * 3); i++) k.box(0.16 + k.r() * 0.1, 0.09, 0.025, mix(c, i % 2 ? '#ffffff' : '#20222a', 0.22), (k.r() - 0.5) * (len - 0.2), 0.1 + k.r() * (H - 0.2), -T / 2 - 0.008)
+    }
+    if (!k.ruin) {
+      // 胸かべ（外がわ）と 通路（内がわ）
+      const merl = era === 9 ? 0.6 : 0.34
+      for (let x = -len / 2 + merl / 2; x < len / 2; x += merl * 2) {
+        if (k.old && k.r() < 0.25) continue
+        k.box(merl, 0.24, 0.16, c, x, H + 0.12, -T / 2 + 0.08)
+      }
+      k.box(len, 0.06, 0.24, era === 6 ? BRASS : mix(c, '#20222a', 0.25), 0, H - 0.02, 0.06)
+      if (era === 6) k.box(len, 0.05, 0.03, BRASS, 0, H * 0.35, -T / 2 - 0.02)
+      if (era === 7) {
+        for (const y of [0.35, H - 0.3]) k.box(len, 0.06, 0.03, IRON, 0, y, -T / 2 - 0.02)
+        k.pipe([[-len / 2, H * 0.6, T / 2 + 0.06], [len / 2, H * 0.6, T / 2 + 0.06]], 0.05)
+      }
+      if (era === 8) {
+        k.cable(-len / 2, H * 0.8, len / 2, H * 0.7, T / 2 + 0.05, 0.25)
+        if (k.r() < 0.5) k.tear(0.3, 0.36, (k.r() - 0.5) * len * 0.5, H * 0.5, -T / 2 - 0.02)
+      }
+    } else {
+      k.rubble(0, -0.5, 5, c, len)
+      k.rubble(0, 0.5, 4, c, len)
+      if (era === 8) k.tear(0.36, 0.3, 0, H * 0.5, -T / 2 - 0.02)
+    }
+    if (k.old) {
+      const moss = k.m('#4f7a3a', true)
+      for (let i = 0; i < (k.ruin ? 4 : 2); i++) {
+        const vl = 0.3 + k.r() * H * 0.6
+        k.box(0.06, vl, 0.04, moss, (k.r() - 0.5) * len * 0.9, H - vl / 2, -T / 2 - 0.03)
+      }
+      k.box(len * 0.6, 0.05, 0.3, moss, (k.r() - 0.5) * 0.4, H + 0.01, 0)
+    }
+  }
+  k.sprout((k.r() - 0.5) * len * 0.5, k.ruin ? 0.1 : WALL_H[era], 0, 0.8)
+  return k.done()
+}
+
+/** 門：両わきの 塔 + アーチ + とびら。正面は -z（外がわ）。はば w（通り道） */
+export function eraGate(era: Era, ctx: EraCtx, wear: Wear, w: number, seed: number): THREE.Group {
+  const k = new Kit(ctx, wear, seed)
+  const H = WALL_H[era] + (era <= 3 ? 0.8 : 1.2)
+  const wood = era <= 3
+  const c = era === 6 ? '#f2f0e8' : era === 7 ? '#a05a44' : era === 8 ? '#8f9a8c' : era === 9 ? '#4a6078' : STONE
+  for (const sx of [-1, 1]) {
+    const x = sx * (w / 2 + 0.35)
+    if (wood) {
+      for (const [dx, dz] of [[-0.25, -0.25], [0.25, -0.25], [-0.25, 0.25], [0.25, 0.25]]) k.cyl(0.07, 0.08, H, 6, '#7a5230', x + dx, H / 2, dz)
+      k.box(0.8, 0.07, 0.8, '#8a6038', x, H, 0)
+      if (!k.ruin) k.gable(0.8, 0.8, 0.4, '#c9a850', H + 0.02, '#8a6038', x, 0)
+    } else {
+      const hh = k.ruin && sx > 0 ? H * 0.5 : H
+      k.cyl(0.42, 0.48, hh, 10, c, x, hh / 2, 0)
+      k.roundStones(0.46, 0.2, hh, c, 10)
+      if (!(k.ruin && sx > 0)) {
+        k.crenel(0.46, hh + 0.12, c, 8, x, 0)
+        if (era === 6) k.spire(0.5, 0.9, 10, '#3f6fc8', hh + 0.02, 4, 0, x, 0)
+        if (era === 5) k.spire(0.5, 0.7, 10, '#7a3a34', hh + 0.02, 3, 0, x, 0)
+        if (era === 9) k.cyl(0.18, 0.18, 0.4, 8, k.glow(k.old ? '#3f7a80' : '#5ef2ff'), x, hh + 0.3, 0).name = 'lit'
+      }
+      k.box(0.08, 0.3, 0.04, k.glow('#1c1e24'), x, hh * 0.6, -0.46)
+    }
+    k.lantern(x - sx * 0.5, 1.0, -0.45)
+    k.flag(x, H + (wood ? 0.4 : 0.6), 0, era === 6 ? '#5a9aff' : '#ff5a5a', 0.5)
+  }
+  if (!k.ruin) {
+    // アーチ（上の はり）
+    k.box(w + 0.7, 0.3, 0.6, wood ? '#8a6038' : c, 0, H - 0.15, 0)
+    if (!wood) for (let i = 0; i < 6; i++) k.box(0.18, 0.2, 0.16, c, -w / 2 + (i + 0.5) * (w / 6), H + 0.1, -0.24)
+    // あいた とびら
+    for (const sx of [-1, 1]) {
+      const d = k.box(w / 2, H - 0.4, 0.06, wood ? '#6a4a30' : '#5a3a22', sx * (w / 2 + 0.1), (H - 0.4) / 2, -0.3 - w * 0.2)
+      d.rotation.y = sx * -1.1
+    }
+    if (era === 7) k.gear(0.3, 0, H - 0.15, -0.32)
+    if (era === 8) k.tear(0.3, 0.2, w * 0.2, H - 0.15, -0.31)
+  } else k.rubble(0, 0, 7, wood ? '#7a5230' : c, w)
+  k.overgrow(w + 1.4, H, 0.9)
+  return k.done()
+}
+
+/** 色ごとに 形を まとめる（たくさんの 区切りを 1 つの 輪に する時。名前つきは まとめない） */
+export function mergeByColor(root: THREE.Object3D): THREE.Group {
+  root.updateMatrixWorld(true)
+  const by = new Map<string, { mat: THREE.Material; geos: THREE.BufferGeometry[] }>()
+  const keep: THREE.Object3D[] = []
+  root.traverse((o) => {
+    const m = o as THREE.Mesh
+    if (!m.isMesh) return
+    if (o.name || Array.isArray(m.material)) {
+      keep.push(o)
+      return
+    }
+    const mat = m.material as THREE.MeshLambertMaterial
+    const key = mat.type + (mat.color ? mat.color.getHexString() : '') + (mat.map ? 'm' : '')
+    const geo = (m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone()).applyMatrix4(o.matrixWorld)
+    for (const a of Object.keys(geo.attributes)) if (a !== 'position' && a !== 'normal' && a !== 'uv') geo.deleteAttribute(a)
+    const e = by.get(key)
+    if (e) e.geos.push(geo)
+    else by.set(key, { mat, geos: [geo] })
+  })
+  const out = new THREE.Group()
+  for (const { mat, geos } of by.values()) {
+    const merged = mergeGeometries(geos)
+    for (const g of geos) g.dispose()
+    if (merged) out.add(new THREE.Mesh(merged, mat))
+  }
+  for (const o of keep) {
+    const m = o as THREE.Mesh
+    const n = new THREE.Mesh(m.geometry.clone().applyMatrix4(o.matrixWorld), m.material)
+    n.name = o.name
+    out.add(n)
+  }
+  return out
+}
