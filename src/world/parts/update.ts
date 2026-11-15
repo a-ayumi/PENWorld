@@ -124,6 +124,7 @@ export function update(this: World, dt: number) {
   this.coinPop.t = Math.max(0, this.coinPop.t - dt)
   this.updateEggs(dt)
   this.updateSettlers(dt)
+  this.updateWish(dt)
   // ふみかためた 道：8 秒ごとに 形を 見なおし、30 秒ごとに 歩かない 所が 草に もどる
   this.pathT -= dt
   if (this.pathT <= 0) {

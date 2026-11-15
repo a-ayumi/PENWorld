@@ -980,7 +980,7 @@ export function drawShop(this: World) {
         return g.measureText(t).width
       },
     },
-    { coins: this.coins, cursor: this.shopCursor, time: this.time, check: (it) => this.shopCheck(it), talk: this.shopTalk && this.time - this.shopTalk.t < 2.6 ? this.shopTalk.text : undefined, orders: this.orderNames() },
+    { coins: this.coins, cursor: this.shopCursor, time: this.time, check: (it) => this.shopCheck(it), talk: this.shopTalk && this.time - this.shopTalk.t < 2.6 ? this.shopTalk.text : undefined, orders: this.orderNames(), wish: this.wish && this.alive(this.wish.who) ? { id: this.wish.id, who: this.wish.who.sp.name } : undefined },
   )
 }
 

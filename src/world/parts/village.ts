@@ -1739,6 +1739,7 @@ export function showEras(this: World, wear: Wear = 0, from = 1, to = 9, scale = 
 /** ちゅうもん（計画 B1）：買った物は 列に ならぶ。だいくたちが 順番に 取りかかる */
 export function addOrder(this: World, s: ShopItem) {
   this.orders.push({ id: s.id, stage: this.stageIndex })
+  this.grantWish(s)
   this.orderT = Math.min(this.orderT, 0.6)
 }
 
@@ -2212,4 +2213,74 @@ export function releaseFoods(this: World) {
     f.landed = false
     f.vy = 0
   }
+}
+
+/**
+ * 住民の おねがい：4〜7 分に 1 回、なかまの 1 匹が 町に ほしい 物を つぶやく（夜なら ランタン、
+ * こどもが いれば ぬいぐるみ、おなかが すいていれば はたけ や ごはんや …）。人が 8 分の あいだに
+ * ショップで たのむと、その子は 大よろこびして 値段の 3 わりの コインが もどる（`addOrder()` で かなえる）
+ */
+export function updateWish(this: World, dt: number) {
+  const w = this.wish
+  if (w) {
+    w.t -= dt
+    w.say -= dt
+    if (w.t <= 0 || !this.alive(w.who)) {
+      if (this.alive(w.who) && w.t <= 0) this.say(`${w.who.sp.name}は ${SHOP.find((s) => s.id === w.id)?.name ?? ''}を あきらめた…`)
+      this.wish = null
+      this.wishT = 240 + Math.random() * 180
+      return
+    }
+    // ときどき 頭の 上で つぶやく
+    if (w.say <= 0) {
+      w.say = 18
+      const name = SHOP.find((s) => s.id === w.id)?.name ?? ''
+      this.popups.push({ pos: new THREE.Vector3(w.who.x, this.ground(w.who) + this.size(w.who) + 0.35, w.who.z), text: `${name}…ほしいな`, color: '#ffd0e6', t: 0 })
+    }
+    return
+  }
+  if ((this.wishT -= dt) > 0) return
+  this.wishT = 240 + Math.random() * 180
+  const folks = this.creatures.filter((c) => c.team === 'friend' && c.grow === 0 && this.alive(c))
+  if (!folks.length) return
+  const who = folks[Math.floor(Math.random() * folks.length)]
+  // ほしがる 物：いまの 町の ようすに あう 物を 重みつきで
+  const want: [string, number][] = [
+    ['lantern', this.night > 0.4 ? 4 : 1], ['bench', who.energy < 50 ? 3 : 1], ['ball', 1.5], ['flowerbed', 1.5], ['sapling', 1.5],
+    ['plush', this.creatures.some((c) => c.grow > 0 && this.ally(c)) ? 3 : 0.5], ['fire', this.weather === 'snow' ? 4 : 1], ['slide', 1],
+    ['bp-farm', who.hunger < 50 ? 3 : 0.5], ['bp-diner', who.hunger < 50 ? 3 : 0.5], ['bp-well', 1], ['bp-fountain', this.vLv >= 1 ? 1.5 : 0], ['bp-playground', 1], ['bp-market', this.vLv >= 1 ? 1 : 0],
+  ]
+  const ok = want.filter(([id]) => {
+    const s = SHOP.find((x) => x.id === id)
+    if (!s) return false
+    const ck = this.shopCheck(s)
+    return ck.ok || ck.tone === 'coin'
+  })
+  const total = ok.reduce((a, [, k]) => a + k, 0)
+  if (!total) return
+  let r = Math.random() * total
+  const pick = ok.find(([, k]) => (r -= k) <= 0) ?? ok[0]
+  const name = SHOP.find((x) => x.id === pick[0])!.name.replace('せっけいず：', '')
+  this.wish = { id: pick[0], who, t: 480, say: 0 }
+  this.say(`${who.sp.name}「${name}が あったら いいなあ」`)
+  this.mark(who.x, who.z, 1)
+}
+
+/** ちゅうもんが おねがいの 品なら かなえる */
+export function grantWish(this: World, s: ShopItem) {
+  const w = this.wish
+  if (!w || w.id !== s.id) return
+  this.wish = null
+  this.wishT = 240 + Math.random() * 180
+  if (!this.alive(w.who)) return
+  const back = Math.round(s.price * 0.3)
+  this.earn(back, w.who.x, w.who.z)
+  w.who.hunger = Math.min(100, w.who.hunger + 10)
+  this.addCare(w.who, 'spirit', 2)
+  this.stats.mood = Math.min(100, this.stats.mood + 8)
+  this.burst(w.who.x, this.ground(w.who) + this.size(w.who), w.who.z, 'heart', 8, 1.6)
+  this.setState(w.who, 'happy', 2.2)
+  this.popups.push({ pos: new THREE.Vector3(w.who.x, this.ground(w.who) + this.size(w.who) + 0.35, w.who.z), text: 'ありがとう！', color: '#ffd0e6', t: 0 })
+  this.after(0.6, () => this.say(`${w.who.sp.name}は おおよろこび！ おれいに ${back}コイン`))
+  this.stat('wishes')
 }
