@@ -12,7 +12,7 @@ import { ITEM_SPEC, type ItemKind } from '../items'
 import { DINER_MAX } from './village'
 import { SEASON_INFO, type Season } from '../../missions'
 import type { World } from '../World'
-import { Team, State, Creature, Evo, Skill, SKILLS, Struct, Food, Role, ROLE_NAME, LIFESPAN, newLife, Item, DECO_SHEET, houseMaxHp, MAX_FRIENDS, MAX_KIDS, MAX_WILD_CALM, BOSSES, RARE_RATE, RARE_RATE_LUCKY, CREATURE_SCALE } from '../World'
+import { HEAL_SKILLS, Team, State, Creature, Evo, Skill, SKILLS, Struct, Food, Role, ROLE_NAME, LIFESPAN, newLife, Item, DECO_SHEET, houseMaxHp, MAX_FRIENDS, MAX_KIDS, MAX_WILD_CALM, BOSSES, RARE_RATE, RARE_RATE_LUCKY, CREATURE_SCALE } from '../World'
 
 export function spawn(this: World, id: SpeciesId, team: Team, x: number, z: number, grow = 0, look?: { seed: number; rare: boolean }): Creature {
   const sp = SPECIES[id]
@@ -403,8 +403,9 @@ export function think(this: World, c: Creature) {
   // 雨・ひのこ・夜は自分の家に入って休む
   const home = this.homeOf(c)
   if (!wild && home && home.level >= 2 && (this.weather === 'rain' || this.weather === 'ember' || this.night > 0.5) && Math.random() < 0.7) {
-    c.tx = home.x
-    c.tz = home.z + 1.25 * BUILD_SCALE
+    const door = home.castle ? this.castleSpot(c) : null
+    c.tx = door ? door.x : home.x
+    c.tz = door ? door.z : home.z + 1.25 * BUILD_SCALE
     c.inside = true
     return this.setState(c, 'rest', 10)
   }
@@ -492,6 +493,8 @@ export function think(this: World, c: Creature) {
       return this.setState(c, 'tend', 12)
     }
   }
+  // いやし：けがを した なかまを 見つけたら なおしに いく（こころの 子ほど よく いく）
+  if (!wild && Math.random() < (c.bias === 'spirit' ? 0.9 : 0.6) && this.healJob(c)) return
   // ごはんがかり：たべものを ひろって、おなかの すいた子に とどける / ごはんやに ためる
   if (c.role === 'cook' && c.energy > 20 && Math.random() < 0.85 && this.cookJob(c)) return
   // ペットの ほうしん「きと はな」：なえ・はなだんを うえる、そだちかけの なえに 水を やる
@@ -516,7 +519,7 @@ export function think(this: World, c: Creature) {
     let h = home
     if (!h) h = this.claimHouse(c)
     const site = this.openSite(c)
-    const wantHouse = !!h && (h.level < 4 || h.hp < houseMaxHp(h.level))
+    const wantHouse = !!h && (h.castle ? this.castleWants() : h.level < 4 || h.hp < houseMaxHp(h.level))
     // 自分の 家が できていて 現場も ない だいくは、町の 建てかけの 家を 手つだう
     const help = !site && (!h || h.level >= 3) && (c.role === 'builder' || c.role === 'free' || (c === p && this.petPlan === 'build'))
       ? this.nearestHouse(c, (o) => o !== h && !o.foe && o.level < 3 && (!o.owner || this.ally(o.owner)), 20)
@@ -529,6 +532,7 @@ export function think(this: World, c: Creature) {
         r.taken = c
         c.res = r
         c.wallRing = null
+        c.castleAt = null
         c.helpHouse = !site && help && (!wantHouse || Math.random() < 0.6) ? help : null
         c.site = site && (!wantHouse || c.role === 'builder' || (c === p && this.petPlan === 'build') || Math.random() < 0.7) ? site : null
         return this.setState(c, 'gather', 14)
@@ -1403,7 +1407,7 @@ export function updateVillage(this: World, dt: number) {
   this.autoPlanT += 1
   if (this.autoPlanT >= (this.townPlan === 'grow' ? 10 : 20) && !this.openSite(null)) {
     this.autoPlanT = 0
-    const homes = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 3).length
+    const homes = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 3).length + (this.stage.start ? this.castleRooms() : 0)
     const has = (k: StructKind) => this.structs.some((b) => b.stage === this.stageIndex && b.kind === k)
     // やることが何もない時は、村に足りない建物を自分たちで計画する（おしろ・はし・とうだい・いちば・とりでは人がせっけいずを買った時だけ）
     const next: [StructKind, number, number][] = [['farm', 2, 0], ['well', 3, 0], ['diner', 3, 3], ['tower', 3, 0], ['cradle', 4, 0], ['fountain', 4, 7], ['playground', 4, 8], ['windmill', 5, 9]]
@@ -1582,11 +1586,19 @@ export function updateSettlers(this: World, dt: number) {
   this.settleT -= dt
   if (this.settleT > 0) return
   this.settleT = (120 + Math.random() * 90) * (this.townPlan === 'grow' ? 0.7 : 1)
-  const here = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 2)
-  const workers = this.creatures.filter((c) => c.team === 'friend' && c.grow === 0 && c.state !== 'dead').length
-  const empty = here.filter((h) => !h.owner).length
-  // 家が ない うちは こない。空き家が あるか、働き手が 家の 数より 少ない時だけ
-  if (!here.length || (empty === 0 && workers + 1 >= here.length)) return
+  // 城の 部屋が 空いている 時だけ くる（町の まんなかが 無い 箱庭は 今までどおり 空き家を 見る）
+  let empty: number
+  if (this.stage.start) {
+    const folks = this.creatures.filter((c) => this.ally(c) && c.state !== 'dead').length
+    // はじめの 3 びきは 野じゅくで 寝られるので、部屋 + 2 まで くる
+    empty = this.castleRooms() + 2 - folks
+    if (empty <= 0) return
+  } else {
+    const here = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 2)
+    const workers = this.creatures.filter((c) => c.team === 'friend' && c.grow === 0 && c.state !== 'dead').length
+    empty = here.filter((h) => !h.owner).length
+    if (!here.length || (empty === 0 && workers + 1 >= here.length)) return
+  }
   if (this.friendCount() + this.eggs.filter((e) => !e.wild).length >= MAX_FRIENDS) return
   const t = this.townCenter()
   const a = Math.random() * Math.PI * 2
@@ -1600,6 +1612,44 @@ export function updateSettlers(this: World, dt: number) {
   c.tz = t.z + 2 + Math.random() * 2
   this.setState(c, 'wander', 40)
   this.updateDex()
-  this.say(`${c.sp.name}が ${empty ? 'あきやを みつけて ' : ''}まちに ひっこしてきた！`)
+  this.say(this.stage.start ? `${c.sp.name}が しろの あいた へやに ひっこしてきた！` : `${c.sp.name}が ${empty ? 'あきやを みつけて ' : ''}まちに ひっこしてきた！`)
   this.mark(p.x, p.z, 1)
+}
+
+/** いやし技を つかえるか（成長期から・味方の 子だけ） */
+export function canHeal(this: World, c: Creature) {
+  return this.ally(c) && c.grow === 0 && c.sp.tier >= 2 && (c.healCd ?? 0) <= 0
+}
+
+/** まわり 3.5 マスの 味方を なおす（いやし技）。なおした 数を かえす */
+export function castHeal(this: World, c: Creature): number {
+  const sk = HEAL_SKILLS[familyOf(c.sp.id)]
+  const near = this.creatures.filter((o) => this.alive(o) && this.ally(o) && o.hp < o.maxHp && Math.hypot(o.x - c.x, o.z - c.z) < 3.5)
+  if (!near.length) return 0
+  const k = 0.25 + c.sp.tier * 0.05 + (c.bias === 'spirit' ? 0.08 : 0)
+  for (const o of near) {
+    const amt = Math.max(1, Math.round(o.maxHp * k))
+    o.hp = Math.min(o.maxHp, o.hp + amt)
+    this.popups.push({ pos: new THREE.Vector3(o.x, this.ground(o) + this.size(o) + 0.1, o.z), text: `+${amt}`, color: '#7cf29b', t: 0 })
+    this.colorBurst(o.x, this.ground(o) + 0.8, o.z, sk.color, 6, 1.2)
+  }
+  this.ring(c.x, c.z, sk.color, 3.5, 0.6)
+  c.healCd = 18 - c.sp.tier * 2
+  this.addCare(c, 'spirit', 1)
+  this.gainXp(c, 1)
+  if (c === this.pet || Math.hypot(c.x - this.look.x, c.z - this.look.z) < 10) this.say(`${c.sp.name}の ${sk.name}！ ${near.length > 1 ? `${near.length}ひき` : near[0] === c ? 'じぶん' : near[0].sp.name}を なおした`)
+  this.onSfx('skill')
+  return near.length
+}
+
+/** ふだん：けがを した なかまを 見つけたら なおしに いく（できたら true） */
+export function healJob(this: World, c: Creature): boolean {
+  if (!this.canHeal(c) || c.energy < 20) return false
+  const hurt = this.creatures
+    .filter((o) => this.alive(o) && this.ally(o) && o.hp < o.maxHp * 0.7 && o.state !== 'fight' && Math.hypot(o.x - c.x, o.z - c.z) < 10)
+    .sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0]
+  if (!hurt) return false
+  c.healTo = hurt
+  this.setState(c, 'heal', 10)
+  return true
 }

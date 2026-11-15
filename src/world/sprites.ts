@@ -115,6 +115,23 @@ export function pixelSprite(w: number, h: number, draw: Draw, outline = '#1a1530
         d[i * 4 + 3] = 255
       }
   }
+  if (opts.shade) {
+    // 箱庭の 色に なじませる：あざやかさを 2 わり おとし、土の 色を すこし まぜ、白とびを おさえる
+    // （パステルの 水色・むらさきが シールのように 浮かないように。系統の 色は のこる）
+    for (let i = 0; i < W * H; i++) {
+      if (d[i * 4 + 3] === 0) continue
+      const r = d[i * 4], gg = d[i * 4 + 1], b = d[i * 4 + 2]
+      const l = r * 0.3 + gg * 0.59 + b * 0.11
+      const tone = (v: number, earth: number) => {
+        let o = l + (v - l) * 0.8
+        o = o * 0.9 + earth * 0.1
+        return o > 220 ? 220 + (o - 220) * 0.45 : o
+      }
+      d[i * 4] = tone(r, 138)
+      d[i * 4 + 1] = tone(gg, 116)
+      d[i * 4 + 2] = tone(b, 88)
+    }
+  }
   g.putImageData(img, 0, 0)
   return c
 }
