@@ -5,7 +5,7 @@ import { SpriteAnim } from '../sprites'
 import { Tex } from '../textures'
 import { HALF, LAND_SIZES, SIZE, setLandSize } from '../stages'
 import { buildDecor, disposeDecor } from '../decor'
-import { STRUCTS, buildScaffold, buildStructModel, styleOf, type StructKind } from '../structures'
+import { STRUCTS, STRUCT_SCALED, buildScaffold, buildStructModel, styleOf, type StructKind } from '../structures'
 import { ITEM_INFO, ITEM_SPEC, buildItem, disposeItem, tickItem, type ItemKind } from '../items'
 import type { World } from '../World'
 import { SHOP, type ShopItem } from '../shop'
@@ -760,16 +760,28 @@ export function mountStruct(this: World, b: Struct) {
     const hp = b.hp / Math.max(1, this.structMaxHp(b))
     const wear: Wear = p >= 1 && hp < 0.25 ? 2 : p >= 1 && hp < 0.55 ? 1 : 0
     model = eraTower(this.townEra(), { lam: (c: string) => this.lam(c), basic: ctx.basic }, wear, Math.round(Math.abs(b.x * 11 + b.z * 5)))
-    model.scale.setScalar(BUILD_SCALE * 0.85)
+    model.scale.setScalar(0.85)
+    model.userData.look = this.townEra() * 10 + wear
+  } else if (b.kind === 'castle' || b.kind === 'fort') {
+    // おしろ = 町の 時代の 城（中心の 建物と 同じ 組み方）/ とりで = 太い 時代の 塔
+    const hp = b.hp / Math.max(1, this.structMaxHp(b))
+    const wear: Wear = p >= 1 && hp < 0.25 ? 2 : p >= 1 && hp < 0.55 ? 1 : 0
+    const ectx = { lam: (c: string) => this.lam(c), basic: ctx.basic }
+    model = b.kind === 'castle' ? eraKeep(Math.max(3, this.townEra()) as Era, ectx, wear) : eraTower(Math.max(4, this.townEra()) as Era, ectx, wear, Math.round(Math.abs(b.x * 7 + b.z * 3)))
+    model.scale.setScalar(b.kind === 'castle' ? 0.75 : 1.15)
     model.userData.look = this.townEra() * 10 + wear
   } else model = buildStructModel(b.kind, ctx, b.len || 3)
   b.q = p >= 1 ? 4 : Math.floor(p * 4)
   const g = new THREE.Group()
-  g.add(model)
+  // 家と 同じ 大きさに（へい・はしは そのまま）。ぽよんは 外の g に かかるので 中の 箱で 大きくする
+  const inner = new THREE.Group()
+  if (STRUCT_SCALED(b.kind)) inner.scale.setScalar(BUILD_SCALE)
+  g.add(inner)
+  inner.add(model)
   if (p < 1) {
     // 建設中：低く育っていく + 足場（杭・横木・資材の山・旗）
     model.scale.y = 0.3 + 0.7 * p
-    g.add(buildScaffold(b.kind, ctx, p, b.len || 3))
+    inner.add(buildScaffold(b.kind, ctx, p, b.len || 3))
   }
   // 名前つきの部品（旗・窓・雪の屋根・えんとつ・羽根など）を集めておく：毎フレーム探さない
   const parts = new Map<string, THREE.Object3D[]>()
@@ -935,6 +947,15 @@ export function updateStructs(this: World, dt: number) {
     if (b.stage !== this.stageIndex || !b.mesh) continue
     b.shake = Math.max(0, b.shake - dt)
     this.popAnim(b.mesh, dt)
+    // 時代の 形の 建物（みはりとう・おしろ・とりで）：町の 時代が すすむ・こわれると つくりなおす（ときどき 見る）
+    if ((b.kind === 'tower' || b.kind === 'castle' || b.kind === 'fort') && this.structDone(b) && Math.random() < dt * 0.2) {
+      const hp = b.hp / Math.max(1, this.structMaxHp(b))
+      const look = this.townEra() * 10 + (hp < 0.25 ? 2 : hp < 0.55 ? 1 : 0)
+      if ((b.mesh.children[0]?.children[0]?.userData.look as number | undefined) !== look) {
+        this.refreshStruct(b)
+        continue
+      }
+    }
     const u = b.mesh.userData
     const parts = u.parts as Map<string, THREE.Object3D[]> | undefined
     const part = (n: string) => parts?.get(n) ?? none
@@ -1034,15 +1055,6 @@ export function updateStructs(this: World, dt: number) {
         }
         break
       case 'tower':
-        // 町の 時代が すすむ・こわれると 形を つくりなおす（ときどき 見る）
-        if (b.mesh && Math.random() < dt * 0.2) {
-          const hp = b.hp / Math.max(1, this.structMaxHp(b))
-          const look = this.townEra() * 10 + (hp < 0.25 ? 2 : hp < 0.55 ? 1 : 0)
-          if ((b.mesh.children[0]?.userData.look as number | undefined) !== look) {
-            this.refreshStruct(b)
-            break
-          }
-        }
         if (b.t > 1.8) {
           const foe = this.nearest({ x: b.x, z: b.z } as Creature, (o) => o.sp.temper === 'wild' && !o.inside, 7.5)
           if (foe) {

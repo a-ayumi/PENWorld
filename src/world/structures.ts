@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { BUILD_SCALE } from './eras'
 
 /**
  * 家のほかの建物（はたけ・いど・みはりとう・ゆりかごごや・へい・おしろ・はし・ふんすい・ふうしゃ・とうだい・いちば・あそびば・いしのとりで）の定義と 3D モデル。
@@ -51,7 +52,7 @@ export const STRUCTS: Record<StructKind, StructSpec> = {
 export const STRUCT_H: Record<StructKind, [number, number, number]> = {
   farm: [0.8, 1.2, 1.2],
   well: [1.4, 1.7, 1.6],
-  tower: [4.2, 5.2, 5.0],
+  tower: [2.8, 3.47, 3.33],
   cradle: [1.5, 1.8, 1.7],
   wall: [0.9, 1.2, 1.1],
   castle: [3.2, 3.6, 3.5],
@@ -63,6 +64,16 @@ export const STRUCT_H: Record<StructKind, [number, number, number]> = {
   playground: [1.0, 1.7, 1.6],
   fort: [2.2, 3.0, 2.9],
   crate: [0.6, 1.0, 1.0],
+}
+
+/** 家と 同じく 1.5 倍（へい・はしは 長さが 決まっているので そのまま）。当たり判定・場所の 広さ・高さに 掛ける */
+export const STRUCT_SCALED = (k: StructKind) => k !== 'wall' && k !== 'bridge'
+for (const k of Object.keys(STRUCTS) as StructKind[]) {
+  if (!STRUCT_SCALED(k)) continue
+  STRUCTS[k].r *= BUILD_SCALE
+  if (STRUCTS[k].foot) STRUCTS[k].foot! *= BUILD_SCALE
+  else STRUCTS[k].foot = BUILD_SCALE
+  STRUCT_H[k] = STRUCT_H[k].map((v) => v * BUILD_SCALE) as [number, number, number]
 }
 
 export const isStructKind = (v: unknown): v is StructKind => typeof v === 'string' && Object.prototype.hasOwnProperty.call(STRUCTS, v)
@@ -534,7 +545,8 @@ export function buildScaffold(kind: StructKind, ctx: ModelCtx, p: number, len = 
   const spec = STRUCTS[kind]
   const w = spec.foot ? spec.foot * 0.9 + 0.2 : Math.max(0.8, spec.r + 0.35)
   const d = w * 0.8
-  const H = Math.max(0.55, STRUCT_H[kind][2] * 0.85 * (0.3 + 0.7 * p) + 0.25)
+  // 足場は 中の 箱ごと 1.5 倍に なるので、高さは 元の 大きさで 数える
+  const H = Math.max(0.55, (STRUCT_H[kind][2] / (STRUCT_SCALED(kind) ? BUILD_SCALE : 1)) * 0.85 * (0.3 + 0.7 * p) + 0.25)
   for (const [x, z] of [[-w, -d], [w, -d], [-w, d], [w, d]]) g.add(box(0.05, H, 0.05, wood, x, H / 2, z))
   const levels = H > 1.2 ? [0.4, 0.78] : [0.55]
   for (const k of levels) {
