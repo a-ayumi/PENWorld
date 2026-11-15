@@ -1994,7 +1994,7 @@ export function peddlerGift(this: World, p: Peddler) {
   this.onSfx('egg')
   this.burst(p.x, this.stage.heightAt(p.x, p.z) + 0.5, p.z, 'spark', 8, 2)
   if (this.eggs.length < 3 && Math.random() < 0.4) {
-    this.layEgg(x + 0.5, z, [], 50, this.stageEggKind())
+    this.layEgg(x + 0.5, z, [], 50, this.stageEggKind(x, z))
     this.say('やどかりが めずらしい たまごを おいていった！')
   } else {
     const foods: Exclude<FoodKind, 'stage'>[] = ['meat', 'sweet', 'nut']
@@ -2083,7 +2083,7 @@ export function updateTreasures(this: World, dt: number) {
     this.onSfx('win')
     this.say(`${this.nm(finder)}が たからばこを みつけた！ コイン+${coins}`)
     if (this.eggs.length < 5 && Math.random() < 0.35) {
-      this.layEgg(t.x + 0.7, t.z + 0.4, [], 45, this.stageEggKind(), true)
+      this.layEgg(t.x + 0.7, t.z + 0.4, [], 45, this.stageEggKind(t.x, t.z), true)
       this.say('たからばこの なかに めずらしい たまごが はいっていた')
     }
   })

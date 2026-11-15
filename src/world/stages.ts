@@ -38,6 +38,8 @@ export interface Stage {
   foodSpots: FoodSpot[]
   food: { name: string; color: string; leaf: string }
   residents: SpeciesId[]
+  /** 大きな世界：地方ごとの 敵（その 地方の まんなか ox, oz の まわりに 出す。region = 亜種の 表の 番号） */
+  regionResidents?: { id: SpeciesId; region: number; ox: number; oz: number }[]
   fog: string
   sky: [string, string, string]
   sun: { color: string; intensity: number; dir: [number, number, number] }
@@ -52,6 +54,8 @@ export interface Stage {
   foeStart?: { x: number; z: number }
   /** 読みこみ範囲（ひとつづきの 世界）：見ている 所 x, z から r より 遠い 所を かくす */
   cull?(x: number, z: number, r: number): void
+  /** 大きな世界：その 場所の 地方（id = 天気・たまごの 表の 番号） */
+  region?(x: number, z: number): { id: number; name: string; sub: string }
   /** 夜のヤミカゲの数の上限（既定 2） */
   shadows?: number
   update(t: number, night: number): void

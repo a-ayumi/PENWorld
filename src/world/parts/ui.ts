@@ -907,8 +907,9 @@ export function drawHud(this: World) {
   if (this.banner > 0) {
     const x = this.banner > 3 ? -120 + (3.5 - this.banner) * 240 : 8
     this.win(x, 30, 124, 30)
-    this.text(this.stage.name, x + 8, 34, '#ffffff', 11)
-    this.text(this.stage.sub, x + 8, 47, '#9fd8ff', 8)
+    const bt = this.bannerText ?? this.stage
+    this.text(bt.name, x + 8, 34, '#ffffff', 11)
+    this.text(bt.sub, x + 8, 47, '#9fd8ff', 8)
   }
 
   if (this.notices.length) {

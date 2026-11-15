@@ -673,8 +673,13 @@ export function dropCarry(this: World, c: Creature, leave: boolean) {
   c.carryMesh = null
 }
 
+/** 天気・たまごの 表の 番号（大きな世界では その 場所の 地方） */
+export function regionId(this: World, x = this.look.x, z = this.look.z): number {
+  return this.stage.region ? this.stage.region(x, z).id : this.stageIndex
+}
+
 export function pickWeather(this: World): Weather {
-  const w = WEATHER_W[this.stageIndex] ?? WEATHER_W[0]
+  const w = WEATHER_W[this.regionId()] ?? WEATHER_W[0]
   const list = (Object.keys(w) as Weather[]).filter((k) => k !== this.weather || Math.random() < 0.3)
   const sw = SEASON_WEATHER[this.season]
   const wt = (k: Weather) => (w[k] ?? 0) * (sw[k] ?? 1)
@@ -724,6 +729,19 @@ export function setQuality(this: World, q: 'high' | 'low') {
 }
 
 export function updateWeather(this: World, dt: number) {
+  // 大きな世界：べつの 地方を 見はじめたら 名前を 出して、まもなく その 地方らしい 天気に
+  if (this.stage.region) {
+    const rg = this.stage.region(this.look.x, this.look.z)
+    if (rg.name !== this.regionName) {
+      const first = !this.regionName
+      this.regionName = rg.name
+      this.bannerText = { name: rg.name, sub: rg.sub }
+      if (!first) {
+        this.banner = 3.5
+        this.weatherT = Math.min(this.weatherT, 3 + Math.random() * 4)
+      }
+    }
+  }
   this.weatherT -= dt
   if (this.weatherT <= 0) this.setWeather(this.pickWeather())
   const target = { sun: 1, cloud: 0.72, rain: 0.6, snow: 0.86, ember: 0.78 }[this.weather]
@@ -1036,7 +1054,7 @@ export function playEventFx(this: World, fx: EventFx, al: Creature[]) {
     }
     case 'egg': {
       const cr = at(find(this.structs, (s) => s.kind === 'cradle'))
-      if (this.eggs.length < 6) this.layEgg(cr.x + 0.9, cr.z + 0.9, [], 30, this.stageEggKind(), true)
+      if (this.eggs.length < 6) this.layEgg(cr.x + 0.9, cr.z + 0.9, [], 30, this.stageEggKind(cr.x, cr.z), true)
       this.glow(cr.x, gy(cr) + 0.8, cr.z, '#fff6c0', 14, { life: 3.5, spread: 2, rise: 0.6 })
       this.ring(cr.x, cr.z, '#fff6c0', 5, 1.8)
       break

@@ -113,7 +113,7 @@ function seaTile(): Stage {
   group.add(ship)
   obstacles.push({ x: 7, z: 6, r: 1.6 })
   return {
-    id: 0, name: '', sub: '', group, heightAt, obstacles, foodSpots: [],
+    id: 0, name: 'ひろい うみ', sub: 'OPEN SEA', group, heightAt, obstacles, foodSpots: [],
     food: { name: '', color: '#fff', leaf: '#fff' }, residents: [],
     fog: '#fff', sky: ['#fff', '#fff', '#fff'], sun: { color: '#fff', intensity: 1, dir: [0, 1, 0] }, hemi: ['#fff', '#fff', 1],
     update(t) {
@@ -134,7 +134,7 @@ function hillTile(): Stage {
   const group = new THREE.Group()
   group.add(terrain(heightAt, Tex.grass(), ['#b4c898', '#96b07c']), base('grass'))
   return {
-    id: 0, name: '', sub: '', group, heightAt, obstacles: [], foodSpots: [],
+    id: 0, name: 'まんなかの おか', sub: 'CENTER HILLS', group, heightAt, obstacles: [], foodSpots: [],
     food: { name: '', color: '#fff', leaf: '#fff' }, residents: [],
     fog: '#fff', sky: ['#fff', '#fff', '#fff'], sun: { color: '#fff', intensity: 1, dir: [0, 1, 0] }, hemi: ['#fff', '#fff', 1],
     update() {},
@@ -324,6 +324,14 @@ export function buildWorldMap(): Stage {
      * 読みこみ範囲（重さ対策）：見ている 所から 遠い 地方は 描かない。近くは 今の 見た目の まま。
      * 地方の 小物の 箱と 地面を、見える 範囲 r に かからなければ かくす
      */
+    region(x: number, z: number) {
+      const i = Math.max(0, Math.min(2, Math.floor((x + WORLD_SIZE / 2) / TILE)))
+      const j = Math.max(0, Math.min(2, Math.floor((z + WORLD_SIZE / 2) / TILE)))
+      const n = LAYOUT[j][i]
+      const t = tiles[j * 3 + i].s
+      // 丘は 森と、海は 入り江と 同じ 天気・たまご
+      return { id: n === -1 ? 0 : n === SEA ? 2 : n, name: t.name, sub: t.sub }
+    },
     cull(x: number, z: number, r: number) {
       tiles.forEach((t, i) => {
         const dx = Math.max(0, Math.abs(x - t.ox) - TILE / 2 - BLEND)
@@ -333,6 +341,11 @@ export function buildWorldMap(): Stage {
         if (grounds[i]) grounds[i]!.visible = vis
       })
     },
+    // 森の ほかの 地方には その 地方の 敵（2 ひきまで）
+    regionResidents: tiles.flatMap((t, i) => {
+      const n = LAYOUT[Math.floor(i / 3)][i % 3]
+      return n <= 0 ? [] : t.s.residents.slice(0, 2).map((id) => ({ id, region: n, ox: t.ox, oz: t.oz }))
+    }),
     food: home.food, residents: home.residents, fog: home.fog, sky: home.sky, sun: home.sun, hemi: home.hemi,
     fogRange: [30, 90],
     update(t, night) {
