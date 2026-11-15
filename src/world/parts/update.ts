@@ -94,6 +94,7 @@ export function update(this: World, dt: number) {
   this.updateOrders(dt)
   this.updateTownEra(dt)
   this.updateTownWall(dt)
+  this.updateFoeTown(dt)
   this.updateVillage(dt)
   this.updateFestival(dt)
   this.updateMarket(dt)

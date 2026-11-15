@@ -247,7 +247,7 @@ export function moveTo(this: World, c: Creature, tx: number, tz: number, speed: 
 }
 
 export function obstacles(this: World) {
-  const key = `${this.obsFrame}|${this.stageIndex}|${this.items.length}|${this.houses.length}|${this.structs.length}|${this.stage.obstacles.length}|${this.wallVer}`
+  const key = `${this.obsFrame}|${this.stageIndex}|${this.items.length}|${this.houses.length}|${this.foeHouses.length}:${this.foeHouses.reduce((a, h) => a + h.level, 0)}|${this.structs.length}|${this.stage.obstacles.length}|${this.wallVer}`
   if (key === this.obsKey && this.obsTick === this.obsFrame) {
     if (!this.navKey) {
       this.navKey = 'cached'
@@ -260,7 +260,7 @@ export function obstacles(this: World) {
   const extra = this.items
     .filter((it) => it.stage === this.stageIndex && ITEM_SPEC[it.kind].r > 0 && (it.kind !== 'sapling' || it.grow >= 1))
     .map((it) => ({ x: it.x, z: it.z, r: ITEM_SPEC[it.kind].r, water: false }))
-  const homes = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 1).map((h) => ({ x: h.x, z: h.z, r: 0.85 * BUILD_SCALE, water: false }))
+  const homes = [...this.houses, ...this.foeHouses].filter((h) => h.stage === this.stageIndex && h.level >= 1).map((h) => ({ x: h.x, z: h.z, r: 0.85 * BUILD_SCALE, water: false }))
   const bridged = (o: { x: number; z: number; water?: boolean }) =>
     !!o.water && this.structs.some((b) => b.kind === 'bridge' && b.stage === this.stageIndex && b.mats >= STRUCTS.bridge.need && Math.hypot(b.x - o.x, b.z - o.z) < 0.6)
   const land = this.stage.obstacles.filter((o) => !bridged(o))
