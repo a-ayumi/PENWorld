@@ -33,7 +33,11 @@ export function makeFoodMesh(this: World, kind: FoodKind) {
 export function dropFood(this: World, x?: number, z?: number, from = 2.5, kind: FoodKind = 'stage') {
   if (x === undefined || z === undefined) {
     const spots = [...this.stage.foodSpots, ...this.items.filter((it) => it.stage === this.stageIndex && ((it.kind === 'sapling' && it.grow >= 1) || it.kind === 'flowerbed'))]
-    const s = spots[Math.floor(Math.random() * spots.length)] ?? { x: 0, z: 0 }
+    // 広い 箱庭では 町の 近く（16 マス いない）の 実の なる 所を 7 わり えらぶ
+    const c = this.townCenter()
+    const near = spots.filter((p) => Math.hypot(p.x - c.x, p.z - c.z) < 16)
+    const pool = near.length && Math.random() < 0.7 ? near : spots
+    const s = pool[Math.floor(Math.random() * pool.length)] ?? { x: 0, z: 0 }
     const a = Math.random() * Math.PI * 2
     x = s.x + Math.cos(a) * (0.7 + Math.random() * 0.6)
     z = s.z + Math.sin(a) * (0.7 + Math.random() * 0.6)
