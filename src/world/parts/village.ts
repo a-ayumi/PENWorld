@@ -458,6 +458,16 @@ export function refreshHouse(this: World, h: House, force = false) {
   if (h.stage === this.stageIndex) this.mountHouse(h)
 }
 
+/** 材質を すてる（使い回しの 材質 `userData.shared` は すてない） */
+function disposeMat(m: THREE.Material | THREE.Material[] | undefined) {
+  for (const x of Array.isArray(m) ? m : m ? [m] : []) if (!x.userData.shared) x.dispose()
+}
+
+/** 時代の 形（eras.ts）に わたす 材質：ランバートは 色ごとに 使い回す・光る 物は その つど */
+export function eraCtx(this: World) {
+  return { lam: (c: string) => this.sharedLam(c), basic: (c: string) => new THREE.MeshBasicMaterial({ color: c }) }
+}
+
 /** 家の見た目：くい → 土台 → 足場と かべ → 時代の 形（`eras.ts`）。古び（`houseWear`）で 形が かわる。大きさは BUILD_SCALE */
 let glowT: THREE.Texture | null = null
 /** まるく ぼけた あかり（家の前の 地面・共有） */
@@ -514,7 +524,7 @@ export function mountHouse(this: World, h: House) {
   }
   const wins: THREE.Mesh[] = []
   if (h.level >= 2) {
-    const ctx = { lam: (c: string) => this.lam(c), basic: (c: string) => new THREE.MeshBasicMaterial({ color: c }) }
+    const ctx = this.eraCtx()
     const seed = Math.round(Math.abs(h.x * 13.7 + h.z * 7.3)) + h.era
     const model = eraHouse(Math.min(9, Math.max(1, h.era)) as Era, ctx, wear, seed)
     // 家の 正面は 町の まんなかへ むける
@@ -577,7 +587,7 @@ export function unmountHouse(this: World, h: House) {
   h.mesh.traverse((o) => {
     const m = o as THREE.Mesh
     m.geometry?.dispose()
-    ;(m.material as THREE.Material | undefined)?.dispose?.()
+    disposeMat(m.material)
   })
   h.mesh = null
 }
@@ -764,14 +774,14 @@ export function mountStruct(this: World, b: Struct) {
   if (b.kind === 'tower') {
     const hp = b.hp / Math.max(1, this.structMaxHp(b))
     const wear: Wear = p >= 1 && hp < 0.25 ? 2 : p >= 1 && hp < 0.55 ? 1 : 0
-    model = eraTower(this.townEra(), { lam: (c: string) => this.lam(c), basic: ctx.basic }, wear, Math.round(Math.abs(b.x * 11 + b.z * 5)))
+    model = eraTower(this.townEra(), this.eraCtx(), wear, Math.round(Math.abs(b.x * 11 + b.z * 5)))
     model.scale.setScalar(0.85)
     model.userData.look = this.townEra() * 10 + wear
   } else if (b.kind === 'castle' || b.kind === 'fort') {
     // おしろ = 町の 時代の 城（中心の 建物と 同じ 組み方）/ とりで = 太い 時代の 塔
     const hp = b.hp / Math.max(1, this.structMaxHp(b))
     const wear: Wear = p >= 1 && hp < 0.25 ? 2 : p >= 1 && hp < 0.55 ? 1 : 0
-    const ectx = { lam: (c: string) => this.lam(c), basic: ctx.basic }
+    const ectx = this.eraCtx()
     model = b.kind === 'castle' ? eraKeep(Math.max(3, this.townEra()) as Era, ectx, wear) : eraTower(Math.max(4, this.townEra()) as Era, ectx, wear, Math.round(Math.abs(b.x * 7 + b.z * 3)))
     model.scale.setScalar(b.kind === 'castle' ? 0.75 : 1.15)
     model.userData.look = this.townEra() * 10 + wear
@@ -818,7 +828,7 @@ export function unmountStruct(this: World, b: Struct) {
   b.mesh.traverse((o) => {
     const m = o as THREE.Mesh
     m.geometry?.dispose()
-    ;(m.material as THREE.Material | undefined)?.dispose?.()
+    disposeMat(m.material)
   })
   b.mesh = null
 }
@@ -883,22 +893,6 @@ export function onStructDone(this: World, b: Struct, by: Creature) {
   }
 }
 
-/** おしろのまわりに へい（手前だけ門のあき）を建てはじめる */
-export function castleWalls(this: World, c: Struct) {
-  for (let i = 0; i < 12; i++) {
-    if (i === 3) continue
-    if (this.structs.filter((b) => b.stage === this.stageIndex).length >= MAX_STRUCTS) break
-    const a = (i / 12) * Math.PI * 2
-    const x = c.x + Math.cos(a) * 3.3
-    const z = c.z + Math.sin(a) * 3.3
-    if (Math.abs(x) > HALF - 0.5 || Math.abs(z) > HALF - 0.5) continue
-    if (this.houses.some((h) => h.stage === this.stageIndex && Math.hypot(h.x - x, h.z - z) < 1.7)) continue
-    if (this.stage.obstacles.some((o) => Math.hypot(o.x - x, o.z - z) < o.r + 0.8)) continue
-    const w: Struct = { kind: 'wall', stage: this.stageIndex, x, z, rot: -(a + Math.PI / 2), len: 0, mats: 0, hp: STRUCTS.wall.hp * 0.3, mesh: null, shake: 0, q: -1, t: 0, alerted: 0 }
-    this.structs.push(w)
-    this.mountStruct(w)
-  }
-}
 
 /** 建物がこわされる。完成していた物も、こわれたらがれきの資材になる */
 export function damageStruct(this: World, b: Struct, dmg: number, by: Creature | null) {
@@ -1344,7 +1338,10 @@ export function mountKeep(this: World) {
   for (const m of [this.keepMesh, this.foeKeepMesh]) {
     if (!m) continue
     this.scene.remove(m)
-    m.traverse((o) => (o as THREE.Mesh).geometry?.dispose())
+    m.traverse((o) => {
+      ;(o as THREE.Mesh).geometry?.dispose()
+      disposeMat((o as THREE.Mesh).material)
+    })
   }
   this.keepMesh = this.foeKeepMesh = null
   const fs = this.stage.foeStart
@@ -1356,7 +1353,7 @@ export function mountKeep(this: World) {
 
 /** 中心の 建物を 1 つ 置く（味方・敵 共通） */
 export function mountKeepAt(this: World, st: { x: number; z: number }, era: Era) {
-  const ctx = { lam: (c: string) => this.lam(c), basic: (c: string) => new THREE.MeshBasicMaterial({ color: c }) }
+  const ctx = this.eraCtx()
   const raw = eraKeep(era, ctx, 0)
   raw.scale.setScalar(BUILD_SCALE)
   const g = mergeByColor(raw)
@@ -1377,12 +1374,15 @@ export function mountKeepAt(this: World, st: { x: number; z: number }, era: Era)
 export function mountWalls(this: World) {
   if (this.wallMesh) {
     this.scene.remove(this.wallMesh)
-    this.wallMesh.traverse((o) => (o as THREE.Mesh).geometry?.dispose())
+    this.wallMesh.traverse((o) => {
+      ;(o as THREE.Mesh).geometry?.dispose()
+      disposeMat((o as THREE.Mesh).material)
+    })
     this.wallMesh = null
   }
   this.wallObs = []
   this.wallVer++
-  const ctx = { lam: (c: string) => this.lam(c), basic: (c: string) => new THREE.MeshBasicMaterial({ color: c }) }
+  const ctx = this.eraCtx()
   const all = new THREE.Group()
   const h = this.stage.heightAt
   for (const rings of [this.townWalls[this.stageIndex] ?? [], this.foeWalls[this.stageIndex] ?? []]) rings.forEach((ring, ri) => {

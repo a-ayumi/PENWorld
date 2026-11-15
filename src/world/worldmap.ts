@@ -119,12 +119,11 @@ function seaTile(): Stage {
   }
 }
 
-/** 新しい地方：なだらかな 草の丘（町が育つ所）/ 砂の浅瀬 */
-function plainTile(kind: 'hill' | 'shoal'): Stage {
-  const hill = kind === 'hill'
-  const heightAt = (x: number, z: number) => 0.32 + (hill ? Math.sin(x * 0.16 + 1) * Math.cos(z * 0.14) * 0.5 + 0.5 : Math.sin(x * 0.3) * Math.sin(z * 0.27) * 0.1 + 0.1) * edge(x, z)
+/** 新しい地方：なだらかな 草の丘（まんなかの 戦場） */
+function hillTile(): Stage {
+  const heightAt = (x: number, z: number) => 0.32 + (Math.sin(x * 0.16 + 1) * Math.cos(z * 0.14) * 0.5 + 0.5) * edge(x, z)
   const group = new THREE.Group()
-  group.add(hill ? terrain(heightAt, Tex.grass(), ['#b4c898', '#96b07c']) : terrain(heightAt, Tex.beach(), ['#ffffff', '#ffeccc']), base(hill ? 'grass' : 'sand'))
+  group.add(terrain(heightAt, Tex.grass(), ['#b4c898', '#96b07c']), base('grass'))
   return {
     id: 0, name: '', sub: '', group, heightAt, obstacles: [], foodSpots: [],
     food: { name: '', color: '#fff', leaf: '#fff' }, residents: [],
@@ -146,7 +145,7 @@ export function buildWorldMap(): Stage {
   for (let j = 0; j < 3; j++)
     for (let i = 0; i < 3; i++) {
       const n = LAYOUT[j][i]
-      const s = n === -1 ? plainTile('hill') : n === SEA ? seaTile() : STAGES[n]()
+      const s = n === -1 ? hillTile() : n === SEA ? seaTile() : STAGES[n]()
       tiles.push({ s, ox: (i - 1) * TILE, oz: (j - 1) * TILE })
     }
   setLandSize(WORLD_SIZE)

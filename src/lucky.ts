@@ -12,9 +12,6 @@ import type { SparMatch, SparSide, World } from './world/World'
 // ---------------- 乱数（テストで差し替えられる） ----------------
 export type Rng = () => number
 let rng: Rng = Math.random
-export const setRng = (f: Rng) => {
-  rng = f
-}
 /** 重みの表から 1 つ選ぶ（添字を返す） */
 export function pickWeighted(weights: readonly number[], r: number = rng()): number {
   const total = weights.reduce((a, b) => a + b, 0)
