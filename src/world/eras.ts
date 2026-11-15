@@ -1281,3 +1281,54 @@ export function mergeByColor(root: THREE.Object3D): THREE.Group {
   }
   return out
 }
+
+// ======================= 町の中心（計画 B5） =======================
+/**
+ * 町の 中心の 建物（天守）。時代ごとに 育つ：
+ * 1 大きな たき火と みはりの 柱 / 2 長屋と 丸太の やぐら / 3 木組みの 役場と 時計塔 / 4 石の やかたと 塔 /
+ * 5 城（大きな 天守 + そで塔 + つなぐ かべ）/ 6 白い 宮殿 / 7 じょうきの 時計城 / 8 大木に のまれた まざりの城 / 9 きかいの 城塞
+ * 大きさは BUILD_SCALE を 掛ける 前で 半径 2 ほど。正面は +z
+ */
+export function eraKeep(era: Era, ctx: EraCtx, wear: Wear = 0): THREE.Group {
+  const g = new THREE.Group()
+  const put = (o: THREE.Object3D, x: number, z: number, s = 1, ry = 0) => {
+    o.position.set(x, 0, z)
+    o.scale.setScalar(s)
+    o.rotation.y = ry
+    g.add(o)
+  }
+  if (era === 1) {
+    const k = new Kit(ctx, wear, 91)
+    for (let i = 0; i < 10; i++) k.rock(0.12, STONE, Math.cos(i * 0.63) * 0.55, 0.06, Math.sin(i * 0.63) * 0.55)
+    for (let i = 0; i < 4; i++) k.cyl(0.06, 0.06, 0.7, 5, '#5a3d28', 0, 0.1, 0).rotation.set(Math.PI / 2, 0, i * 0.8)
+    if (!k.old) k.cyl(0.03, 0.22, 0.5, 6, k.glow('#ffb347'), 0, 0.4, 0).name = 'lit'
+    for (const [x, z] of [[-1.1, -0.9], [1.1, -0.9], [-1.2, 0.8], [1.2, 0.9]]) {
+      k.cyl(0.06, 0.08, 1.6, 5, WOOD, x, 0.8, z)
+      k.box(0.3, 0.2, 0.04, k.glow(k.old ? '#6a6a60' : '#ffd23f'), x + 0.16, 1.5, z).name = 'flag'
+    }
+    for (let i = 0; i < 5; i++) k.box(0.5, 0.08, 0.2, '#8a6038', Math.cos(i * 1.26 + 0.3) * 1.3, 0.12, Math.sin(i * 1.26 + 0.3) * 1.3).rotation.y = -i * 1.26
+    g.add(k.done())
+    return g
+  }
+  if (era === 2) {
+    put(eraHouse(2, ctx, wear, 92), 0, 0.3, 1.45)
+    put(eraTower(2, ctx, wear, 93), -1.5, -0.8, 1.05)
+    put(eraTower(1, ctx, wear, 94), 1.5, -0.9, 1.0)
+    return g
+  }
+  if (era <= 4) {
+    put(eraHouse(era, ctx, wear, 95), 0.5, 0.5, 1.35)
+    put(eraTower(era, ctx, wear, 96), -1.3, -0.6, 1.3)
+    put(eraTower(era, ctx, wear, 97), 1.6, -1.1, 0.75)
+    return g
+  }
+  // 城：まんなかの 大きな 塔 + そで塔 2 本 + あいだの かべ + 前の やかた
+  put(eraTower(era, ctx, wear, 98), 0, -0.6, 1.55)
+  for (const sx of [-1, 1]) {
+    put(eraTower(era, ctx, wear === 2 && sx > 0 ? 2 : wear ? 1 : 0, 99 + sx), sx * 2.0, 0.4, 0.85)
+    const w = eraWall(era, ctx, wear, 1.3, 120 + sx)
+    put(w, sx * 1.05, 0.25, 1, sx * 0.45)
+  }
+  put(eraHouse(era, ctx, wear, 101), 0, 1.1, 1.0)
+  return g
+}

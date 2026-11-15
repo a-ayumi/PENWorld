@@ -9,7 +9,7 @@ import { STRUCTS, buildScaffold, buildStructModel, styleOf, type StructKind } fr
 import { ITEM_INFO, ITEM_SPEC, buildItem, disposeItem, tickItem, type ItemKind } from '../items'
 import type { World } from '../World'
 import { SHOP, type ShopItem } from '../shop'
-import { BUILD_SCALE, WALL_H, WINDOW_LIT, eraGate, eraHouse, eraOf, eraStep, eraTower, eraWall, mergeByColor, type Era, type Wear } from '../eras'
+import { BUILD_SCALE, WALL_H, WINDOW_LIT, ERA_NAME, eraGate, eraHouse, eraKeep, eraOf, eraStep, eraTower, eraWall, mergeByColor, type Era, type Wear } from '../eras'
 import { familyOf } from '../monsters'
 import { type TownRing, Creature, House, Struct, Festival, Peddler, FoodKind, Food, Item, STRUCT_DONE, FOODS, HOUSE_STEPS, MAX_STRUCTS, FORT_RANGE, MAX_HOUSES, MAX_RES, houseLevel, houseMaxHp, BOSSES } from '../World'
 
@@ -678,11 +678,13 @@ export function planStruct(this: World, kind: StructKind, nx = this.look.x, nz =
   let len = 0
   let spread = kind === 'crate' ? 4.5 : 3
   if (kind === 'fountain' && quiet) {
-    // 自分たちで建てる時は むらの まん中（家のあつまり）に
+    // 自分たちで建てる時は 町の まんなか から 門への 大通りの 広場に
     const c = this.townCenter()
-    nx = c.x
-    nz = c.z
-    spread = 1.6
+    const ga = Math.atan2(-c.z, -c.x)
+    const d = this.stage.start ? 4.6 * BUILD_SCALE : 0
+    nx = c.x + Math.cos(ga) * d
+    nz = c.z + Math.sin(ga) * d
+    spread = 1.2
   }
   if (kind === 'lighthouse') {
     // 水べがあれば、その岸に建てる（光が水面にうつって効果アップ）
@@ -1257,6 +1259,13 @@ export function updateTownEra(this: World, dt: number) {
     this.say(this.eraPath[here] === 'steam' ? 'まちに じょうきの きかいが うまれた！' : 'まちが しろく かがやきはじめた！')
   }
   const era = this.townEra()
+  if (this.stage.start && this.keepMesh?.userData.era !== era) {
+    this.mountWalls()
+    const st = this.stage.start
+    this.burst(st.x, this.stage.heightAt(st.x, st.z) + 3, st.z, 'spark', 16, 3.5)
+    this.mark(st.x, st.z, 3)
+    if (era > 1) this.say(`まちの まんなかが「${ERA_NAME[era]}」の すがたに なった！`)
+  }
   const c = this.townCenter()
   // 建てかえは まんなかの 輪の 中だけ（時代が すすむほど 広く）
   const core = (2 + era * 0.6) * 3.0 * BUILD_SCALE
@@ -1310,6 +1319,33 @@ export function wallSegs(this: World, ring: TownRing, inner: boolean) {
   return out
 }
 
+/** 町の 中心の 建物（森など `Stage.start` の ある ステージ）。時代が かわった時・ステージに 入った時に 作りなおす */
+export function mountKeep(this: World) {
+  if (this.keepMesh) {
+    this.scene.remove(this.keepMesh)
+    this.keepMesh.traverse((o) => (o as THREE.Mesh).geometry?.dispose())
+    this.keepMesh = null
+  }
+  const st = this.stage.start
+  if (!st) return
+  const era = this.townEra()
+  const ctx = { lam: (c: string) => this.lam(c), basic: (c: string) => new THREE.MeshBasicMaterial({ color: c }) }
+  const raw = eraKeep(era, ctx, 0)
+  raw.scale.setScalar(BUILD_SCALE)
+  const g = mergeByColor(raw)
+  raw.traverse((o) => (o as THREE.Mesh).geometry?.dispose())
+  // 正面は 門（マップの まんなか）へ むける：まとめた後に まわす
+  const wrap = new THREE.Group()
+  wrap.add(g)
+  wrap.position.set(st.x, this.stage.heightAt(st.x, st.z) - 0.05, st.z)
+  wrap.rotation.y = Math.atan2(-st.x, -st.z)
+  wrap.userData.era = era
+  this.scene.add(wrap)
+  this.keepMesh = wrap
+  this.wallObs.push({ x: st.x, z: st.z, r: (era <= 1 ? 0.8 : era >= 5 ? 2.2 : 1.7) * BUILD_SCALE, water: false })
+  this.wallVer++
+}
+
 /** 城壁を 描きなおす（輪ごとに まとめて 1 つに）。あたり判定 `wallObs` も 作りなおす */
 export function mountWalls(this: World) {
   if (this.wallMesh) {
@@ -1320,7 +1356,7 @@ export function mountWalls(this: World) {
   this.wallObs = []
   this.wallVer++
   const rings = this.townWalls[this.stageIndex] ?? []
-  if (!rings.length) return
+  if (!rings.length) return this.mountKeep()
   const ctx = { lam: (c: string) => this.lam(c), basic: (c: string) => new THREE.MeshBasicMaterial({ color: c }) }
   const all = new THREE.Group()
   const h = this.stage.heightAt
@@ -1369,6 +1405,7 @@ export function mountWalls(this: World) {
   })
   this.scene.add(all)
   this.wallMesh = all
+  this.mountKeep()
 }
 
 /**
@@ -1394,15 +1431,16 @@ export function updateTownWall(this: World, dt: number) {
     ...town.map((h) => Math.hypot(h.x - c.x, h.z - c.z) + 0.9 * BUILD_SCALE),
     ...this.structs.filter((b) => b.stage === here && b.kind !== 'wall' && b.kind !== 'crate' && b.kind !== 'bridge').map((b) => Math.hypot(b.x - c.x, b.z - c.z) + STRUCTS[b.kind].r),
   ].sort((a, b) => a - b)
-  let far = 0
-  for (const d of ds) if (d <= far + 4.4 * BUILD_SCALE) far = d
+  // 町の 中心の 建物が ある所は その 大きさから 数える
+  let far = this.stage.start ? 3.4 * BUILD_SCALE : 0
+  for (const d of ds) if (d <= far + 4.4 * BUILD_SCALE) far = Math.max(far, d)
   const last = rings[rings.length - 1]
   let changed = false
   const gate = Math.atan2(-c.z, -c.x)
   if (!last || far > last.r - 1.2 * BUILD_SCALE) {
     // 前の 輪が 半分 できていない うちは 新しく 引かない
     if (!last || last.built >= this.wallSegs(last, false).length * 0.6) {
-      rings.push({ r: Math.max(far + 1.6 * BUILD_SCALE, 5 * BUILD_SCALE), era, built: 0, age: 0, cx: c.x, cz: c.z, gate })
+      rings.push({ r: Math.max(far + 1.6 * BUILD_SCALE, 5 * BUILD_SCALE, last ? last.r + 3.5 * BUILD_SCALE : 0), era, built: 0, age: 0, cx: c.x, cz: c.z, gate })
       changed = true
       if (last) this.say('まちが ひろがって、そとに あたらしい へいを きずきはじめた')
       else this.say('まちの まわりに へいを きずきはじめた')
@@ -1509,6 +1547,7 @@ export function townLot(this: World, clear: number, outer = false, tight = false
       if (this.stage.obstacles.some((o) => Math.hypot(o.x - x, o.z - z) < o.r + 1.3)) continue
       // 城壁の 上と、門から まんなかへの 大通りには 建てない
       const d0 = Math.hypot(x - c.x, z - c.z)
+      if (this.stage.start && d0 < 3.4 * BUILD_SCALE) continue
       if ((this.townWalls[here] ?? []).some((rg) => Math.abs(d0 - rg.r) < 1.9 * BUILD_SCALE)) continue
       const ga = Math.atan2(-c.z, -c.x)
       const along = (x - c.x) * Math.cos(ga) + (z - c.z) * Math.sin(ga)
