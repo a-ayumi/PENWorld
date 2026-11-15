@@ -15,6 +15,24 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
  * 名前つきの部品（lit 窓 / flag 旗 / blades まわる物 / chimney けむり）は まとめずに 残す。
  */
 export type Era = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+/** 建物の 大きさ（2026-11-15：細かい 描きこみが 見えるように 1.5 倍）。区画の 間・当たり判定・タップの 高さも これを 掛ける */
+export const BUILD_SCALE = 1.5
+/** 町の 枝：white = 白い城へ / steam = じょうき → まざり → きかいへ */
+export type EraPath = 'white' | 'steam'
+/** 町の 段（村の 点数で 上がる）→ 時代。6 段めから 枝で 分かれる */
+const STEP_SCORE = [0, 1, 3, 6, 10, 15, 21, 28]
+export function eraStep(score: number) {
+  let s = 1
+  for (let i = 0; i < STEP_SCORE.length; i++) if (score >= STEP_SCORE[i]) s = i + 1
+  return s
+}
+export function eraOf(step: number, path: EraPath | undefined): Era {
+  if (step <= 5) return step as Era
+  if (path === 'white') return 6
+  return Math.min(9, step + 1) as Era
+}
+/** 窓（夜に ともる 色）。画面・回路・文字は いつも 光る */
+export const WINDOW_LIT = new Set(['ffd27a', 'ffc46a', 'ffcf7a', '7fd8ff', 'ff9ecb', 'ffe27a', 'b48cff', 'fff4d8', 'ffb347'])
 export type Wear = 0 | 1 | 2
 export const ERAS: Era[] = [1, 2, 3, 4, 5, 6, 7, 8, 9]
 export const ERA_NAME: Record<Era, string> = {

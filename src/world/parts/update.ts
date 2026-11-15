@@ -1,5 +1,6 @@
 /** World.ts から分けた「update」のメソッド。this は World（World.ts のクラスのつなぎの行から呼ばれる） */
 import * as THREE from 'three'
+import { BUILD_SCALE } from '../eras'
 import { RES } from '../psx'
 import { SpriteAnim } from '../sprites'
 import { SPECIES, enemyFor, type Face } from '../monsters'
@@ -91,6 +92,7 @@ export function update(this: World, dt: number) {
   this.updateHouses(dt)
   this.updateStructs(dt)
   this.updateOrders(dt)
+  this.updateTownEra(dt)
   this.updateVillage(dt)
   this.updateFestival(dt)
   this.updateMarket(dt)
@@ -499,7 +501,7 @@ export function updateCreature(this: World, c: Creature, dt: number) {
         break
       }
       if (!h) break
-      if (this.moveTo(c, h.x + (c.x < h.x ? -1 : 1) * 0.6, h.z + 0.9, sp.speed * 0.9, dt) < 0.5) {
+      if (this.moveTo(c, h.x + (c.x < h.x ? -1 : 1) * 0.6, h.z + 0.85 * BUILD_SCALE + 0.5, sp.speed * 0.9, dt) < 0.5) {
         c.anim.facing = h.x > c.x ? 1 : -1
         c.finish = () => {
           this.dropCarry(c, false)

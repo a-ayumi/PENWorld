@@ -1,5 +1,6 @@
 /** World.ts から分けた「ui」のメソッド。this は World（World.ts のクラスのつなぎの行から呼ばれる） */
 import * as THREE from 'three'
+import { BUILD_SCALE } from '../eras'
 import { RES, SCENE } from '../psx'
 import { FAMILY_NAME, LOOK_NAME, SPECIES, XP_NEED, familyOf, lookOf, portraitFor, type Care, type EggKind } from '../monsters'
 import { HALF, type Stage } from '../stages'
@@ -29,7 +30,7 @@ export function pickAt(this: World, x: number, y: number): Pick | null {
     }
   }
   for (const c of this.creatures) if (c.state !== 'dead' && !(c.inside && c.state === 'sleep')) test(c.x, c.z, this.size(c) + c.jy, { type: 'creature', ref: c, armed: false }, 10)
-  for (const h of this.houses) if (h.stage === here && h.mesh) test(h.x, h.z, h.level >= 4 ? 2.2 : h.level >= 3 ? 1.7 : 1, { type: 'house', ref: h, armed: false }, 14)
+  for (const h of this.houses) if (h.stage === here && h.mesh) test(h.x, h.z, (h.level >= 3 ? 1.9 : 1) * BUILD_SCALE, { type: 'house', ref: h, armed: false }, 14)
   for (const b of this.structs) {
     if (b.stage !== here || !b.mesh) continue
     test(b.x, b.z, STRUCT_H[b.kind][0], { type: 'struct', ref: b, armed: false }, 12)
@@ -59,7 +60,7 @@ export function pickPos(this: World, p: Pick): { x: number; z: number; h: number
   const r = p.ref
   switch (p.type) {
     case 'creature': return { x: r.x, z: r.z, h: this.size(r) + r.jy + 0.4 }
-    case 'house': return { x: r.x, z: r.z, h: r.level >= 4 ? 2.6 : r.level >= 3 ? 2.1 : 1.4 }
+    case 'house': return { x: r.x, z: r.z, h: (r.level >= 3 ? 2.4 : 1.4) * BUILD_SCALE }
     case 'struct': return { x: r.x, z: r.z, h: STRUCT_H[r.kind as StructKind][1] }
     case 'item': return { x: r.x, z: r.z, h: (r.kind === 'sapling' ? 1.0 + r.grow * 1.3 : ITEM_SPEC[r.kind as ItemKind].pickH) + 0.4 + (r.fall ?? 0) }
     default: return { x: r.x, z: r.z, h: 1.2 }

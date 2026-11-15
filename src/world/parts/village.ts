@@ -9,8 +9,9 @@ import { STRUCTS, buildScaffold, buildStructModel, styleOf, type StructKind } fr
 import { ITEM_INFO, ITEM_SPEC, buildItem, disposeItem, tickItem, type ItemKind } from '../items'
 import type { World } from '../World'
 import { SHOP, type ShopItem } from '../shop'
-import { eraHouse, eraTower, type Era, type Wear } from '../eras'
-import { Creature, House, Struct, Festival, Peddler, FoodKind, Food, Item, STRUCT_DONE, FOODS, HOUSE_STEPS, MAX_STRUCTS, FORT_RANGE, MAX_HOUSES, MAX_RES, houseLevel, houseMaxHp, ROOF, BOSSES } from '../World'
+import { BUILD_SCALE, WINDOW_LIT, eraHouse, eraOf, eraStep, eraTower, type Era, type Wear } from '../eras'
+import { familyOf } from '../monsters'
+import { Creature, House, Struct, Festival, Peddler, FoodKind, Food, Item, STRUCT_DONE, FOODS, HOUSE_STEPS, MAX_STRUCTS, FORT_RANGE, MAX_HOUSES, MAX_RES, houseLevel, houseMaxHp, BOSSES } from '../World'
 
 export function makeFoodMesh(this: World, kind: FoodKind) {
   const f = kind === 'stage' ? this.stage.food : FOODS[kind]
@@ -361,14 +362,14 @@ export function claimHouse(this: World, c: Creature): House | null {
   const here = this.houses.filter((h) => h.stage === this.stageIndex)
   if (here.length >= MAX_HOUSES) return null
   // なかまの家は 町の 区画に（まんなかから 外へ 順に）。野生の子は 今までどおり 自分の そばに
-  const lot = this.ally(c) ? this.townLot(2.8) : null
+  const lot = this.ally(c) ? this.townLot(2.8 * BUILD_SCALE) : null
   for (let i = 0; i < 40; i++) {
     const q = lot ?? this.freePos(0, c.x, c.z, 6)
     if (!lot && Math.hypot(q.x, q.z) < 2) continue
     if (Math.abs(q.x) > HALF - 1.2 || Math.abs(q.z) > HALF - 1.2) continue
-    if (here.some((h) => Math.hypot(h.x - q.x, h.z - q.z) < 3)) continue
+    if (here.some((h) => Math.hypot(h.x - q.x, h.z - q.z) < 3 * BUILD_SCALE)) continue
     if (this.stage.obstacles.some((o) => Math.hypot(o.x - q.x, o.z - q.z) < o.r + 1.3)) continue
-    const h: House = { stage: this.stageIndex, x: q.x, z: q.z, owner: c, ownerSp: c.sp.id, mats: 0, hp: 0, mesh: null, shake: 0, level: 0, alerted: 0 }
+    const h: House = { stage: this.stageIndex, x: q.x, z: q.z, owner: c, ownerSp: c.sp.id, mats: 0, hp: 0, mesh: null, shake: 0, level: 0, alerted: 0, era: this.townEra(), age: 0 }
     this.houses.push(h)
     this.mountHouse(h)
     if (this.ally(c)) this.say(`${c.sp.name}が いえを たてはじめた`)
@@ -453,7 +454,7 @@ export function refreshHouse(this: World, h: House, force = false) {
   if (h.stage === this.stageIndex) this.mountHouse(h)
 }
 
-/** 家の見た目：建てた段階ごとに 土台 → かべ → 屋根 */
+/** 家の見た目：くい → 土台 → 足場と かべ → 時代の 形（`eras.ts`）。古び（`houseWear`）で 形が かわる。大きさは BUILD_SCALE */
 let glowT: THREE.Texture | null = null
 /** まるく ぼけた あかり（家の前の 地面・共有） */
 function glowTex() {
@@ -474,142 +475,89 @@ function glowTex() {
 export function mountHouse(this: World, h: House) {
   h.level = houseLevel(h.mats)
   const g = new THREE.Group()
+  const inner = new THREE.Group()
+  inner.scale.setScalar(BUILD_SCALE)
+  g.add(inner)
+  const wear = this.houseWear(h)
   g.userData.level = h.level
+  g.userData.wear = wear
+  g.userData.era = h.era
   const st = styleOf(h.stage)
   const stone = this.lam(st.stone, { map: this.rock() })
   const wood = this.lam(st.wall, { map: this.bark() })
   if (h.level === 0) {
-    // 建てる場所の目印：杭と、運びこまれた資材の山
-    for (const [x, z] of [[-0.65, -0.55], [0.65, -0.55], [-0.65, 0.55], [0.65, 0.55]]) {
+    // 建てる場所の目印：杭と なわ、運びこまれた資材の山
+    for (const [x, z] of [[-0.7, -0.6], [0.7, -0.6], [-0.7, 0.6], [0.7, 0.6]]) {
       const stake = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.4, 5), wood)
       stake.position.set(x, 0.2, z)
-      g.add(stake)
+      inner.add(stake)
+    }
+    for (const [w, d, x, z] of [[1.4, 0.02, 0, -0.6], [1.4, 0.02, 0, 0.6], [0.02, 1.2, -0.7, 0], [0.02, 1.2, 0.7, 0]]) {
+      const rope = new THREE.Mesh(new THREE.BoxGeometry(w, 0.02, d), this.lam('#d8c49a'))
+      rope.position.set(x, 0.32, z)
+      inner.add(rope)
     }
     for (let i = 0; i < h.mats; i++) {
       const m = new THREE.Mesh(new THREE.DodecahedronGeometry(0.12, 0), stone)
       m.position.set(-0.2 + i * 0.25, 0.1, 0)
-      g.add(m)
+      inner.add(m)
     }
   }
-  if (h.level >= 1) {
+  if (h.level === 1) {
     const base = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.22, 1.3), stone)
     base.position.y = 0.11
-    g.add(base)
-  }
-  // 計画 E4：しっくいの かべに 木の骨組み・かさねた かわら・まどわく・ひさし・夜の あかり
-  const tone = (a: string, b2: string, t: number) => '#' + new THREE.Color(a).lerp(new THREE.Color(b2), t).getHexString()
-  const B = (w: number, hh: number, d: number, m: THREE.Material, x: number, y: number, z: number) => {
-    const o = new THREE.Mesh(new THREE.BoxGeometry(w, hh, d), m)
-    o.position.set(x, y, z)
-    g.add(o)
-    return o
+    inner.add(base)
   }
   const wins: THREE.Mesh[] = []
-  const pane = (w: number, hh: number, x: number, y: number, z: number, side = false) => {
-    const o = new THREE.Mesh(new THREE.BoxGeometry(side ? 0.04 : w, hh, side ? w : 0.04), new THREE.MeshBasicMaterial({ color: '#7d93a0' }))
-    o.position.set(x, y, z)
-    g.add(o)
-    wins.push(o)
-    return o
-  }
-  const roofCol = ROOF[h.ownerSp] ?? st.roof
-  const plaster = this.lam(tone(st.wall, '#f3e6c8', 0.62))
-  const beam = this.lam(tone(st.wall, '#33241a', 0.68))
-  const up = h.level >= 4 ? 0.45 : 0
-  if (h.level >= 1) B(0.5, 0.1, 0.22, stone, 0, 0.05, 0.74) // ふみ石
   if (h.level >= 2) {
-    B(1.2, 0.75, 1.0, plaster, 0, 0.6, 0)
-    // 骨組み：四すみの柱・上下の はり・すじかい
-    for (const x of [-0.6, 0.6]) for (const z of [-0.5, 0.5]) B(0.1, 0.77, 0.1, beam, x, 0.6, z)
-    for (const y of [0.26, 0.95]) {
-      for (const z of [-0.51, 0.51]) B(1.24, 0.07, 0.04, beam, 0, y, z)
-      for (const x of [-0.61, 0.61]) B(0.04, 0.07, 1.04, beam, x, y, 0)
+    const ctx = { lam: (c: string) => this.lam(c), basic: (c: string) => new THREE.MeshBasicMaterial({ color: c }) }
+    const seed = Math.round(Math.abs(h.x * 13.7 + h.z * 7.3)) + h.era
+    const model = eraHouse(Math.min(9, Math.max(1, h.era)) as Era, ctx, wear, seed)
+    // 家の 正面は 町の まんなかへ むける
+    const c = this.townCenter()
+    model.rotation.y = Math.round(Math.atan2(c.x - h.x, c.z - h.z) / (Math.PI / 2)) * (Math.PI / 2)
+    if (h.level === 2) {
+      // かべまで：低く + 足場
+      model.scale.y = 0.55
+      for (const [x, z] of [[-0.85, -0.75], [0.85, -0.75], [-0.85, 0.75], [0.85, 0.75]]) {
+        const p = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.3, 0.05), wood)
+        p.position.set(x, 0.65, z)
+        inner.add(p)
+      }
+      for (const y of [0.5, 1.0]) {
+        const r = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.04, 0.05), wood)
+        r.position.set(0, y, 0.75)
+        inner.add(r)
+      }
     }
-    for (const x of [-0.61, 0.61]) B(0.04, 0.66, 0.07, beam, x, 0.6, 0)
-    B(0.06, 0.66, 0.04, beam, -0.24, 0.6, 0.51)
-    const brace = B(0.05, 0.5, 0.035, beam, -0.42, 0.6, 0.512)
-    brace.rotation.z = 0.62
-    // とびら：わく・板・とって
-    B(0.42, 0.56, 0.05, beam, 0.02, 0.5, 0.51)
-    B(0.32, 0.48, 0.05, this.lam(tone(st.wall, '#5a3a22', 0.75), { map: this.bark() }), 0.02, 0.47, 0.525)
-    B(0.04, 0.04, 0.03, new THREE.MeshBasicMaterial({ color: st.accent }), 0.12, 0.47, 0.56)
-    // まど：わく・ガラス・十字の さん
-    B(0.3, 0.28, 0.04, beam, 0.4, 0.66, 0.515)
-    const w0 = pane(0.22, 0.2, 0.4, 0.66, 0.53)
-    w0.name = 'window'
-    B(0.02, 0.2, 0.02, beam, 0.4, 0.66, 0.555)
-    B(0.22, 0.02, 0.02, beam, 0.4, 0.66, 0.555)
-    for (const x of [-0.615, 0.615]) {
-      B(0.04, 0.28, 0.3, beam, x, 0.66, -0.2)
-      pane(0.22, 0.2, x + Math.sign(x) * 0.015, 0.66, -0.2, true)
+    inner.add(model)
+    model.traverse((o) => {
+      const m = o as THREE.Mesh
+      if (o.name !== 'lit' || !m.isMesh) return
+      const col = (m.material as THREE.MeshBasicMaterial).color
+      if (!WINDOW_LIT.has(col.getHexString())) return
+      m.userData.on = '#' + col.getHexString()
+      wins.push(m)
+    })
+    if (h.level >= 4 && wear < 2) {
+      for (const [x, z, col] of [[-0.8, 0.85, '#ff8fb1'], [0.8, 0.9, '#ffd23f'], [-0.55, 1.0, '#ffffff'], [0.45, 1.02, '#ff8fb1'], [0.95, 0.55, '#9fd8ff']] as const) {
+        const f = new THREE.Mesh(new THREE.SphereGeometry(0.07, 5, 4), new THREE.MeshBasicMaterial({ color: col }))
+        f.position.set(x, 0.1, z)
+        model.add(f)
+      }
     }
-  }
-  if (h.level >= 3) {
-    // 屋根の形は住む種族で変わる（四角・六角・八角）。かわらを 3 だん かさねる
-    const sides = [4, 6, 8][(h.ownerSp.charCodeAt(0) + h.ownerSp.length) % 3]
-    const R = h.level >= 4 ? 0.98 : 1.08
-    const dark = this.lam(tone(roofCol, '#2a1c20', 0.38))
-    const light = this.lam(roofCol)
-    const rot = sides === 4 ? Math.PI / 4 : 0
-    const eave = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.96, R * 0.96, 0.05, sides), beam)
-    eave.position.y = 0.985 + up
-    eave.rotation.y = rot
-    g.add(eave)
-    for (let i = 0; i < 3; i++) {
-      const rb = R * (1 - i / 3.2) + (i ? 0.11 : 0)
-      const rt = i === 2 ? 0.02 : R * (1 - (i + 1) / 3.2)
-      const tier = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, 0.25, sides), i % 2 ? dark : light)
-      tier.position.y = 1.13 + up + i * 0.235
-      tier.rotation.y = rot
-      g.add(tier)
+    if (wear < 2) {
+      // 夜、とびらの前の 地面に もれる あかり
+      const spill = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.3, 0.9),
+        new THREE.MeshBasicMaterial({ color: '#ffb866', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, map: glowTex() }),
+      )
+      spill.rotation.x = -Math.PI / 2
+      spill.position.set(0, 0.06, 1.0)
+      spill.visible = false
+      model.add(spill)
+      g.userData.spill = spill
     }
-    const knob = new THREE.Mesh(new THREE.OctahedronGeometry(0.07, 0), new THREE.MeshBasicMaterial({ color: st.accent }))
-    knob.position.y = 1.8 + up
-    g.add(knob)
-    B(0.18, 0.4, 0.18, stone, -0.34, 1.42 + up, -0.15)
-    B(0.24, 0.06, 0.24, beam, -0.34, 1.64 + up, -0.15)
-    // とびらの ひさし と まどの 花ばこ
-    const awn = B(0.56, 0.04, 0.3, light, 0.02, 0.86, 0.64)
-    awn.rotation.x = 0.42
-    for (const x of [-0.22, 0.26]) B(0.03, 0.03, 0.24, beam, x, 0.8, 0.62)
-    B(0.3, 0.07, 0.09, beam, 0.4, 0.5, 0.56)
-    for (const [x, col] of [[0.31, '#ff8fb1'], [0.4, '#ffe08a'], [0.49, '#ff8fb1']] as const) B(0.06, 0.06, 0.06, new THREE.MeshBasicMaterial({ color: col }), x, 0.56, 0.57)
-  }
-  if (h.level >= 4) {
-    // 増築：2 階・ベランダ・庭の花・ランプ
-    B(0.95, 0.45, 0.8, plaster, 0, 1.2, 0)
-    for (const x of [-0.475, 0.475]) for (const z of [-0.4, 0.4]) B(0.08, 0.47, 0.08, beam, x, 1.2, z)
-    B(0.99, 0.06, 0.04, beam, 0, 1.4, 0.41)
-    B(1.3, 0.05, 0.3, beam, 0, 0.99, 0.62)
-    B(1.3, 0.03, 0.03, beam, 0, 1.16, 0.76)
-    for (let i = 0; i < 6; i++) B(0.03, 0.16, 0.03, beam, -0.63 + i * 0.252, 1.08, 0.76)
-    B(0.28, 0.26, 0.04, beam, 0, 1.22, 0.405)
-    pane(0.2, 0.18, 0, 1.22, 0.42)
-    B(0.02, 0.18, 0.02, beam, 0, 1.22, 0.445)
-    for (const [x, z, col] of [[-0.8, 0.8, '#ff8fb1'], [0.8, 0.85, '#ffd23f'], [-0.55, 0.95, '#ffffff'], [0.45, 0.98, '#ff8fb1'], [0.95, 0.5, '#9fd8ff']] as const) {
-      const f = new THREE.Mesh(new THREE.SphereGeometry(0.07, 5, 4), new THREE.MeshBasicMaterial({ color: col }))
-      f.position.set(x, 0.1, z)
-      g.add(f)
-      B(0.02, 0.08, 0.02, this.lam('#5f8a4a'), x, 0.04, z)
-    }
-    B(0.03, 0.03, 0.12, beam, -0.3, 0.84, 0.57)
-    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.11, 0.09), new THREE.MeshBasicMaterial({ color: '#7d93a0' }))
-    lamp.position.set(-0.3, 0.76, 0.63)
-    lamp.userData.lamp = st.accent
-    g.add(lamp)
-    wins.push(lamp)
-  }
-  if (h.level >= 2) {
-    // 夜、とびらの前の 地面に もれる あかり
-    const spill = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.3, 0.9),
-      new THREE.MeshBasicMaterial({ color: '#ffb866', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, map: glowTex() }),
-    )
-    spill.rotation.x = -Math.PI / 2
-    spill.position.set(0.1, 0.06, 0.95)
-    spill.visible = false
-    g.add(spill)
-    g.userData.spill = spill
   }
   g.userData.wins = wins
   g.position.set(h.x, this.stage.heightAt(h.x, h.z) - 0.02, h.z)
@@ -635,13 +583,19 @@ export function updateHouses(this: World, dt: number) {
     if (h.stage !== this.stageIndex || !h.mesh) continue
     h.shake = Math.max(0, h.shake - dt)
     this.popAnim(h.mesh, dt)
+    // 年をとる（できあがった家だけ）。古びの 段が かわったら 形を つくりなおす
+    if (h.level >= 2) h.age += dt
+    if (h.mesh.userData.wear !== this.houseWear(h)) {
+      this.refreshHouse(h, true)
+      continue
+    }
     // えんとつのけむり：夜・雨・雪、または中にだれかいる時
     if (h.level >= 3) {
       const t = ((h.mesh.userData.smoke as number | undefined) ?? 0) - dt
       if (t <= 0) {
         h.mesh.userData.smoke = 0.7 + Math.random() * 0.6
         if (this.night > 0.5 || this.weather === 'rain' || this.weather === 'snow' || this.creatures.some((c) => c.inside && h.owner === c))
-          this.smoke(h.x - 0.32, this.stage.heightAt(h.x, h.z) + 1.7 + (h.level >= 4 ? 0.45 : 0), h.z - 0.15)
+          if (h.mesh.userData.wear < 2) this.smoke(h.x - 0.4 * BUILD_SCALE, this.stage.heightAt(h.x, h.z) + 2.3 * BUILD_SCALE, h.z - 0.3 * BUILD_SCALE)
       } else h.mesh.userData.smoke = t
     }
     // だいくどうぐ の近くの家は少しずつ直る
@@ -656,7 +610,7 @@ export function updateHouses(this: World, dt: number) {
       const lit = this.night > 0.35 || this.weather === 'rain' || this.weather === 'snow' || this.creatures.some((c) => c.inside && h.owner === c)
       if (h.mesh.userData.lit !== lit) {
         h.mesh.userData.lit = lit
-        for (const w of wins) (w.material as THREE.MeshBasicMaterial).color.set(lit ? ((w.userData.lamp as string | undefined) ?? '#ffd27a') : '#7d93a0')
+        for (const w of wins) (w.material as THREE.MeshBasicMaterial).color.set(lit ? (w.userData.on as string) : '#56606a')
       }
       const spill = h.mesh.userData.spill as THREE.Mesh | undefined
       if (spill) {
@@ -775,7 +729,7 @@ export function planStruct(this: World, kind: StructKind, nx = this.look.x, nz =
       z = THREE.MathUtils.clamp(nz + (Math.random() * 2 - 1) * (spread + i * 0.06), -edge, edge)
       const clear = big ? 3.1 : Math.max(2, foot + 1)
       ok =
-        !this.houses.some((h) => h.stage === this.stageIndex && Math.hypot(h.x - x, h.z - z) < clear) &&
+        !this.houses.some((h) => h.stage === this.stageIndex && Math.hypot(h.x - x, h.z - z) < clear + 0.8 * BUILD_SCALE) &&
         !here.some((b) => Math.hypot(b.x - x, b.z - z) < (big || b.kind === 'castle' ? 3.2 : Math.max(2, foot + (STRUCTS[b.kind].foot ?? 1)))) &&
         !this.stage.obstacles.some((o) => Math.hypot(o.x - x, o.z - z) < o.r + (big ? 2.0 : Math.max(1.3, foot + 0.4)))
     }
@@ -1242,6 +1196,68 @@ export function towerShot(this: World, b: Struct, foe: Creature) {
   })
 }
 
+/** いまの 箱庭の 町の 時代（村の 点数で 上がる。6 段めで 白い城 / じょうき の 枝に わかれる） */
+export function townEra(this: World): Era {
+  return eraOf(eraStep(this.vScore), this.eraPath[this.stageIndex])
+}
+
+/**
+ * 家の 古び：年齢 × まんなかからの 遠さ（外れほど 早く 古びる）+ こわれ具合。
+ * 0 = 新しい / 1 = 古びた（15 分ほど）/ 2 = くずれた（40 分ほど）
+ */
+export function houseWear(this: World, h: House): Wear {
+  const c = this.townCenter()
+  const d = Math.hypot(h.x - c.x, h.z - c.z)
+  const t = h.age * (0.6 + d / (8 * BUILD_SCALE))
+  const max = houseMaxHp(h.level)
+  let w: Wear = t > 2400 ? 2 : t > 900 ? 1 : 0
+  if (h.level >= 2 && h.hp < max * 0.2) w = 2
+  else if (h.level >= 2 && h.hp < max * 0.45 && w < 1) w = 1
+  return w
+}
+
+/**
+ * 町の 時代を すすめる（20 秒ごと）：
+ * - 6 段めに はじめて 上がったら、住民の 系統で 枝を 決める（きかい・モンスターが 多い → じょうき / ほか → 白い城）
+ * - まんなかに 近い家から 1 けんずつ、いまの 時代の 形に 建てかえる（古い家も 新しく なる）。外れの家は のこって 古びていく
+ */
+export function updateTownEra(this: World, dt: number) {
+  this.eraT -= dt
+  if (this.eraT > 0) return
+  this.eraT = 20
+  const here = this.stageIndex
+  const step = eraStep(this.vScore)
+  if (step >= 6 && !this.eraPath[here]) {
+    let mech = 0
+    let other = 0
+    for (const c of this.creatures) {
+      if (!this.ally(c)) continue
+      const f = familyOf(c.sp.id)
+      if (f === 'machine' || f === 'monster') mech++
+      else other++
+    }
+    this.eraPath[here] = mech >= other && mech > 0 ? 'steam' : 'white'
+    this.say(this.eraPath[here] === 'steam' ? 'まちに じょうきの きかいが うまれた！' : 'まちが しろく かがやきはじめた！')
+  }
+  const era = this.townEra()
+  const c = this.townCenter()
+  // 建てかえは まんなかの 輪の 中だけ（時代が すすむほど 広く）
+  const core = (2 + era * 0.6) * 3.0 * BUILD_SCALE
+  const hs = this.houses
+    .filter((h) => h.stage === here && h.level >= 3 && Math.hypot(h.x - c.x, h.z - c.z) < core && (h.era !== era || this.houseWear(h) >= 1))
+    .sort((a, b) => Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z))
+  const h = hs[0]
+  if (!h) return
+  const was = h.era
+  h.era = era
+  h.age = 0
+  h.hp = houseMaxHp(h.level)
+  this.refreshHouse(h, true)
+  this.burst(h.x, this.stage.heightAt(h.x, h.z) + 1.2, h.z, 'spark', 10, 2.4)
+  this.mark(h.x, h.z, 2)
+  if (was !== era) this.say(`${h.owner?.sp.name ?? 'あきや'}の いえが あたらしく たてかわった`)
+}
+
 export function calcVillage(this: World) {
   let score = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 3).length
   let castle = false
@@ -1281,7 +1297,7 @@ export function townLot(this: World, clear: number, outer = false, tight = false
   const hs = this.houses.filter((h) => h.stage === here)
   const bs = this.structs.filter((b) => b.stage === here && b.kind !== 'wall' && b.kind !== 'bridge')
   const h = this.stage.heightAt
-  const GAP = 2.7
+  const GAP = 3.0 * BUILD_SCALE
   let n0 = 1
   if (outer) {
     let far = 0
@@ -1304,7 +1320,7 @@ export function townLot(this: World, clear: number, outer = false, tight = false
       const z = c.z + Math.sin(a) * r
       if (Math.abs(x) > HALF - 1.4 || Math.abs(z) > HALF - 1.4) continue
       if (Math.max(Math.abs(h(x + 0.6, z) - h(x - 0.6, z)), Math.abs(h(x, z + 0.6) - h(x, z - 0.6))) > 0.45) continue
-      if (hs.some((o) => Math.hypot(o.x - x, o.z - z) < (tight ? 1.7 : Math.max(2.6, clear)))) continue
+      if (hs.some((o) => Math.hypot(o.x - x, o.z - z) < (tight ? 1.7 * BUILD_SCALE : Math.max(2.6 * BUILD_SCALE, clear)))) continue
       if (bs.some((o) => Math.hypot(o.x - x, o.z - z) < (tight ? Math.max(1.5, (STRUCTS[o.kind].foot ?? 1) + 0.5) : Math.max(2.2, clear, (STRUCTS[o.kind].foot ?? 1) + 1.2)))) continue
       if (tight && this.items.some((o) => o.stage === here && Math.hypot(o.x - x, o.z - z) < 1.3)) continue
       if (this.stage.obstacles.some((o) => Math.hypot(o.x - x, o.z - z) < o.r + 1.3)) continue
@@ -1745,7 +1761,7 @@ export function updateDecor(this: World, dt: number) {
   this.decorT = 1.5
   const here = this.stageIndex
   const nodes = [
-    ...this.houses.filter((h) => h.stage === here && h.level >= 1).map((h) => ({ x: h.x, z: h.z, r: 0.85, house: true })),
+    ...this.houses.filter((h) => h.stage === here && h.level >= 1).map((h) => ({ x: h.x, z: h.z, r: 0.85 * BUILD_SCALE, house: true })),
     ...this.structs.filter((b) => b.stage === here && b.mats >= STRUCTS[b.kind].need && b.kind !== 'wall' && b.kind !== 'bridge').map((b) => ({ x: b.x, z: b.z, r: Math.max(0.5, STRUCTS[b.kind].r), house: false })),
   ]
   const key = here + '|' + (this.high ? 1 : 0) + '|' + SIZE + '|' + nodes.map((n) => n.x.toFixed(1) + ',' + n.z.toFixed(1)).join(';')
