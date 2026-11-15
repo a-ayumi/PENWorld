@@ -451,6 +451,7 @@ export class World {
   updateTownEra = Vi.updateTownEra
   updateTownWall = Vi.updateTownWall
   mountWalls = Vi.mountWalls
+  mountKeep = Vi.mountKeep
   wallSegs = Vi.wallSegs
   townCenter = Vi.townCenter
   townLot = Vi.townLot
@@ -1228,6 +1229,7 @@ export class World {
   wallObs: { x: number; z: number; r: number; water: boolean }[] = []
   wallVer = 0
   wallMesh: THREE.Group | null = null
+  keepMesh: THREE.Group | null = null
   eraT = 0
   /** ちゅうもんの列（計画 B1）：買った物は ここに ならび、だいくたちが 順番に 取りかかる */
   orders: Order[] = []
