@@ -66,13 +66,24 @@ function mounds(x: number, z: number, list: [number, number, number, number][]) 
   return h
 }
 /** 箱庭のふちに向かって平らにする */
-const edge = (x: number, z: number) => smooth(SIZE / 2, SIZE / 2 - 2.5, Math.max(Math.abs(x), Math.abs(z)))
+/** ひとつづきの 世界では 地方の ふちを 下げない（となりと なめらかに つなぐ） */
+let EDGE_OFF = false
+export function setEdgeOff(v: boolean) {
+  EDGE_OFF = v
+}
+const edge = (x: number, z: number) => (EDGE_OFF ? 1 : smooth(SIZE / 2, SIZE / 2 - 2.5, Math.max(Math.abs(x), Math.abs(z))))
 
 // ---------- 共通パーツ ----------
 /** opt.rock = 岩はだの 2 色（既定は灰色）、opt.snowLine = 雪をかぶる高さ（既定 8.2、Infinity で なし） */
-function terrain(heightAt: (x: number, z: number) => number, map: THREE.Texture, tint: [string, string], snowy = true, opt: { rock?: [string, string]; snowLine?: number } = {}) {
-  // 起伏をなめらかに見せるため 1 マスを 2 分割（PS1 っぽさは頂点スナップで残る）
-  const geo = new THREE.PlaneGeometry(SIZE, SIZE, SIZE * 2, SIZE * 2).rotateX(-Math.PI / 2)
+function terrain(
+  heightAt: (x: number, z: number) => number, map: THREE.Texture, tint: [string, string], snowy = true,
+  opt: { rock?: [string, string]; snowLine?: number; area?: { cx: number; cz: number; size: number; keep?: (x: number, z: number) => boolean } } = {},
+) {
+  // 起伏をなめらかに見せるため 1 マスを 2 分割（PS1 っぽさは頂点スナップで残る）。area = ひとつづきの 世界の 一部だけ 作る
+  const ar = opt.area
+  const sz = ar?.size ?? SIZE
+  const geo = new THREE.PlaneGeometry(sz, sz, Math.round(sz * 2), Math.round(sz * 2)).rotateX(-Math.PI / 2)
+  if (ar) geo.translate(ar.cx, 0, ar.cz)
   const pos = geo.attributes.position
   const a = new THREE.Color(tint[0])
   const b = new THREE.Color(tint[1])
@@ -97,6 +108,7 @@ function terrain(heightAt: (x: number, z: number) => number, map: THREE.Texture,
   const fu = flat.attributes.uv
   const buckets: { p: number[]; n: number[]; u: number[]; c: number[] }[] = [0, 1, 2].map(() => ({ p: [], n: [], u: [], c: [] }))
   for (let f = 0; f < fp.count; f += 3) {
+    if (ar?.keep && !ar.keep((fp.getX(f) + fp.getX(f + 1) + fp.getX(f + 2)) / 3, (fp.getZ(f) + fp.getZ(f + 1) + fp.getZ(f + 2)) / 3)) continue
     const ny = (fn.getY(f) + fn.getY(f + 1) + fn.getY(f + 2)) / 3
     const y = (fp.getY(f) + fp.getY(f + 1) + fp.getY(f + 2)) / 3
     let g = 0
@@ -1292,4 +1304,4 @@ function disposeTree(o: THREE.Object3D) {
 /** ワープで巡る順番 */
 export const STAGES = [seedGrove, glassDunes, coralCove, cottonField, frostCircuit, ...STAGES2]
 /** 追加ステージ（stages2.ts）が使う共通の道具 */
-export { base, chestModel, dens, disposeTree, edge, lambert, motes, mounds, placer, skyDome, smooth, terrain, voidSpace }
+export { base, chestModel, terrain as terrainMesh, dens, disposeTree, edge, lambert, motes, mounds, placer, skyDome, smooth, terrain, voidSpace }
