@@ -29,7 +29,7 @@ export interface StructSpec {
 export const STRUCTS: Record<StructKind, StructSpec> = {
   farm: { name: 'はたけ', need: 4, hp: 30, r: 0, score: 1 },
   well: { name: 'いど', need: 3, hp: 40, r: 0.5, score: 1 },
-  tower: { name: 'みはりとう', need: 6, hp: 90, r: 0.6, score: 1.5 },
+  tower: { name: 'みはりとう', need: 6, hp: 90, r: 0.9, score: 1.5, foot: 1.5 },
   cradle: { name: 'ゆりかごごや', need: 5, hp: 60, r: 0.7, score: 1 },
   wall: { name: 'へい', need: 2, hp: 60, r: 0.6, score: 0.25 },
   castle: { name: 'おしろ', need: 14, hp: 260, r: 1.5, score: 4 },
@@ -51,7 +51,7 @@ export const STRUCTS: Record<StructKind, StructSpec> = {
 export const STRUCT_H: Record<StructKind, [number, number, number]> = {
   farm: [0.8, 1.2, 1.2],
   well: [1.4, 1.7, 1.6],
-  tower: [2.5, 2.9, 2.7],
+  tower: [4.2, 5.2, 5.0],
   cradle: [1.5, 1.8, 1.7],
   wall: [0.9, 1.2, 1.1],
   castle: [3.2, 3.6, 3.5],

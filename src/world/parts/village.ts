@@ -752,7 +752,15 @@ export function mountStruct(this: World, b: Struct) {
     bark: this.bark(),
     style: styleOf(b.stage),
   }
-  const model = buildStructModel(b.kind, ctx, b.len || 3)
+  // みはりとうは 町の 時代の 塔（`eraTower`・1.5 倍・こわれると 古びる）
+  let model: THREE.Group
+  if (b.kind === 'tower') {
+    const hp = b.hp / Math.max(1, this.structMaxHp(b))
+    const wear: Wear = p >= 1 && hp < 0.25 ? 2 : p >= 1 && hp < 0.55 ? 1 : 0
+    model = eraTower(this.townEra(), { lam: (c: string) => this.lam(c), basic: ctx.basic }, wear, Math.round(Math.abs(b.x * 11 + b.z * 5)))
+    model.scale.setScalar(BUILD_SCALE * 0.85)
+    model.userData.look = this.townEra() * 10 + wear
+  } else model = buildStructModel(b.kind, ctx, b.len || 3)
   b.q = p >= 1 ? 4 : Math.floor(p * 4)
   const g = new THREE.Group()
   g.add(model)
@@ -1024,6 +1032,15 @@ export function updateStructs(this: World, dt: number) {
         }
         break
       case 'tower':
+        // 町の 時代が すすむ・こわれると 形を つくりなおす（ときどき 見る）
+        if (b.mesh && Math.random() < dt * 0.2) {
+          const hp = b.hp / Math.max(1, this.structMaxHp(b))
+          const look = this.townEra() * 10 + (hp < 0.25 ? 2 : hp < 0.55 ? 1 : 0)
+          if ((b.mesh.children[0]?.userData.look as number | undefined) !== look) {
+            this.refreshStruct(b)
+            break
+          }
+        }
         if (b.t > 1.8) {
           const foe = this.nearest({ x: b.x, z: b.z } as Creature, (o) => o.sp.temper === 'wild' && !o.inside, 7.5)
           if (foe) {
@@ -1167,7 +1184,7 @@ export function smoke(this: World, x: number, y: number, z: number) {
 }
 
 export function towerShot(this: World, b: Struct, foe: Creature) {
-  const top = this.stage.heightAt(b.x, b.z) + 2.3
+  const top = this.stage.heightAt(b.x, b.z) + 2.3 * BUILD_SCALE
   const ty = this.ground(foe) + this.size(foe) * 0.6
   const a = new SpriteAnim(this.orb('#ffe27a'), 0.22)
   a.sprite.center.set(0.5, 0.5)
