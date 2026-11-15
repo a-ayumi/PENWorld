@@ -360,9 +360,11 @@ export function claimHouse(this: World, c: Creature): House | null {
   }
   const here = this.houses.filter((h) => h.stage === this.stageIndex)
   if (here.length >= MAX_HOUSES) return null
+  // なかまの家は 町の 区画に（まんなかから 外へ 順に）。野生の子は 今までどおり 自分の そばに
+  const lot = this.ally(c) ? this.townLot(2.8) : null
   for (let i = 0; i < 40; i++) {
-    const q = this.freePos(0, c.x, c.z, 6)
-    if (Math.hypot(q.x, q.z) < 2) continue
+    const q = lot ?? this.freePos(0, c.x, c.z, 6)
+    if (!lot && Math.hypot(q.x, q.z) < 2) continue
     if (Math.abs(q.x) > HALF - 1.2 || Math.abs(q.z) > HALF - 1.2) continue
     if (here.some((h) => Math.hypot(h.x - q.x, h.z - q.z) < 3)) continue
     if (this.stage.obstacles.some((o) => Math.hypot(o.x - q.x, o.z - q.z) < o.r + 1.3)) continue
@@ -723,7 +725,7 @@ export function planStruct(this: World, kind: StructKind, nx = this.look.x, nz =
   let spread = kind === 'crate' ? 4.5 : 3
   if (kind === 'fountain' && quiet) {
     // 自分たちで建てる時は むらの まん中（家のあつまり）に
-    const c = this.villageCenter()
+    const c = this.townCenter()
     nx = c.x
     nz = c.z
     spread = 1.6
@@ -759,6 +761,15 @@ export function planStruct(this: World, kind: StructKind, nx = this.look.x, nz =
     const foot = spec.foot ?? 1
     const edge = HALF - (big ? 3.8 : Math.max(1.4, foot + 0.9))
     let ok = false
+    // 住民が 決める時（発注・自分たちの 計画）は 町の 区画に。畑・風車・組み立て場は 外がわ
+    if (quiet && kind !== 'lighthouse' && kind !== 'fountain') {
+      const lot = this.townLot(big ? 3.4 : Math.max(2.2, foot + 1.2), kind === 'farm' || kind === 'windmill', kind === 'crate')
+      if (lot && Math.abs(lot.x) < edge && Math.abs(lot.z) < edge) {
+        x = lot.x
+        z = lot.z
+        ok = true
+      }
+    }
     for (let i = 0; i < 90 && !ok; i++) {
       x = THREE.MathUtils.clamp(nx + (Math.random() * 2 - 1) * (spread + i * 0.06), -edge, edge)
       z = THREE.MathUtils.clamp(nz + (Math.random() * 2 - 1) * (spread + i * 0.06), -edge, edge)
@@ -1253,6 +1264,56 @@ export function villageName(this: World) {
 }
 
 /** 箱庭をひろげる（ステージを作り直す。家・建物・置き物・たまごはそのまま残る） */
+/** 町の まんなか（計画 B3）：ステージの はじまりの場所 → いちばん 古い家 → ペットの いる所 */
+export function townCenter(this: World) {
+  if (this.stage.start) return this.stage.start
+  const h = this.houses.find((h) => h.stage === this.stageIndex)
+  return h ? { x: h.x, z: h.z } : { x: this.pet.x, z: this.pet.z }
+}
+
+/**
+ * 町の 区画（計画 B3）：まんなかから 外へ、輪を 1 つずつ ひろげながら 空いている 場所を さがす（アリの巣のように 外へ 育つ）。
+ * clear = ほかの 家・建物と あける 間。outer = 畑や 風車など 町の 外がわに 置く物（いま 建っている いちばん 外の輪から さがす）
+ */
+export function townLot(this: World, clear: number, outer = false, tight = false): { x: number; z: number } | null {
+  const c = this.townCenter()
+  const here = this.stageIndex
+  const hs = this.houses.filter((h) => h.stage === here)
+  const bs = this.structs.filter((b) => b.stage === here && b.kind !== 'wall' && b.kind !== 'bridge')
+  const h = this.stage.heightAt
+  const GAP = 2.7
+  let n0 = 1
+  if (outer) {
+    let far = 0
+    // はなれた所の 家（野生の子の 家など）は 数えない：町から 1 輪より 遠くへ とばない
+    const ds = [...hs, ...bs].map((o) => Math.hypot(o.x - c.x, o.z - c.z)).sort((a, b) => a - b)
+    for (const d of ds) if (d <= far + GAP * 1.6) far = d
+    n0 = Math.max(1, Math.round(far / GAP))
+  }
+  for (let n = n0; n < 16; n++) {
+    // tight（置き物）：輪と輪の あいだ（家の すきま）に 置く
+    const r = (n + (tight ? 0.5 : 0)) * GAP
+    const cnt = Math.max(5, Math.round((Math.PI * 2 * r) / 3.1))
+    // 輪ごとに 角度を ずらす（放射の 道が まっすぐ そろいすぎないように）
+    const off = n * 2.399963
+    for (let i = 0; i < cnt; i++) {
+      // 輪の中は まんなかに 近い 順ではなく、ひとつ とばしで うめる（すきまが 路地に なる）
+      const k = (i * 2) % cnt + (i * 2 >= cnt && cnt % 2 === 0 ? 1 : 0)
+      const a = off + (k / cnt) * Math.PI * 2
+      const x = c.x + Math.cos(a) * r
+      const z = c.z + Math.sin(a) * r
+      if (Math.abs(x) > HALF - 1.4 || Math.abs(z) > HALF - 1.4) continue
+      if (Math.max(Math.abs(h(x + 0.6, z) - h(x - 0.6, z)), Math.abs(h(x, z + 0.6) - h(x, z - 0.6))) > 0.45) continue
+      if (hs.some((o) => Math.hypot(o.x - x, o.z - z) < (tight ? 1.7 : Math.max(2.6, clear)))) continue
+      if (bs.some((o) => Math.hypot(o.x - x, o.z - z) < (tight ? Math.max(1.5, (STRUCTS[o.kind].foot ?? 1) + 0.5) : Math.max(2.2, clear, (STRUCTS[o.kind].foot ?? 1) + 1.2)))) continue
+      if (tight && this.items.some((o) => o.stage === here && Math.hypot(o.x - x, o.z - z) < 1.3)) continue
+      if (this.stage.obstacles.some((o) => Math.hypot(o.x - x, o.z - z) < o.r + 1.3)) continue
+      return { x, z }
+    }
+  }
+  return null
+}
+
 /** 見本（計画 B の 見た目）：7 つの時代の 家と塔を、新しい / 古びた で ならべる。確認用（`world.showEras()`） */
 export function showEras(this: World, aged = false) {
   const ctx = { lam: (c: string) => this.lam(c), basic: (c: string) => new THREE.MeshBasicMaterial({ color: c }) }
