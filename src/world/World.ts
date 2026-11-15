@@ -20,7 +20,7 @@ import type { EraPath } from './eras'
 import { BABY } from './families'
 import { type StructKind } from './structures'
 import { type ItemKind } from './items'
-import { SHOP, type ShopItem } from './shop'
+import { SHOP, setShopLand, type ShopItem } from './shop'
 import { MissionBook, SEASON_INFO, seasonNow, type Season, type Stats } from '../missions'
 import { newRoad, type Road } from '../roadmap'
 import * as Cr from './parts/creatures'
@@ -834,6 +834,8 @@ export class World {
   roleT = 0
   /** ペットの 行動の ほうしん（セーブする） */
   petPlan: PetPlan = 'auto'
+  /** ショップの 店主の ひとこと（買った・買えなかった 直後） */
+  shopTalk: { text: string; t: number } | null = null
   /** いしくが へいを つんだ（次の updateTownWall で 描きなおす） */
   wallDirty = false
   /** ごはんがかり・ごはんやの 見なおし */
@@ -890,6 +892,7 @@ export class World {
     syncSeasonShop(this.season)
     // 2026-11-15：大きな 世界（ひとつづきの 9 地方）が 本番。`?single=1` で 昔の 1 まいずつの ステージ
     this.worldMode = !(typeof location !== 'undefined' && new URLSearchParams(location.search).has('single'))
+    setShopLand(!this.worldMode)
     if (!this.load()) {
       this.loadStage(0)
       const st = this.stage.start ?? { x: 0, z: 0 }

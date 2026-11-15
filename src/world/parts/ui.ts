@@ -8,7 +8,7 @@ import { HALF, type Stage } from '../stages'
 import { STRUCTS, STRUCT_H, type StructKind } from '../structures'
 import { ITEM_INFO, ITEM_SPEC, type ItemKind } from '../items'
 import { DINER_MAX } from './village'
-import { SHOP, drawShop as drawShopWindow, type ShopCheck, type ShopItem } from '../shop'
+import { SHOP, shownCat, drawShop as drawShopWindow, type ShopCheck, type ShopItem } from '../shop'
 import { CHAPTERS, bossReady, nowGoal } from '../../roadmap'
 import type { World } from '../World'
 import { PET_PLANS, PLAN_NAME, PLAN_DESC, ROLE_DESC, Creature, Res, House, Struct, Food, ROLE_NAME, ROLE_COLOR, LIFESPAN, Item, Egg, Pick, STATE_NAME, STRUCT_DESC, ICONS, ICON_COLORS, ICON_BMP, FOODS, CARE_NAME, SeasonShop, FONT, HOUSE_STEPS, MAX_STRUCTS, MAX_ORDERS, FORT_RANGE, houseMaxHp, WEATHER_NAME, MAX_FRIENDS } from '../World'
@@ -354,7 +354,8 @@ export function press(this: World, key: 'A' | 'B' | 'C'): boolean {
   if (this.warp > 0) return true
   if (this.shopOpen) {
     if (key === 'A') {
-      this.shopCursor = (this.shopCursor + 1) % SHOP.length
+      do this.shopCursor = (this.shopCursor + 1) % SHOP.length
+      while (!shownCat(SHOP[this.shopCursor].cat))
       this.onSfx('select')
     } else if (key === 'B') this.buy(SHOP[this.shopCursor])
     else {
@@ -442,8 +443,10 @@ export function buyItem(this: World, s: ShopItem) {
   const ck = this.shopCheck(s)
   if (!ck.ok) {
     this.say(ck.why)
+    this.shopTalk = { text: ck.tone === 'coin' ? 'コインが たりんのう…\nまた おいで' : 'それは いま うれんのう', t: this.time }
     return this.onSfx('cancel')
   }
+  this.shopTalk = { text: s.plan || s.item ? 'まいど！ むらの みんなに\nつたえておくぞ' : 'まいど！ ありがとさん', t: this.time }
   if (s.land) {
     this.pay(s)
     this.expandLand(s.land)
@@ -584,13 +587,14 @@ export function projectXYZ(this: World, x: number, y: number, z: number) {
   return { x: Math.round((p.x + 1) * 0.5 * RES.w), y: Math.round((1 - p.y) * 0.5 * RES.h), on: p.z < 1 }
 }
 
-export function text(this: World, s: string, x: number, y: number, color = '#ffffff', size = 10, align: CanvasTextAlign = 'left') {
+export function text(this: World, s: string, x: number, y: number, color = '#ffffff', size = 10, align: CanvasTextAlign = 'left', plain = false) {
   const g = this.hudCtx
   g.font = `${size}px ${FONT}`
   g.textAlign = align
   g.textBaseline = 'top'
   g.fillStyle = '#10122a'
-  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1]]) g.fillText(s, x + dx, y + dy)
+  // plain = 明るい 紙の 上の こい 文字（ふちどり なし）
+  if (!plain) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1]]) g.fillText(s, x + dx, y + dy)
   g.fillStyle = color
   g.fillText(s, x, y)
 }
@@ -968,14 +972,14 @@ export function drawShop(this: World) {
   drawShopWindow(
     {
       g,
-      text: (t, x, y, color, size, align) => this.text(t, x, y, color, size, align),
+      text: (t, x, y, color, size, align, plain) => this.text(t, x, y, color, size, align, plain),
       win: (x, y, w, h) => this.win(x, y, w, h),
       measure: (t, size) => {
         g.font = `${size}px ${FONT}`
         return g.measureText(t).width
       },
     },
-    { coins: this.coins, cursor: this.shopCursor, time: this.time, check: (it) => this.shopCheck(it) },
+    { coins: this.coins, cursor: this.shopCursor, time: this.time, check: (it) => this.shopCheck(it), talk: this.shopTalk && this.time - this.shopTalk.t < 2.6 ? this.shopTalk.text : undefined, orders: this.orderNames() },
   )
 }
 
