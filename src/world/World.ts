@@ -42,6 +42,7 @@ export type Team = 'pet' | 'friend' | 'wild'
 export type State =
   | 'idle' | 'wander' | 'hunt' | 'fight' | 'assist' | 'seek' | 'eat' | 'sleep' | 'rest' | 'play'
   | 'happy' | 'faint' | 'dead' | 'train' | 'come' | 'gather' | 'build' | 'raid' | 'march' | 'work' | 'tend' | 'dance' | 'frolic'
+  | 'deliver' | 'plant'
 
 export interface Creature {
   sp: Species; team: Team; anim: MonsterView; shadow: THREE.Mesh
@@ -86,6 +87,14 @@ export interface Creature {
   /** 組み立て作業の終わりにやること（かなづちの動きのあと実行） */
   finish: (() => void) | null
   role: Role
+  /** いしく：つみに いく へいの 輪 */
+  wallRing?: TownRing | null
+  /** ごはんがかり：はこんでいる たべものと、とどける あいて（無ければ ごはんやへ） */
+  meal?: Food | null
+  mealTo?: Creature | null
+  mealHeld?: boolean
+  /** うえる 場所と 物 */
+  plantAt?: { x: number; z: number; kind: ItemKind; water?: Item } | null
   tendTo: Struct | null
   /** あそびば（frolic）の場所 / おまつり（dance）の輪の角度と半径 */
   spot: Struct | null
@@ -162,6 +171,8 @@ export interface Struct {
   item?: ItemKind
   /** 人が 発注した物（ちゅうもんの列から 始まった 現場） */
   ordered?: boolean
+  /** ごはんやに ためてある たべものの 数 */
+  stock?: number
 }
 /** ちゅうもん（発注）：ショップの品の id と、たのんだ箱庭 */
 export interface Order { id: string; stage: number }
@@ -178,10 +189,24 @@ export interface Card { title: string; sub: string; lines: string[]; color: stri
 export type Weather = 'sun' | 'cloud' | 'rain' | 'snow' | 'ember'
 export type FoodKind = 'stage' | 'meat' | 'sweet' | 'nut'
 export interface Food { mesh: THREE.Group; x: number; z: number; y: number; vy: number; landed: boolean; taken: Creature | null; bite: number; kind: FoodKind }
-/** 村での役割（だいく・はたけがかり・みはり・おせわ（あそびば）・うりこ（いちば）） */
-export type Role = 'free' | 'builder' | 'farmer' | 'guard' | 'carer' | 'seller'
-export const ROLE_NAME: Record<Role, string> = { free: 'じゆう', builder: 'だいく', farmer: 'はたけがかり', guard: 'みはり', carer: 'おせわ', seller: 'うりこ' }
-export const ROLE_COLOR: Record<Role, string> = { free: '#ffffff', builder: '#ffb84d', farmer: '#7cf29b', guard: '#6fd6ff', carer: '#ff8fc8', seller: '#d8a8ff' }
+/** 村での役割（だいく・はたけがかり・みはり・おせわ（あそびば）・うりこ（いちば）・ごはんがかり（ごはんや）・いしく（城壁）） */
+export type Role = 'free' | 'builder' | 'farmer' | 'guard' | 'carer' | 'seller' | 'cook' | 'mason'
+export const ROLE_NAME: Record<Role, string> = { free: 'じゆう', builder: 'だいく', farmer: 'はたけがかり', guard: 'みはり', carer: 'おせわ', seller: 'うりこ', cook: 'ごはんがかり', mason: 'いしく' }
+export const ROLE_COLOR: Record<Role, string> = { free: '#ffffff', builder: '#ffb84d', farmer: '#7cf29b', guard: '#6fd6ff', carer: '#ff8fc8', seller: '#d8a8ff', cook: '#ff9f6b', mason: '#c8c0b0' }
+/** 情報ウィンドウに 出す 役割の 説明 */
+export const ROLE_DESC: Record<Role, string> = {
+  free: 'すきに すごす（家づくりが おおい）', builder: '家や たてものを たてる・なおす', farmer: 'はたけの せわで みのりを はやめる',
+  guard: 'みはりとうの そばで てきを みはる', carer: 'あそびばで こどもと あそぶ', seller: 'いちばの みせばんを する',
+  cook: 'たべものを あつめて くばる', mason: 'しざいを はこんで へいを つむ',
+}
+/** ペットの 行動の ほうしん（情報ウィンドウで えらぶ） */
+export type PetPlan = 'auto' | 'fight' | 'build' | 'plant' | 'wall'
+export const PET_PLANS: PetPlan[] = ['auto', 'fight', 'build', 'plant', 'wall']
+export const PLAN_NAME: Record<PetPlan, string> = { auto: 'おまかせ', fight: 'たたかい', build: 'けんちく', plant: 'きと はな', wall: 'じょうへき' }
+export const PLAN_DESC: Record<PetPlan, string> = {
+  auto: 'じぶんで かんがえて うごく', fight: 'ちかくの てきと たたかう', build: 'しざいを はこんで たてる',
+  plant: 'なえや はなだんを うえる', wall: 'しざいを はこんで まちの へいを つむ',
+}
 /** ペットの じゅみょう（あそんでいる時間・秒） */
 export const LIFESPAN = 25 * 60
 /** なかま・野生のおとなしい子の じゅみょう（秒）。1 匹ずつ この間でばらつく */
@@ -214,6 +239,7 @@ export const STATE_NAME: Record<string, string> = {
   idle: 'ぼんやり', wander: 'さんぽ', hunt: 'おいかけている', fight: 'たたかっている', seek: 'ごはんへ むかう', eat: 'たべている', sleep: 'ねむっている', rest: 'やすんでいる',
   play: 'あそんでいる', happy: 'うれしい', faint: 'きぜつ', dead: 'たおれた', train: 'トレーニング', come: 'よばれた', gather: 'しざいを ひろう', build: 'しざいを はこぶ',
   raid: 'こわしている', march: 'しんぐん中', work: 'トントン つくっている', tend: 'はたけの せわ', assist: 'たすけに むかう', dance: 'おまつりで おどっている', frolic: 'あそびばで あそんでいる',
+  deliver: 'ごはんを はこぶ', plant: 'うえに いく',
 }
 export const STRUCT_DESC: Record<StructKind, string> = {
   farm: 'たべものが みのる。はたけがかりが せわをする',
@@ -230,6 +256,7 @@ export const STRUCT_DESC: Record<StructKind, string> = {
   playground: 'こどもが はやく そだつ。こころも そだつ',
   fort: 'ちかくの なかまの こうげきUP',
   crate: 'たのまれた おきものを くみたてている',
+  diner: 'たべもの 1 つを りょうりして 2 にんぶんに。ごはんがかりが くばる',
 }
 /** 完成した時に もう 1 つ出すメッセージ */
 export const STRUCT_DONE: Partial<Record<StructKind, string>> = {
@@ -239,6 +266,7 @@ export const STRUCT_DONE: Partial<Record<StructKind, string>> = {
   market: 'いちばが ひらいた！ にぎやかに なりそう',
   playground: 'あそびばから こどもたちの こえが きこえる',
   fort: 'とりでの そばの なかまは つよくなる',
+  diner: 'ごはんやが ひらいた！ いい におい',
 }
 export interface Fx { sprite: THREE.Sprite; vx: number; vy: number; vz: number; life: number; max: number; grav: number }
 
@@ -476,6 +504,14 @@ export class World {
   foeLot = Vi.foeLot
   updateFoeTown = Vi.updateFoeTown
   wallSegs = Vi.wallSegs
+  wallJob = Vi.wallJob
+  wallSpot = Vi.wallSpot
+  layWall = Vi.layWall
+  taskOf = Ui.taskOf
+  cookJob = Cr.cookJob
+  plantJob = Cr.plantJob
+  dinerServe = Vi.dinerServe
+  releaseFoods = Vi.releaseFoods
   townCenter = Vi.townCenter
   townLot = Vi.townLot
   showEras = Vi.showEras
@@ -796,6 +832,12 @@ export class World {
   /** 留守の早送り中は、なかまは としを とらない */
   noAging = false
   roleT = 0
+  /** ペットの 行動の ほうしん（セーブする） */
+  petPlan: PetPlan = 'auto'
+  /** いしくが へいを つんだ（次の updateTownWall で 描きなおす） */
+  wallDirty = false
+  /** ごはんがかり・ごはんやの 見なおし */
+  mealT = 0
   /** 視点：top = 見下ろし / behind = ペットの少し後ろ / eye = ペットの目線 */
   view: 'top' | 'behind' | 'eye' = 'top'
   /** 見た目：ピクセル・ジオラマ（diorama.ts）。みおろしは平行投影、うしろ・めせんは this.camera（遠近）で同じ仕上げ */

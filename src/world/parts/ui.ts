@@ -7,10 +7,11 @@ import { FAMILY_NAME, LOOK_NAME, SPECIES, XP_NEED, familyOf, lookOf, portraitFor
 import { HALF, type Stage } from '../stages'
 import { STRUCTS, STRUCT_H, type StructKind } from '../structures'
 import { ITEM_INFO, ITEM_SPEC, type ItemKind } from '../items'
+import { DINER_MAX } from './village'
 import { SHOP, drawShop as drawShopWindow, type ShopCheck, type ShopItem } from '../shop'
 import { CHAPTERS, bossReady, nowGoal } from '../../roadmap'
 import type { World } from '../World'
-import { Creature, Res, House, Struct, Food, ROLE_NAME, ROLE_COLOR, LIFESPAN, Item, Egg, Pick, STATE_NAME, STRUCT_DESC, ICONS, ICON_COLORS, ICON_BMP, FOODS, CARE_NAME, SeasonShop, FONT, HOUSE_STEPS, MAX_STRUCTS, MAX_ORDERS, FORT_RANGE, houseMaxHp, WEATHER_NAME, MAX_FRIENDS } from '../World'
+import { PET_PLANS, PLAN_NAME, PLAN_DESC, ROLE_DESC, Creature, Res, House, Struct, Food, ROLE_NAME, ROLE_COLOR, LIFESPAN, Item, Egg, Pick, STATE_NAME, STRUCT_DESC, ICONS, ICON_COLORS, ICON_BMP, FOODS, CARE_NAME, SeasonShop, FONT, HOUSE_STEPS, MAX_STRUCTS, MAX_ORDERS, FORT_RANGE, houseMaxHp, WEATHER_NAME, MAX_FRIENDS } from '../World'
 
 /** タップした場所（液晶の座標）にいちばん近い物をさがす */
 export function pickAt(this: World, x: number, y: number): Pick | null {
@@ -80,14 +81,16 @@ export function describe(this: World, p: Pick): { title: string; sub: string; li
       lines.push(`${team}・${fam}・ランク${c.sp.tier || '-'}${c.grow > 0 ? '・こども' : ''}`)
       if (c.rare) lines.push('★ いろちがい（めずらしい！）' + (lookOf(c.seed) ? `・${LOOK_NAME[lookOf(c.seed)]}` : ''))
       else if (c.sp.tier > 0 && lookOf(c.seed)) lines.push(`からだ：${LOOK_NAME[lookOf(c.seed)]}`)
-      lines.push(`こうげき ${Math.round(c.atk)}  すばやさ ${c.sp.speed.toFixed(1)}  ${c.role !== 'free' ? 'やくわり ' + ROLE_NAME[c.role] : ''}`)
-      lines.push(`いま：${STATE_NAME[c.state] ?? c.state}`)
+      lines.push(`こうげき ${Math.round(c.atk)}  すばやさ ${c.sp.speed.toFixed(1)}`)
+      if (c === this.pet) lines.push(`ほうしん：${PLAN_NAME[this.petPlan]}`, `　${PLAN_DESC[this.petPlan]}`)
+      else if (this.ally(c)) lines.push(...(c.grow > 0 || c.sp.tier < 2 ? ['やくわり：まだ こども', '　あそんで そだつ'] : [`やくわり：${ROLE_NAME[c.role]}`, `　${ROLE_DESC[c.role]}`]))
+      lines.push(`いま：${this.taskOf(c)}`)
       if (this.fortBoost(c) > 1) lines.push('いしのとりでの ちから：こうげき UP！')
       bars.push(['たいりょく', c.hp / c.maxHp, '#7cf29b'])
       if (c.team === 'wild' && c.sp.temper === 'calm') bars.push(['なかよし', Math.min(1, c.affinity / 100), '#ff7eb6'])
       else if (this.ally(c) && c.sp.tier >= 1 && c.sp.tier <= 3) bars.push(['しんか', Math.min(1, (c === this.pet ? this.xp : c.xp) / XP_NEED[c.sp.tier as 1 | 2 | 3]), '#c9a8ff'])
       if (c !== this.pet && c.life > 0) bars.push(['じゅみょう', Math.max(0, 1 - c.age / c.life), '#9be28a'])
-      return { title: (c.rare ? '★' : '') + c.sp.name + (c === this.pet ? ' ★' : ''), sub: c.sp.kind, lines, bars, del: null }
+      return { title: (c.rare ? '★' : '') + c.sp.name + (c === this.pet ? ' ★' : ''), sub: c.sp.kind, lines, bars, del: c === this.pet ? `ほうしん ▸ ${PLAN_NAME[PET_PLANS[(PET_PLANS.indexOf(this.petPlan) + 1) % PET_PLANS.length]]}` : null }
     }
     case 'house': {
       const h: House = p.ref
@@ -107,6 +110,7 @@ export function describe(this: World, p: Pick): { title: string; sub: string; li
       else {
         const extra = this.structStatus(b)
         if (extra) lines.push(extra)
+        if (b.kind === 'diner') lines.push(`ためてある ごはん ${b.stock ?? 0}/${DINER_MAX}・ごはんがかり ${this.creatures.filter((c) => c.role === 'cook').length}にん`)
       }
       bars.push(done ? ['じょうぶさ', b.hp / spec.hp, '#ff9f43'] : ['できあがり', b.mats / spec.need, '#c8955a'])
       return { title: spec.name, sub: done ? 'たてもの' : 'けんせつちゅう', lines, bars, del: 'かいたい' }
@@ -308,6 +312,13 @@ export function tapInfo(this: World, x: number, y: number): boolean {
   if (!b || !p) return false
   const inside = (r: { x: number; y: number; w: number; h: number }) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h
   if (b.del && inside(b.del)) {
+    // ペットの ほうしんは 押すたびに 次へ（2 回 押しの 確認は いらない）
+    if (p.type === 'creature' && p.ref === this.pet) {
+      this.petPlan = PET_PLANS[(PET_PLANS.indexOf(this.petPlan) + 1) % PET_PLANS.length]
+      this.say(`${this.pet.sp.name}の ほうしん：${PLAN_NAME[this.petPlan]}`)
+      this.onSfx('select')
+      return true
+    }
     if (p.armed) this.removePick(p)
     else {
       p.armed = true
@@ -1133,5 +1144,36 @@ export function debug(this: World) {
     resources: this.resources.length,
     eggs: this.eggs.length,
     foods: this.foods.length,
+  }
+}
+
+/** 情報ウィンドウの「いま」：状態に、何に 向かっているかを 足す */
+export function taskOf(this: World, c: Creature): string {
+  const base = STATE_NAME[c.state] ?? c.state
+  const to = (x: number, z: number) => {
+    const hs = [...this.houses, ...this.foeHouses].filter((h) => h.stage === this.stageIndex)
+    const h = hs.sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z))[0]
+    return h && Math.hypot(h.x - x, h.z - z) < 2 ? `${h.owner ? h.owner.sp.name : SPECIES[h.ownerSp].name}の いえ` : ''
+  }
+  switch (c.state) {
+    case 'gather':
+    case 'build':
+      if (c.wallRing) return `${base} → まちの へい`
+      if (c.site) return `${base} → ${STRUCTS[c.site.kind].name}${c.site.item ? '（' + ITEM_INFO[c.site.item].name + '）' : ''}の げんば`
+      {
+        const h = this.homeOf(c)
+        return h ? `${base} → ${to(h.x, h.z) || 'じぶんの いえ'}` : base
+      }
+    case 'deliver':
+      return c.mealTo ? `${base} → ${c.mealTo.sp.name}` : `${base} → ごはんや`
+    case 'plant':
+      return c.plantAt?.water ? 'なえに みずを やりに いく' : c.plantAt?.kind === 'flowerbed' ? 'はなだんを つくりに いく' : 'なえを うえに いく'
+    case 'hunt':
+    case 'fight':
+      return c.foe ? `${base}（あいて：${c.foe.sp.name}）` : base
+    case 'seek':
+      return c.food && this.structs.some((b) => b.kind === 'diner' && Math.hypot(b.x - c.food!.x, b.z - c.food!.z) < 2.5) ? 'ごはんやで ごはんを もらう' : base
+    default:
+      return base
   }
 }

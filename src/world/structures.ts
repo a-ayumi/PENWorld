@@ -10,7 +10,7 @@ import { BUILD_SCALE } from './eras'
  *   flag = 旗（ゆれる） / lit = 窓・ランプ（夜と雨と雪で光る） / snow = 雪の屋根（雪の間だけ見える）
  *   chimney = けむりの出口 / blades = ふうしゃの羽根 / beam = とうだいの光 / jet・water・curtain = ふんすい / swing = ブランコ
  */
-export type StructKind = 'farm' | 'well' | 'tower' | 'cradle' | 'wall' | 'castle' | 'bridge' | 'fountain' | 'windmill' | 'lighthouse' | 'market' | 'playground' | 'fort' | 'crate'
+export type StructKind = 'farm' | 'well' | 'tower' | 'cradle' | 'wall' | 'castle' | 'bridge' | 'fountain' | 'windmill' | 'lighthouse' | 'market' | 'playground' | 'fort' | 'crate' | 'diner'
 
 export interface StructSpec {
   name: string
@@ -43,6 +43,8 @@ export const STRUCTS: Record<StructKind, StructSpec> = {
   fort: { name: 'いしのとりで', need: 12, hp: 200, r: 1.1, score: 3, max: 2, foot: 1.5 },
   // 発注した 置き物の 組み立て場（できあがると 置き物に かわる。Struct.item）
   crate: { name: 'くみたてば', need: 2, hp: 20, r: 0, score: 0, max: 99, foot: 0.6 },
+  // ごはんや：たべものを ためて、ごはんがかりが くばる（村が 育つと 住民が 自分で 計画する）
+  diner: { name: 'ごはんや', need: 6, hp: 60, r: 0.85, score: 1.5, max: 1, foot: 1.2 },
 }
 
 /**
@@ -64,6 +66,7 @@ export const STRUCT_H: Record<StructKind, [number, number, number]> = {
   playground: [1.0, 1.7, 1.6],
   fort: [2.2, 3.0, 2.9],
   crate: [0.6, 1.0, 1.0],
+  diner: [1.6, 2.0, 1.9],
 }
 
 /** 家と 同じく 1.5 倍（へい・はしは 長さが 決まっているので そのまま）。当たり判定・場所の 広さ・高さに 掛ける */
@@ -161,6 +164,40 @@ export function buildStructModel(kind: StructKind, ctx: ModelCtx, len = 3): THRE
   const dark = ctx.lam('#3d2a1e')
   const roof = ctx.lam(ctx.style.roof)
   switch (kind) {
+    case 'diner': {
+      // ごはんや：木の 小屋に わらぶきの 屋根・手前に 大なべの かまど・外の テーブル・ぶらさがる 看板（おわんの 絵）
+      g.add(box(1.5, 0.08, 1.2, stone, 0, 0.04, 0))
+      g.add(box(1.2, 0.8, 0.8, wood, 0, 0.48, -0.15))
+      for (const x of [-0.6, 0.6]) for (const z of [-0.55, 0.25]) g.add(box(0.09, 0.86, 0.09, dark, x, 0.47, z))
+      g.add(box(1.26, 0.07, 0.07, dark, 0, 0.88, 0.25))
+      const rf = cone(1.05, 0.6, 4, roof, 0, 1.18, -0.15)
+      rf.rotation.y = Math.PI / 4
+      rf.scale.set(1, 1, 0.78)
+      g.add(rf)
+      g.add(snowCap(ctx, 1.05, 0.6, 1.18, 4, 0, -0.15, Math.PI / 4))
+      // 入口と まど（夜に 光る）
+      g.add(box(0.3, 0.5, 0.04, dark, -0.25, 0.33, 0.26))
+      g.add(lit(ctx, 0.26, 0.18, 0.04, 0.3, 0.6, 0.26))
+      // かまどと 大なべ（ゆげ = chimney）
+      g.add(box(0.46, 0.28, 0.4, stone, 0.38, 0.22, 0.5))
+      g.add(cyl(0.2, 0.15, 0.16, 8, ctx.lam('#3a3a40'), 0.38, 0.44, 0.5))
+      g.add(cyl(0.17, 0.17, 0.02, 8, ctx.basic('#ffb45a'), 0.38, 0.52, 0.5))
+      const steam = box(0.06, 0.06, 0.06, dark, 0.38, 0.56, 0.5)
+      steam.name = 'chimney'
+      g.add(steam)
+      // そとの テーブルと たる
+      g.add(cyl(0.22, 0.22, 0.05, 8, wood, -0.42, 0.34, 0.55))
+      g.add(cyl(0.05, 0.06, 0.32, 5, dark, -0.42, 0.16, 0.55))
+      g.add(new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 4), ctx.basic('#ff8a5a')).translateX(-0.45).translateY(0.42).translateZ(0.55))
+      g.add(cyl(0.13, 0.13, 0.3, 7, wood, 0.72, 0.15, -0.5))
+      // 看板（うで木から さがる おわん）
+      g.add(box(0.5, 0.04, 0.04, dark, -0.78, 0.86, 0.25))
+      const sign = box(0.3, 0.24, 0.04, ctx.lam(ctx.style.accent), -0.92, 0.68, 0.25)
+      sign.name = 'flag'
+      g.add(sign)
+      g.add(cyl(0.08, 0.05, 0.05, 6, ctx.basic('#fff2d0'), -0.92, 0.68, 0.28).rotateX(Math.PI / 2))
+      break
+    }
     case 'crate': {
       // 木箱と つつみ（なわで しばってある）
       g.add(box(0.5, 0.4, 0.5, wood, 0, 0.2, 0))

@@ -10,7 +10,8 @@ import { SHOP } from '../shop'
 import { MissionBook, isSeason, sanitizeStats } from '../../missions'
 import { backfill, loadRoad, newRoad, saveRoad } from '../../roadmap'
 import type { World } from '../World'
-import { type TownRing, Creature, House, LIFESPAN, FRIEND_LIFE, MAX_ORDERS, newLife, isSpecies, num, SAVE_KEY, houseLevel } from '../World'
+import { type TownRing, type PetPlan, PET_PLANS, Creature, House, LIFESPAN, FRIEND_LIFE, MAX_ORDERS, newLife, isSpecies, num, SAVE_KEY, houseLevel } from '../World'
+import { DINER_MAX } from './village'
 
 export function save(this: World) {
   if (!this.pet || this.saveLocked) return
@@ -28,12 +29,13 @@ export function save(this: World) {
     friends: friends.map(c2),
     houses: this.houses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, ownerSp: h.ownerSp, owner: ownerKey(h), mats: h.mats, hp: Math.round(h.hp), era: h.era, age: Math.round(h.age) })),
     eraPath: this.eraPath,
+    petPlan: this.petPlan,
     world: this.worldMode || undefined,
     townWalls: this.townWalls,
     foeHouses: this.foeHouses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, mats: h.mats, hp: Math.round(h.hp), era: h.era, age: Math.round(h.age) })),
     foeWalls: this.foeWalls,
     foePath: this.foePath,
-    structs: this.structs.map((b) => ({ kind: b.kind, stage: b.stage, x: b.x, z: b.z, rot: b.rot, len: b.len, mats: b.mats, hp: Math.round(b.hp), item: b.item, ordered: b.ordered || undefined })),
+    structs: this.structs.map((b) => ({ kind: b.kind, stage: b.stage, x: b.x, z: b.z, rot: b.rot, len: b.len, mats: b.mats, hp: Math.round(b.hp), item: b.item, ordered: b.ordered || undefined, stock: b.stock || undefined })),
     orders: this.orders,
     items: this.items.map((it) => ({ kind: it.kind, stage: it.stage, x: it.x, z: it.z, grow: it.grow, rot: it.rot })),
     eggs: this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild, lucky: e.lucky, deco: e.deco, luck: e.luck })),
@@ -131,9 +133,10 @@ export function load(this: World): boolean {
     this.foePath = {}
     if (d.foePath && typeof d.foePath === 'object') for (const [k, v] of Object.entries(d.foePath as Record<string, unknown>)) if ((v === 'white' || v === 'steam') && Number.isInteger(+k) && +k >= 0 && +k < STAGES.length) this.foePath[+k] = v
     // 町の 枝（white / steam だけ）
+    this.petPlan = PET_PLANS.includes(d.petPlan as PetPlan) ? (d.petPlan as PetPlan) : 'auto'
     this.eraPath = {}
     if (d.eraPath && typeof d.eraPath === 'object') for (const [k, v] of Object.entries(d.eraPath as Record<string, unknown>)) if ((v === 'white' || v === 'steam') && Number.isInteger(+k) && +k >= 0 && +k < STAGES.length) this.eraPath[+k] = v
-    type SavedStruct = { kind: unknown; stage: number; x: number; z: number; rot: number; len: number; mats: number; hp: number; item?: unknown; ordered?: unknown }
+    type SavedStruct = { kind: unknown; stage: number; x: number; z: number; rot: number; len: number; mats: number; hp: number; item?: unknown; ordered?: unknown; stock?: unknown }
     this.structs = ((Array.isArray(d.structs) ? d.structs : []) as SavedStruct[])
       .filter((b) => b && isStructKind(b.kind) && (b.kind !== 'crate' || isItemKind(b.item)))
       .slice(0, 60)
@@ -142,7 +145,7 @@ export function load(this: World): boolean {
         return {
           kind, stage: Math.round(num(b.stage, 0, STAGES.length - 1)), x: num(b.x, -HALF, HALF), z: num(b.z, -HALF, HALF), rot: num(b.rot, -7, 7, 0),
           len: num(b.len, 0, 12, 0), mats: Math.round(num(b.mats, 0, STRUCTS[kind].need)), hp: num(b.hp, 0, 999, STRUCTS[kind].hp), mesh: null, shake: 0, q: -1, t: 0, alerted: 0,
-          item: kind === 'crate' ? (b.item as ItemKind) : undefined, ordered: b.ordered === true || undefined,
+          item: kind === 'crate' ? (b.item as ItemKind) : undefined, ordered: b.ordered === true || undefined, stock: kind === 'diner' ? Math.round(num(b.stock, 0, DINER_MAX, 0)) : undefined,
         }
       })
     // ちゅうもんの列：ショップに ある品（せっけいず・おきもの）だけ

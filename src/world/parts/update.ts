@@ -7,7 +7,8 @@ import { SpriteAnim } from '../sprites'
 import { SPECIES, enemyFor, type Face } from '../monsters'
 import { HALF, SIZE, STAGES } from '../stages'
 import { STRUCTS } from '../structures'
-import { slidePath } from '../items'
+import { ITEM_SPEC, slidePath } from '../items'
+import { DINER_MAX } from './village'
 import { SHOP, catIndexes, catOf, shopTap } from '../shop'
 import type { World } from '../World'
 import { Creature, FOODS, CARE_NAME, FX_SHEETS, CAM_OFF, HOUSE_STEPS, MAX_FRIENDS } from '../World'
@@ -481,6 +482,30 @@ export function updateCreature(this: World, c: Creature, dt: number) {
     case 'build': {
       // 建設現場か自分の家まで運んで、組み立てる
       anim = 'walk'
+      // いしく：へいの 区切りの 内がわまで 運んで つむ
+      const ring = c.wallRing
+      if (ring) {
+        const spot = c.t > 0 && (this.townWalls[this.stageIndex] ?? []).includes(ring) ? this.wallSpot(ring) : null
+        if (!spot) {
+          c.wallRing = null
+          this.dropCarry(c, true)
+          this.setState(c, 'idle', 0.5)
+          break
+        }
+        if (this.moveTo(c, spot.x, spot.z, sp.speed * 0.9, dt) < 0.6) {
+          c.finish = () => {
+            this.dropCarry(c, false)
+            c.wallRing = null
+            this.layWall(ring, 2)
+            this.addCare(c, 'guard', 1)
+            this.gainXp(c, 2)
+            if (c === this.pet) this.say(`${sp.name}は へいを つんだ まもり+1`)
+            this.setState(c, 'happy', 0.8)
+          }
+          this.setState(c, 'work', 1.3)
+        }
+        break
+      }
       const site = c.site && this.structs.includes(c.site) && c.site.mats < STRUCTS[c.site.kind].need ? c.site : null
       const h = site ? null : this.homeOf(c)
       if ((!site && !h) || c.t <= 0) {
@@ -521,6 +546,101 @@ export function updateCreature(this: World, c: Creature, dt: number) {
           this.setState(c, 'happy', 0.8)
         }
         this.setState(c, 'work', 1.1)
+      }
+      break
+    }
+    case 'deliver': {
+      // ごはんがかり：たべものを ひろって 頭に のせ、あいてに とどける（あいてが いなければ ごはんやへ）
+      anim = 'walk'
+      const f = c.meal
+      const dn = this.doneStruct('diner', c.x, c.z)
+      if (!f || !this.foods.includes(f) || c.t <= 0) {
+        if (f && this.foods.includes(f)) {
+          f.taken = null
+          f.landed = false
+        }
+        c.meal = null
+        c.mealTo = null
+        this.setState(c, 'idle', 0.5)
+        break
+      }
+      if (!c.mealHeld) {
+        if (this.moveTo(c, f.x, f.z, sp.speed, dt) < 0.5) c.mealHeld = true
+        break
+      }
+      f.x = c.x
+      f.z = c.z
+      f.y = this.ground(c) + this.size(c) + 0.25
+      const busy = (o: Creature) => o.state === 'eat' || o.state === 'fight' || o.state === 'hunt' || o.state === 'assist' || o.state === 'sleep' || o.state === 'dead' || o.state === 'faint'
+      const to = c.mealTo && this.alive(c.mealTo) && c.mealTo.hunger < 75 && !busy(c.mealTo) ? c.mealTo : null
+      if (to) {
+        if (this.moveTo(c, to.x, to.z, sp.speed * 1.1, dt, true) < 0.9) {
+          // てわたし：あいての 前に おいて、すぐ 食べはじめる
+          f.x = (c.x + to.x) / 2
+          f.z = (c.z + to.z) / 2
+          f.y = this.stage.heightAt(f.x, f.z) + 0.16
+          if (to.food && to.food !== f && this.foods.includes(to.food)) to.food.taken = null
+          f.taken = to
+          to.food = f
+          this.setState(to, 'eat', 2.2)
+          this.popups.push({ pos: new THREE.Vector3(c.x, this.ground(c) + this.size(c) + 0.3, c.z), text: 'どうぞ！', color: '#ffd0a0', t: 0 })
+          this.gainXp(c, 1)
+          this.addCare(c, 'spirit', 1)
+          c.meal = null
+          c.mealTo = null
+          this.setState(c, 'happy', 0.8)
+        }
+        break
+      }
+      if (!dn) {
+        f.taken = null
+        f.landed = false
+        c.meal = null
+        this.setState(c, 'idle', 0.5)
+        break
+      }
+      if (this.moveTo(c, dn.x, dn.z + STRUCTS.diner.r + 0.5, sp.speed, dt) < 0.6) {
+        if ((dn.stock ?? 0) < DINER_MAX) {
+          // りょうりして 2 にんぶんに する
+          dn.stock = Math.min(DINER_MAX, (dn.stock ?? 0) + 2)
+          this.removeFood(f)
+          this.popups.push({ pos: new THREE.Vector3(dn.x, this.ground(c) + 1.6, dn.z), text: 'りょうり +2', color: '#ffd0a0', t: 0 })
+          this.burst(dn.x, this.ground(c) + 1, dn.z, 'spark', 3, 1.2)
+        } else {
+          f.taken = null
+          f.landed = false
+        }
+        c.meal = null
+        c.mealTo = null
+        this.setState(c, 'happy', 0.6)
+      }
+      break
+    }
+    case 'plant': {
+      // なえ・はなだんを うえる / なえに 水を やる
+      anim = 'walk'
+      const at = c.plantAt
+      if (!at || c.t <= 0 || (at.water && !this.items.includes(at.water))) {
+        c.plantAt = null
+        this.setState(c, 'idle', 0.5)
+        break
+      }
+      if (this.moveTo(c, at.x, at.z, sp.speed, dt, true) < 0.6) {
+        c.finish = () => {
+          c.plantAt = null
+          if (at.water) {
+            at.water.grow = Math.min(1, at.water.grow + 0.25)
+            this.burst(at.water.x, this.ground(c) + 0.6, at.water.z, 'heart', 2, 1)
+            this.say(`${sp.name}は なえに みずを やった`)
+          } else if (this.items.filter((it) => it.stage === this.stageIndex && it.kind === at.kind).length < ITEM_SPEC[at.kind].max) {
+            this.placeItem(at.kind, { x: at.x, z: at.z })
+            this.say(`${sp.name}は ${at.kind === 'sapling' ? 'なえを うえた' : 'はなだんを つくった'}`)
+          }
+          this.addCare(c, 'spirit', 1)
+          this.gainXp(c, 2)
+          this.setState(c, 'happy', 0.8)
+        }
+        this.setState(c, 'work', 1.4)
       }
       break
     }
@@ -772,7 +892,7 @@ export function updateCreature(this: World, c: Creature, dt: number) {
   if (c.pj > 0 && c.jy === 0) c.squash = 0.2
   c.pj = c.jy
   c.squash = Math.max(0, c.squash - dt * 1.6)
-  const walking = c.state === 'wander' || c.state === 'hunt' || c.state === 'seek' || c.state === 'gather' || c.state === 'build' || c.state === 'raid' || c.state === 'march' || c.state === 'come' || c.state === 'assist' || c.state === 'rest'
+  const walking = c.state === 'deliver' || c.state === 'plant' || c.state === 'wander' || c.state === 'hunt' || c.state === 'seek' || c.state === 'gather' || c.state === 'build' || c.state === 'raid' || c.state === 'march' || c.state === 'come' || c.state === 'assist' || c.state === 'rest'
   const wp = this.time * (7 + sp.speed * 2.2) + c.phase
   let sx = 1
   let sy = 1
