@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { Tex } from './textures'
-import { STAGES, SIZE, base, edge, setEdgeOff, setLandSize, smooth, terrain } from './stages'
+import { STAGES, SIZE, base, edge, lambert, setEdgeOff, setLandSize, smooth, terrain } from './stages'
+import { waterSurface } from './fxprops'
+import { rng } from './textures'
 import type { FoodSpot, Obstacle, Stage } from './stages'
 
 /**
@@ -11,12 +13,102 @@ import type { FoodSpot, Obstacle, Stage } from './stages'
  */
 export const TILE = 40
 /** 北 → 南・西 → 東 の ならび（-1 = 城の丘 / -2 = 浅瀬） */
+// 2026-11-15：西（左）の まんなかを 森（味方の 町が 始まる）・まんなかは 何もない 丘（戦場）・右上の いせきに 敵の 町・南東は 海
 const LAYOUT = [
   [3, 4, 6],
-  [-1, 0, 5],
+  [0, -1, 5],
   [2, 1, -2],
 ]
+/** 海の 地方（ここの 外がわは 山で なく 海が 世界の ふちまで つづく） */
+const SEA = -2
 export const WORLD_SIZE = TILE * 3
+
+/**
+ * 海の 地方：ひろい 海に 砂の 小島と 岩・難破船・ブイ・海の 上の さんご。水は 0.3 より 低い 所（地面が 水を かくす）。
+ * 当たり判定は 低い 所に 水の 丸を ならべる（浮く 子だけ 入れる）
+ */
+function seaTile(): Stage {
+  const isles: [number, number, number, number][] = [[-9, -8, 4.2, 1.3], [8, -10, 3.0, 1.0], [-2, 6, 3.6, 1.2], [11, 9, 2.6, 0.9], [-12, 11, 2.2, 0.7]]
+  const heightAt = (x: number, z: number) => {
+    let h = 0.16 + Math.sin(x * 0.4) * Math.sin(z * 0.37) * 0.04
+    for (const [ix, iz, r, hh] of isles) h = Math.max(h, 0.16 + hh * smooth(r, r * 0.35, Math.hypot(x - ix, z - iz)) + Math.sin(x * 1.3 + z) * 0.05 * smooth(r, 0, Math.hypot(x - ix, z - iz)))
+    return h
+  }
+  const group = new THREE.Group()
+  group.add(terrain(heightAt, Tex.beach(), ['#ffffff', '#ffeccc'], true, { snowLine: Infinity }), base('sand'))
+  // 海の 面（となりの 地方へ すこし はみ出す：陸が 高い 所では 地面に かくれる）
+  // 海は 南東の すみ：西と 北へ だけ はみ出す（世界の 外へは 出さない）
+  const sea = new THREE.Mesh(new THREE.PlaneGeometry(TILE + 8, TILE + 8, 8, 8).rotateX(-Math.PI / 2), waterSurface({ deep: '#1468b8', shallow: '#4fd0e0' }))
+  sea.position.set(-4, 0.3, -4)
+  group.add(sea)
+  const obstacles: Obstacle[] = []
+  for (let z = -TILE / 2 + 0.8; z < TILE / 2; z += 1.6) for (let x = -TILE / 2 + 0.8; x < TILE / 2; x += 1.6) if (heightAt(x, z) < 0.29) obstacles.push({ x, z, r: 1.05, water: true })
+  const r = rng(808)
+  // 岩・海の さんご・ブイ・難破船
+  const rockM = lambert('#7a8290')
+  for (let i = 0; i < 14; i++) {
+    const s = 0.4 + r() * 0.9
+    const m = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), rockM)
+    m.position.set((r() - 0.5) * (TILE - 4), 0.2 + s * 0.3, (r() - 0.5) * (TILE - 4))
+    m.rotation.set(r() * 3, r() * 3, r() * 3)
+    m.scale.y = 0.6 + r() * 0.8
+    group.add(m)
+  }
+  const coralC = ['#ff7aa8', '#ff9f43', '#b48cff', '#5fe0c0']
+  for (let i = 0; i < 18; i++) {
+    const cx = (r() - 0.5) * (TILE - 4)
+    const cz = (r() - 0.5) * (TILE - 4)
+    if (heightAt(cx, cz) > 0.29) continue
+    const mat = lambert(coralC[i % 4])
+    for (let k = 0; k < 3; k++) {
+      const hgt = 0.25 + r() * 0.35
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.07, hgt, 5), mat)
+      b.position.set(cx + (r() - 0.5) * 0.4, 0.2 + hgt / 2, cz + (r() - 0.5) * 0.4)
+      b.rotation.set((r() - 0.5) * 0.8, 0, (r() - 0.5) * 0.8)
+      group.add(b)
+    }
+  }
+  const buoys: THREE.Group[] = []
+  for (const [x, z, c] of [[3, -2, '#ff4d6d'], [-6, 2, '#ffd23f'], [12, 2, '#ff4d6d']] as const) {
+    const b = new THREE.Group()
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 0.5, 8), lambert(c))
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), new THREE.MeshBasicMaterial({ color: '#5ef2ff' }))
+    lamp.position.y = 0.36
+    b.add(body, lamp)
+    b.position.set(x, 0.4, z)
+    group.add(b)
+    buoys.push(b)
+  }
+  const wood = lambert('#7a4e2d')
+  const ship = new THREE.Group()
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.7, 1.2), wood)
+  hull.position.y = 0.3
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.6, 5), wood)
+  mast.position.set(0.3, 1.4, 0)
+  mast.rotation.z = 0.5
+  const sail = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.0, 1.2), lambert('#d8ccb0'))
+  sail.position.set(0.7, 1.7, 0)
+  sail.rotation.z = 0.5
+  ship.add(hull, mast, sail)
+  ship.position.set(6, 0.05, 12)
+  ship.rotation.set(0.15, 0.6, 0.25)
+  group.add(ship)
+  obstacles.push({ x: 6, z: 12, r: 1.6 })
+  return {
+    id: 0, name: '', sub: '', group, heightAt, obstacles, foodSpots: [],
+    food: { name: '', color: '#fff', leaf: '#fff' }, residents: [],
+    fog: '#fff', sky: ['#fff', '#fff', '#fff'], sun: { color: '#fff', intensity: 1, dir: [0, 1, 0] }, hemi: ['#fff', '#fff', 1],
+    update(t) {
+      buoys.forEach((b, i) => {
+        b.position.y = 0.4 + Math.sin(t * 1.6 + i) * 0.06
+        b.rotation.z = Math.sin(t * 1.1 + i) * 0.12
+      })
+    },
+    dispose() {
+      group.traverse((o) => (o as THREE.Mesh).geometry?.dispose())
+    },
+  }
+}
 
 /** 新しい地方：なだらかな 草の丘（町が育つ所）/ 砂の浅瀬 */
 function plainTile(kind: 'hill' | 'shoal'): Stage {
@@ -45,7 +137,7 @@ export function buildWorldMap(): Stage {
   for (let j = 0; j < 3; j++)
     for (let i = 0; i < 3; i++) {
       const n = LAYOUT[j][i]
-      const s = n === -1 ? plainTile('hill') : n === -2 ? plainTile('shoal') : STAGES[n]()
+      const s = n === -1 ? plainTile('hill') : n === SEA ? seaTile() : STAGES[n]()
       tiles.push({ s, ox: (i - 1) * TILE, oz: (j - 1) * TILE })
     }
   setLandSize(WORLD_SIZE)
@@ -85,6 +177,14 @@ export function buildWorldMap(): Stage {
       setEdgeOff(false)
     }
   }
+  // 海の 地方の 重み（そばでは 外がわの 山を 消す）
+  const seaW = (x: number, z: number) => {
+    let w = 0
+    tiles.forEach((t, i) => {
+      if (LAYOUT[Math.floor(i / 3)][i % 3] === SEA) w = Math.max(w, smooth(10, -4, Math.max(Math.abs(x - t.ox), Math.abs(z - t.oz)) - TILE / 2))
+    })
+    return w
+  }
   const heightAt = (x: number, z: number) => {
     let sum = 0
     let wsum = 0
@@ -95,8 +195,15 @@ export function buildWorldMap(): Stage {
       wsum += w
     }
     const h = wsum ? sum / wsum : 0.3
-    // 世界の いちばん 外がわだけ 下げる
-    return Math.max(0.24, 0.3 + (h - 0.3) * smooth(WORLD_SIZE / 2, WORLD_SIZE / 2 - 2.5, Math.max(Math.abs(x), Math.abs(z))))
+    // 世界の いちばん 外がわは のぼれない 山なみ（ふちまで のぼりつづける = てっぺんに 平らな所を 作らない）。海の 地方の そばは 海の まま
+    const rim = WORLD_SIZE / 2 - Math.max(Math.abs(x), Math.abs(z))
+    const sea = seaW(x, z)
+    if (rim < 15 && sea < 0.99) {
+      const t = Math.max(0, (15 - rim) / 15)
+      const ridge = Math.abs(Math.sin(x * 0.11 + 0.7) + 0.6 * Math.sin(z * 0.17 + x * 0.05) + 0.45 * Math.sin((x + z) * 0.29))
+      return Math.max(h, 0.3 + (6 + 16 * Math.pow(ridge / 2.05, 1.3)) * Math.pow(t, 1.5) * (1 - sea))
+    }
+    return Math.max(0.24, h)
   }
   // 面の もちぬし：重み + 升目ごとの ゆらぎ で いちばん 大きい 地方
   const jit = (x: number, z: number) => {
@@ -118,6 +225,7 @@ export function buildWorldMap(): Stage {
   // 地方ごとの 岩の 色と 雪の 高さ（stages.ts の 値と そろえる）
   const ROCK: Record<number, [string, string] | undefined> = { 1: ['#f0b48a', '#d89470'], 2: ['#e6c9a4', '#c4a07c'], 3: ['#b4c2d8', '#8c9cb8'], 4: ['#8fa8cc', '#6a84b0'], 5: ['#4a4250', '#332c3a'], 6: ['#93a694', '#6f8474'] }
   const SNOW: Record<number, number> = { 1: Infinity, 2: Infinity, 3: 4.5, 4: 5, 5: Infinity, 6: Infinity }
+  const grounds: (THREE.Object3D | null)[] = tiles.map(() => null)
   tiles.forEach((t, ti) => {
     const n = LAYOUT[Math.floor(ti / 3)][ti % 3]
     // 地方の 地面・土台・空を はずし、地面だけ 世界の 高さで 作りなおす
@@ -163,6 +271,7 @@ export function buildWorldMap(): Stage {
       area: { cx: t.ox, cz: t.oz, size: TILE + BLEND * 2, keep: (x, z) => owner(x, z) === ti && Math.abs(x) < WORLD_SIZE / 2 && Math.abs(z) < WORLD_SIZE / 2 },
     })
     group.add(ground)
+    grounds[ti] = ground
     // さかいめの 近くの 小物は 新しい 高さに のせなおす
     for (const c of t.s.group.children) {
       if (c.userData.backdrop) continue
@@ -176,9 +285,28 @@ export function buildWorldMap(): Stage {
   // 世界の 土台（1 つの 箱）
   const box = base('grass')
   group.add(box)
-  const home = tiles[4].s
+  // 味方は 森の はじまりの 場所から、敵は 右上の いせきの まんなかで 町を そだてる
+  const forest = tiles.find((_t, i) => LAYOUT[Math.floor(i / 3)][i % 3] === 0)!
+  const ruins = tiles.find((_t, i) => LAYOUT[Math.floor(i / 3)][i % 3] === 6)!
+  const fst = forest.s.start ?? { x: 0, z: 0 }
+  const start = { x: fst.x + forest.ox, z: fst.z + forest.oz }
+  const foeStart = { x: ruins.ox + 1.2, z: ruins.oz + 1.2 }
+  const home = forest.s
   return {
-    id: 0, name: 'ひとつづきの世界', sub: 'ONE WORLD (PROTOTYPE)', group, heightAt, obstacles, foodSpots, treasures,
+    id: 0, name: 'ひとつづきの世界', sub: 'ONE WORLD (PROTOTYPE)', group, heightAt, obstacles, foodSpots, treasures, start, foeStart,
+    /**
+     * 読みこみ範囲（重さ対策）：見ている 所から 遠い 地方は 描かない。近くは 今の 見た目の まま。
+     * 地方の 小物の 箱と 地面を、見える 範囲 r に かからなければ かくす
+     */
+    cull(x: number, z: number, r: number) {
+      tiles.forEach((t, i) => {
+        const dx = Math.max(0, Math.abs(x - t.ox) - TILE / 2 - BLEND)
+        const dz = Math.max(0, Math.abs(z - t.oz) - TILE / 2 - BLEND)
+        const vis = Math.hypot(dx, dz) < r
+        t.s.group.visible = vis
+        if (grounds[i]) grounds[i]!.visible = vis
+      })
+    },
     food: home.food, residents: home.residents, fog: home.fog, sky: home.sky, sun: home.sun, hemi: home.hemi,
     fogRange: [30, 90],
     update(t, night) {

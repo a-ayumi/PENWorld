@@ -50,6 +50,8 @@ export interface Stage {
   start?: { x: number; z: number }
   /** 敵の 町が 育つ 場所（計画 B6）。無ければ 敵の 町は 無い */
   foeStart?: { x: number; z: number }
+  /** 読みこみ範囲（ひとつづきの 世界）：見ている 所 x, z から r より 遠い 所を かくす */
+  cull?(x: number, z: number, r: number): void
   /** 夜のヤミカゲの数の上限（既定 2） */
   shadows?: number
   update(t: number, night: number): void
@@ -928,6 +930,8 @@ function coralCove(): Stage {
     let h = 0.36 + (dune + Math.sin(x * 0.4 + 1) * Math.cos(z * 0.33) * 0.22 + Math.sin(z * 0.8) * 0.06 + 0.1) * edge(wx, wz)
     h = THREE.MathUtils.lerp(0.4, h, smooth(3.0, 5.0, Math.hypot(x, z - 0.4)))
     for (const p of pools) h = THREE.MathUtils.lerp(0.24, h, smooth(p.r - 0.3, p.r + 1.0, Math.hypot(wx - p.x, wz - p.z)))
+    // 南の ふちは 海（砂浜から 遠浅に 下がる。がけの 高台より 前で）
+    h = THREE.MathUtils.lerp(h, 0.16, smooth(5.6, 7.4, z + Math.sin(x * 0.7) * 0.5))
     h = Math.max(h, head(x, z) + 0.26)
     // 海の岩の塔（ラグーンの中・のぼれない）
     h = Math.max(h, 6.5 * Math.pow(smooth(1.1, 0, Math.hypot(x - STACK.x, z - STACK.z)), 1.4))
@@ -938,9 +942,9 @@ function coralCove(): Stage {
   const obstacles: Obstacle[] = pools.map((p) => ({ x: p.x, z: p.z, r: p.r - 0.25, water: true }))
   const foodSpots: FoodSpot[] = []
   // たからばこ：がけの 高台の上・みさきの先・船の うら
-  const BOAT = { x: -5.8 * k, z: 6.0 * k }
+  const BOAT = { x: -5.4 * k, z: 4.4 * k }
   const treasures: { x: number; z: number; mesh: THREE.Object3D }[] = []
-  for (const [ux, uz] of [[HEAD.x - 0.5, HEAD.z - 0.3], [3.0, -8.2], [-7.4, 7.0]]) {
+  for (const [ux, uz] of [[HEAD.x - 0.5, HEAD.z - 0.3], [3.0, -8.2], [-7.8, 3.4]]) {
     const tx = THREE.MathUtils.clamp(ux * k, -HALF + 0.8, HALF - 0.8)
     const tz = THREE.MathUtils.clamp(uz * k, -HALF + 0.8, HALF - 0.8)
     const ch = chestModel()
@@ -950,6 +954,11 @@ function coralCove(): Stage {
     treasures.push({ x: tx, z: tz, mesh: ch })
     obstacles.push({ x: tx, z: tz, r: 0.3 })
   }
+  // 南の 海：水の 面と、低い 所の 水の 当たり判定
+  const sea = new THREE.Mesh(new THREE.PlaneGeometry(SIZE, 4.6 * k, 8, 4).rotateX(-Math.PI / 2), waterSurface({ deep: '#1468b8', shallow: '#4fd0e0' }))
+  sea.position.set(0, 0.3, (10 - 2.3) * k)
+  group.add(sea)
+  for (let z = 5.4 * k; z < HALF; z += 1.6) for (let x = -HALF + 0.6; x < HALF; x += 1.6) if (heightAt(x, z) < 0.29) obstacles.push({ x, z, r: 1.05, water: true })
   const put = placer(51, obstacles, [{ x: (HEAD.x + HEAD.r + 1.6) * k, z: HEAD.z * k, r: 1.6 * k }, { x: 3.2 * k, z: -6.6 * k, r: 1.2 * k }], heightAt)
 
   const water = waterSurface({ deep: '#1d7fd1', shallow: '#5fe0e8' })
