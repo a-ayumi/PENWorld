@@ -7,7 +7,7 @@ import { SpriteAnim, iconSheet } from './sprites'
 import { EGG_COLORS, NEW_SKILLS, SPECIES, enemyFor, newSeed, type Care, type EggKind, type MonsterView, type Species, type SpeciesId } from './monsters'
 import { WeatherFx, fxLod } from './fxprops'
 import { SIZE, STAGES, type Stage } from './stages'
-import { buildWorldMap } from './worldmap'
+import { buildWorldMap, worldForest } from './worldmap'
 import type { EraPath } from './eras'
 import { BABY } from './families'
 import { type StructKind } from './structures'
@@ -448,6 +448,7 @@ export class World {
   removeFood = Vi.removeFood
   lam = Vi.lam
   addOrder = Vi.addOrder
+  worldForest = worldForest
   townEra = Vi.townEra
   houseWear = Vi.houseWear
   updateTownEra = Vi.updateTownEra
@@ -831,10 +832,9 @@ export class World {
     this.scene.add(this.wfx.group)
     this.scene.add(this.skyfx.group)
     syncSeasonShop(this.season)
-    // `?world=1`：ひとつづきの世界の 見本（計画 C）。セーブは 読まない・書かない
-    this.worldMode = typeof location !== 'undefined' && new URLSearchParams(location.search).has('world')
-    if (this.worldMode) this.saveLocked = true
-    if (this.worldMode || !this.load()) {
+    // 2026-11-15：大きな 世界（ひとつづきの 9 地方）が 本番。`?single=1` で 昔の 1 まいずつの ステージ
+    this.worldMode = !(typeof location !== 'undefined' && new URLSearchParams(location.search).has('single'))
+    if (!this.load()) {
       this.loadStage(0)
       const st = this.stage.start ?? { x: 0, z: 0 }
       this.pet = this.spawn('mebu', 'pet', st.x, st.z + 1.5)

@@ -149,12 +149,13 @@ function volcano(): Stage {
   //  北〜東 = 火山の ふもとから 東のふちへ ながれる 溶岩の川（わたれる 岩の 浅瀬が 1 つ。むこう岸に たからばこ）
   //  南東 = 大きな 溶岩の湖 / 南西 = 玄武岩の 台地（東の坂・上に たからばこ）/ まんなか = 村のための 平らな所
   const k = SIZE / 20
-  const CONE = { x: -5.6, z: -5.6, R: 4.2, H: 8.5 * Math.sqrt(k) }
+  // 2026-11-15：ふもとを 広く・どっしり（もとは R 4.2 で 細かった）
+  const CONE = { x: -5.2, z: -5.2, R: 6.2, H: 8.5 * Math.sqrt(k) }
   const MESA = { x: -5.6, z: 4.8, r: 2.2, h: 2.2 }
   const crater = { x: CONE.x * k, z: CONE.z * k }
   const pools: LavaPool[] = [{ x: 5.8 * k, z: 5.2 * k, r: 2.0 * k, crust: 1 }]
   // 川：折れ線に そって 丸を つなぐ。浅瀬（FORD）の所だけ あける
-  const RIVER: [number, number][] = [[-2.2, -6.9], [0, -6.7], [2.4, -6.2], [4.6, -5.2], [6.3, -3.5], [7.4, -1.4], [8.6, 0.4], [10, 1.8]]
+  const RIVER: [number, number][] = [[1.4, -6.7], [2.4, -6.2], [4.6, -5.2], [6.3, -3.5], [7.4, -1.4], [8.6, 0.4], [10, 1.8]]
   const FORD = { x: 5.5, z: -4.4 }
   const riverR = 0.7 * k
   for (let i = 0; i < RIVER.length - 1; i++) {
@@ -189,7 +190,7 @@ function volcano(): Stage {
     h = Math.max(h, mesa(x, z) + 0.26)
     // 火山：ふもとは なだらか・上は 崖。てっぺんは 火口（溶岩の 障害物で ふさぐ）
     const d = Math.hypot(x - CONE.x, z - CONE.z)
-    h += CONE.H * Math.pow(smooth(CONE.R, 0.9, d), 1.25) - 1.8 * smooth(0.9, 0.3, d)
+    h += CONE.H * Math.pow(smooth(CONE.R, 1.2, d), 0.9) - 2.0 * smooth(1.2, 0.4, d)
     return Math.max(0.24, h)
   }
 

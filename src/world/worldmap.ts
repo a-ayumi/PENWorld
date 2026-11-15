@@ -14,23 +14,32 @@ import type { FoodSpot, Obstacle, Stage } from './stages'
 export const TILE = 40
 /** 北 → 南・西 → 東 の ならび（-1 = 城の丘 / -2 = 浅瀬） */
 // 2026-11-15：西（左）の まんなかを 森（味方の 町が 始まる）・まんなかは 何もない 丘（戦場）・右上の いせきに 敵の 町・南東は 海
+// 2026-11-15（2）：左下（南西）の すみを 森（味方の スタート）・右上（北東）の いせきに 敵。砂浜の 2 つ（入り江・海）は 南に ならべる
 const LAYOUT = [
   [3, 4, 6],
-  [0, -1, 5],
-  [2, 1, -2],
+  [1, -1, 5],
+  [0, 2, -2],
 ]
 /** 海の 地方（ここの 外がわは 山で なく 海が 世界の ふちまで つづく） */
 const SEA = -2
 export const WORLD_SIZE = TILE * 3
+/** 大きな 世界の 森の 地方の まんなか（古い セーブの 森の 町を うつす 先の 目安） */
+export function worldForest() {
+  for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) if (LAYOUT[j][i] === 0) return { x: (i - 1) * TILE - 2, z: (j - 1) * TILE - 2 }
+  return { x: 0, z: 0 }
+}
 
 /**
  * 海の 地方：ひろい 海に 砂の 小島と 岩・難破船・ブイ・海の 上の さんご。水は 0.3 より 低い 所（地面が 水を かくす）。
  * 当たり判定は 低い 所に 水の 丸を ならべる（浮く 子だけ 入れる）
  */
 function seaTile(): Stage {
-  const isles: [number, number, number, number][] = [[-9, -8, 4.2, 1.3], [8, -10, 3.0, 1.0], [-2, 6, 3.6, 1.2], [11, 9, 2.6, 0.9], [-12, 11, 2.2, 0.7]]
+  const isles: [number, number, number, number][] = [[2, 0, 3.8, 1.2], [11, -6, 2.6, 0.9], [-2, 9, 3.0, 1.0], [12, 11, 2.4, 0.8]]
   const heightAt = (x: number, z: number) => {
     let h = 0.16 + Math.sin(x * 0.4) * Math.sin(z * 0.37) * 0.04
+    // 砂浜：陸（西と 北）の がわは 波打ちぎわから なだらかに 上がる
+    const shore = Math.max(smooth(-TILE / 2 + 11, -TILE / 2 + 3, x + Math.sin(z * 0.3) * 1.5), smooth(-TILE / 2 + 11, -TILE / 2 + 3, z + Math.sin(x * 0.27) * 1.5))
+    h = Math.max(h, 0.16 + shore * 0.55)
     for (const [ix, iz, r, hh] of isles) h = Math.max(h, 0.16 + hh * smooth(r, r * 0.35, Math.hypot(x - ix, z - iz)) + Math.sin(x * 1.3 + z) * 0.05 * smooth(r, 0, Math.hypot(x - ix, z - iz)))
     return h
   }
@@ -90,10 +99,10 @@ function seaTile(): Stage {
   sail.position.set(0.7, 1.7, 0)
   sail.rotation.z = 0.5
   ship.add(hull, mast, sail)
-  ship.position.set(6, 0.05, 12)
+  ship.position.set(7, 0.05, 6)
   ship.rotation.set(0.15, 0.6, 0.25)
   group.add(ship)
-  obstacles.push({ x: 6, z: 12, r: 1.6 })
+  obstacles.push({ x: 7, z: 6, r: 1.6 })
   return {
     id: 0, name: '', sub: '', group, heightAt, obstacles, foodSpots: [],
     food: { name: '', color: '#fff', leaf: '#fff' }, residents: [],
@@ -181,7 +190,9 @@ export function buildWorldMap(): Stage {
   const seaW = (x: number, z: number) => {
     let w = 0
     tiles.forEach((t, i) => {
-      if (LAYOUT[Math.floor(i / 3)][i % 3] === SEA) w = Math.max(w, smooth(10, -4, Math.max(Math.abs(x - t.ox), Math.abs(z - t.oz)) - TILE / 2))
+      // 海の 地方と、南に 海の ある さんごの入り江（2）の そばは 外の 山を 作らない
+      const n = LAYOUT[Math.floor(i / 3)][i % 3]
+      if (n === SEA || n === 2) w = Math.max(w, smooth(10, -4, Math.max(Math.abs(x - t.ox), Math.abs(z - t.oz)) - TILE / 2))
     })
     return w
   }
@@ -288,8 +299,15 @@ export function buildWorldMap(): Stage {
   // 味方は 森の はじまりの 場所から、敵は 右上の いせきの まんなかで 町を そだてる
   const forest = tiles.find((_t, i) => LAYOUT[Math.floor(i / 3)][i % 3] === 0)!
   const ruins = tiles.find((_t, i) => LAYOUT[Math.floor(i / 3)][i % 3] === 6)!
-  const fst = forest.s.start ?? { x: 0, z: 0 }
-  const start = { x: fst.x + forest.ox, z: fst.z + forest.oz }
+  // 森の 地方の 西がわ（外の 山なみに かからない 所）。まわりの 木と 岩は どける（町の 土地）
+  const start = { x: forest.ox - 2, z: forest.oz - 2 }
+  const CLEAR = 10
+  for (let i = obstacles.length - 1; i >= 0; i--) if (!obstacles[i].water && Math.hypot(obstacles[i].x - start.x, obstacles[i].z - start.z) < CLEAR) obstacles.splice(i, 1)
+  for (const c of [...forest.s.group.children]) {
+    if (c.userData.backdrop) continue
+    if (Math.hypot(c.position.x + forest.ox - start.x, c.position.z + forest.oz - start.z) < CLEAR && !(c as THREE.Mesh).geometry?.type?.includes('Plane')) c.visible = false
+  }
+  for (let i = foodSpots.length - 1; i >= 0; i--) if (Math.hypot(foodSpots[i].x - start.x, foodSpots[i].z - start.z) < CLEAR) foodSpots.splice(i, 1)
   const foeStart = { x: ruins.ox + 1.2, z: ruins.oz + 1.2 }
   const home = forest.s
   return {
