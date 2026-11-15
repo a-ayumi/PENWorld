@@ -35,6 +35,7 @@ export function spawn(this: World, id: SpeciesId, team: Team, x: number, z: numb
   }
   this.creatures.push(c)
   this.burst(x, this.ground(c) + 0.5, z, 'cube', 8, 2)
+  if (team === 'pet' || team === 'friend') this.giveNick(c)
   return c
 }
 
@@ -48,8 +49,24 @@ export function variant(this: World, c: Creature) {
 }
 
 /** なまえ（色ちがいは ★ がつく） */
+/** 名前：なかまと ペットは ニックネーム（無ければ 種族の 名前）。色ちがいは ★ */
 export function nm(this: World, c: Creature) {
-  return (c.rare ? '★' : '') + c.sp.name
+  return (c.rare ? '★' : '') + (c.nick ?? c.sp.name)
+}
+
+/** ニックネームを つける（なかまに なった 時・生まれた 時）。いま いる なかまと かぶらない 名前 */
+const NICK_A = ['ポ', 'コ', 'モ', 'ハ', 'ソ', 'ル', 'ミ', 'チ', 'ク', 'ノ', 'ピ', 'タ', 'キ', 'ナ', 'リ', 'フ', 'マ', 'ユ', 'ト', 'サ']
+const NICK_B = ['チ', 'ロ', 'モ', 'ナ', 'ラ', 'ル', 'ミ', 'ビ', 'ー', 'ノ', 'ッコ', 'ン', 'ム', 'ポ', 'リ', 'コ', 'ク', 'ナ', 'ジ', 'ル']
+const NICK_C = ['', '', '', 'ン', 'ー', 'ル', 'コ', 'マル', 'スケ', 'ヒメ']
+export function giveNick(this: World, c: Creature) {
+  if (c.nick || c.sp.temper === 'wild') return
+  const used = new Set(this.creatures.map((o) => o.nick).filter(Boolean))
+  for (let i = 0; i < 40; i++) {
+    const n = NICK_A[Math.floor(Math.random() * NICK_A.length)] + NICK_B[Math.floor(Math.random() * NICK_B.length)] + NICK_C[Math.floor(Math.random() * NICK_C.length)]
+    if (used.has(n) || n === c.sp.name) continue
+    c.nick = n
+    return
+  }
 }
 
 export function setStyle(this: World, style: 'sprite' | 'model') {
@@ -661,7 +678,7 @@ export function startFight(this: World, a: Creature, b: Creature) {
   }
   if (a.team === 'pet' || b.team === 'pet') {
     const other = a.team === 'pet' ? b : a
-    this.say(spar ? `${other.sp.name}と じゃれあいバトル！` : `${other.sp.name}と バトル！`)
+    this.say(spar ? `${this.nm(other)}と じゃれあいバトル！` : `${this.nm(other)}と バトル！`)
     this.onSfx('ok')
   }
   for (const c of [a, b])
@@ -710,13 +727,13 @@ export function defeat(this: World, loser: Creature, winner: Creature) {
     this.gainXp(winner, 4)
     this.gainXp(loser, 2)
     winner.atk += 0.5
-    if (this.ally(winner) || this.ally(loser)) this.say(`じゃれあいバトルは ${winner.sp.name}の かち！`)
+    if (this.ally(winner) || this.ally(loser)) this.say(`じゃれあいバトルは ${this.nm(winner)}の かち！`)
     return
   }
   if (this.ally(loser)) {
     loser.hp = 1
     this.setState(loser, 'faint', 6)
-    this.say(`${loser.sp.name}は たおれてしまった…`)
+    this.say(`${this.nm(loser)}は たおれてしまった…`)
     if (loser.team === 'pet') this.onSfx('lose')
     return
   }
@@ -735,7 +752,7 @@ export function defeat(this: World, loser: Creature, winner: Creature) {
     this.stat('wins')
     if (BOSSES.has(loser)) this.stat('bosses')
     this.earn(10, loser.x, loser.z)
-    this.say(`${winner.sp.name}の かち！ ちから+1`)
+    this.say(`${this.nm(winner)}の かち！ ちから+1`)
     this.onSfx('win')
     // 守ってもらった野生の子は仲良し度が上がる
     for (const o of this.creatures) if (o.team === 'wild' && o.sp.temper === 'calm' && Math.hypot(o.x - p.x, o.z - p.z) < 5) o.affinity += 25
@@ -767,9 +784,9 @@ export function useSkill(this: World, c: Creature, f: Creature) {
   // 技名はいつものメッセージ欄に（仲間がからむ時と、カメラの近くの時だけ）
   const near = Math.hypot(c.x - this.look.x, c.z - this.look.z) < 8
   if (this.ally(c) || this.ally(f)) {
-    this.say(`${c.team === 'wild' ? 'てきの ' : ''}${c.sp.name}の ${sk.name}！`)
+    this.say(`${c.team === 'wild' ? 'てきの ' : ''}${this.nm(c)}の ${sk.name}！`)
     this.onSfx('skill')
-  } else if (near) this.say(`やせいの ${c.sp.name}の ${sk.name}！`)
+  } else if (near) this.say(`やせいの ${this.nm(c)}の ${sk.name}！`)
   const dmg = Math.max(2, Math.round(this.power(c) * sk.mult * (0.9 + Math.random() * 0.2) * this.bannerBoost(c)))
   const at = (x: number, z: number, y = 0.5) => new THREE.Vector3(x, this.stage.heightAt(x, z) + y, z)
   switch (sk.kind) {
@@ -1006,7 +1023,7 @@ export function evolved(this: World, c: Creature, from: string) {
   const near = Math.hypot(c.x - this.look.x, c.z - this.look.z) < 9
   if (this.ally(c)) {
     if (c === this.pet) this.flash = 1
-    this.say(`${c.rare ? '★' : ''}${from}は ${sp.name}に しんかした！`)
+    this.say(`${c.nick ? `${c.nick}（${from}）` : (c.rare ? '★' : '') + from}は ${sp.name}に しんかした！`)
     if (!c.evo) this.onSfx('evolve')
     this.stat('evolves')
     this.earn(c === this.pet ? 30 : 15)
@@ -1130,9 +1147,9 @@ export function addRareDex(this: World, c: Creature) {
   const cur: number = this.dexRare[id] ?? 0
   if (cur >= lv) return
   this.dexRare[id] = lv
-  if (cur === 0) this.say(`★ いろちがいの ${c.sp.name}を みつけた！ ずかんに のった`)
+  if (cur === 0) this.say(`★ いろちがいの ${this.nm(c)}を みつけた！ ずかんに のった`)
   if (lv === 2) {
-    this.say(`★ いろちがいの ${c.sp.name}が なかまに！ コイン+20`)
+    this.say(`★ いろちがいの ${this.nm(c)}が なかまに！ コイン+20`)
     this.earn(20)
   }
 }
@@ -1189,7 +1206,7 @@ export function assignRoles(this: World) {
       c.role = role
       if (!said && role !== 'free' && Math.hypot(c.x - this.look.x, c.z - this.look.z) < 10) {
         said = true
-        this.say(`${c.sp.name}は ${ROLE_NAME[role]}に なった`)
+        this.say(`${this.nm(c)}は ${ROLE_NAME[role]}に なった`)
         this.onSfx('role')
       }
     }
@@ -1238,7 +1255,7 @@ export function updateAge(this: World, dt: number) {
   const life = this.stats.petAge / LIFESPAN
   if (!this.oldWarned && life > 0.85) {
     this.oldWarned = true
-    this.say(`${this.pet.sp.name}も ずいぶん としを とった… そろそろ じゅみょうが ちかい`)
+    this.say(`${this.nm(this.pet)}も ずいぶん としを とった… そろそろ じゅみょうが ちかい`)
   }
   if (life >= 1 && this.pet.state !== 'fight' && this.pet.grow === 0) this.retirePet()
 }
@@ -1314,7 +1331,7 @@ export function retireFriend(this: World, c: Creature) {
   this.burst(c.x, this.ground(c) + 0.8, c.z, 'heart', 5, 1.6)
   if (c.team === 'friend' && this.eggs.length < 5 && this.kidCount() < MAX_KIDS && this.friendCount() + this.eggs.filter((e) => !e.wild).length <= MAX_FRIENDS && Math.random() < 0.6) {
     this.layEgg(c.x + 0.6, c.z + 0.3, [c.sp.id], 30)
-    this.say(`${c.sp.name}の いたところに たまごが のこっていた`)
+    this.say(`${this.nm(c)}の いたところに たまごが のこっていた`)
   }
   c.retired = true
   c.foe = null
@@ -1464,7 +1481,7 @@ export function tryBreed(this: World, dt: number) {
   this.layEgg((p.x + mate.x) / 2, (p.z + mate.z) / 2, [p.sp.id, mate.sp.id], 35, kind)
   this.burst(p.x, this.ground(p) + 1, p.z, 'heart', 6, 1.5)
   this.stat('eggs')
-  this.say(`${p.sp.name}と ${mate.sp.name}に たまごが できた！`)
+  this.say(`${this.nm(p)}と ${this.nm(mate)}に たまごが できた！`)
   this.onSfx('egg')
 }
 
@@ -1631,7 +1648,7 @@ export function updateSettlers(this: World, dt: number) {
   c.tz = t.z + 2 + Math.random() * 2
   this.setState(c, 'wander', 40)
   this.updateDex()
-  this.say(this.stage.start ? `${c.sp.name}が しろの あいた へやに ひっこしてきた！` : `${c.sp.name}が ${empty ? 'あきやを みつけて ' : ''}まちに ひっこしてきた！`)
+  this.say(this.stage.start ? `${this.nm(c)}が しろの あいた へやに ひっこしてきた！` : `${this.nm(c)}が ${empty ? 'あきやを みつけて ' : ''}まちに ひっこしてきた！`)
   this.mark(p.x, p.z, 1)
 }
 
@@ -1656,7 +1673,7 @@ export function castHeal(this: World, c: Creature): number {
   c.healCd = 18 - c.sp.tier * 2
   this.addCare(c, 'spirit', 1)
   this.gainXp(c, 1)
-  if (c === this.pet || Math.hypot(c.x - this.look.x, c.z - this.look.z) < 10) this.say(`${c.sp.name}の ${sk.name}！ ${near.length > 1 ? `${near.length}ひき` : near[0] === c ? 'じぶん' : near[0].sp.name}を なおした`)
+  if (c === this.pet || Math.hypot(c.x - this.look.x, c.z - this.look.z) < 10) this.say(`${this.nm(c)}の ${sk.name}！ ${near.length > 1 ? `${near.length}ひき` : near[0] === c ? 'じぶん' : near[0].sp.name}を なおした`)
   this.onSfx('skill')
   return near.length
 }

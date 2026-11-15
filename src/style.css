@@ -312,3 +312,35 @@ body.clean #tips, body.clean #update-bar { display: none !important; }
 /* 使わなくなった あそび（World の EXTRAS = false）：ボタンと ずかんの ひみつ欄を 出さない */
 body.no-extras #play-btn, body.no-extras #lucky-btn, body.no-extras #road-btn, body.no-extras #mission-btn,
 body.no-extras #lucky-panel, body.no-extras #road-panel, body.no-extras #mission-panel, body.no-extras .extras { display: none !important; }
+
+/* ===== 画面に 入っている 時の まわり（2026-11-15）：液晶の 中の アイコン・メッセージは 外して、黒い 所に 必要な 物だけ ===== */
+#pad .pad-btns { display: none; }
+#side-stat { position: fixed; pointer-events: none; font: 700 calc(12px * var(--ts)) var(--font, system-ui), sans-serif; color: #e8e4d6; display: flex; gap: 6px; flex-wrap: wrap; }
+#side-stat span { background: rgba(255,255,255,.08); border-radius: 999px; padding: 4px 10px; white-space: nowrap; }
+#side-log { position: fixed; margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; overflow: hidden; pointer-events: none; }
+#side-log li { font-size: calc(13px * var(--ts)); line-height: 1.45; color: var(--c, #dfe3ee); padding: 3px 8px 3px 10px; border-left: 3px solid var(--c, #8a93b8); background: rgba(255,255,255,.04); border-radius: 0 6px 6px 0; }
+#side-log li.old { opacity: .55; }
+#side-log li .tag { font-size: .78em; font-weight: 700; margin-right: 6px; opacity: .9; }
+#side-log li.self { --c: #ffd36b; }
+#side-log li.friend { --c: #8fe0a0; }
+#side-log li.foe { --c: #ff8a7a; }
+#side-log li.town { --c: #cfd6e8; }
+.act-bar { position: fixed; display: flex; gap: 8px; pointer-events: auto; }
+.act-bar button { border: 0; border-radius: 12px; padding: 10px 14px; font: 700 calc(13px * var(--ts)) system-ui, sans-serif; color: #3a2a00; background: #f2b134; box-shadow: 0 3px 0 rgba(0,0,0,.35); cursor: pointer; }
+.act-bar button:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0,0,0,.35); }
+.act-bar button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* たて長（スマホ）：液晶の 上に ようす、下に ログ、いちばん 下に ボタン */
+@media (max-aspect-ratio: 1/1) {
+  #side-stat { left: 12px; right: 12px; top: max(calc(env(safe-area-inset-top) + 58px), calc((100dvh - 100vw) / 2 - 34px)); }
+  #side-log { left: 10px; right: 10px; top: calc((100dvh + 100vw) / 2 + 8px); bottom: calc(env(safe-area-inset-bottom) + 122px); }
+  .act-bar { left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 16px); }
+  .act-bar button { flex: 1; }
+  #pad .cam-bar { left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 70px); max-width: none; flex-wrap: nowrap; }
+}
+/* よこ長（パソコン）：左の 黒い 所に ようす と ログ、右下に ボタン */
+@media (min-aspect-ratio: 1/1) {
+  #side-stat { left: 12px; top: 60px; width: calc((100vw - 100dvh) / 2 - 24px); }
+  #side-log { left: 10px; top: 120px; width: calc((100vw - 100dvh) / 2 - 20px); bottom: 130px; }
+  .act-bar { right: calc(env(safe-area-inset-right) + 12px); bottom: calc(env(safe-area-inset-bottom) + 30px); flex-direction: column; width: calc((100vw - 100dvh) / 2 - 24px); max-width: 160px; }
+  .cam-bar { max-width: calc((100vw - 100dvh) / 2 - 20px); }
+}

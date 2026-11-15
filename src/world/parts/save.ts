@@ -17,7 +17,7 @@ export function save(this: World) {
   if (!this.pet || this.saveLocked) return
   const c2 = (c: Creature) => ({
     sp: c.sp.id, hp: Math.round(c.hp), maxHp: c.maxHp, atk: c.atk, hunger: Math.round(c.hunger), energy: Math.round(c.energy), grow: c.grow,
-    xp: c.xp, care: c.care, bias: c.bias, seed: c.seed, rare: c.rare, age: Math.round(c.age), life: Math.round(c.life),
+    xp: c.xp, care: c.care, bias: c.bias, seed: c.seed, rare: c.rare, age: Math.round(c.age), life: Math.round(c.life), nick: c.nick,
   })
   const friends = this.creatures.filter((c) => c.team === 'friend')
   const ownerKey = (h: House) => (h.owner === this.pet ? 'pet' : h.owner && friends.includes(h.owner) ? `f${friends.indexOf(h.owner)}` : '')
@@ -199,7 +199,7 @@ export function load(this: World): boolean {
       for (const [k, v] of Object.entries(d.outposts as Record<string, unknown>)) if (Number.isInteger(+k) && +k >= 0 && +k < 9 && (v === 'ally' || v === 'foe')) this.savedOutposts[k] = v
     // 古い 1 まいの セーブを 大きな 世界から もどす 時も ステージ 0 から
     this.loadStage(this.worldMode ? 0 : Math.min(STAGES.length - 1, Math.round(num(d.stage, 0, STAGES.length - 1))))
-    type Saved = { sp: SpeciesId; hp: number; maxHp: number; atk: number; hunger: number; energy: number; grow: number; xp?: number; care?: Record<Care, number>; bias?: Care; seed?: number; rare?: boolean; age?: number; life?: number }
+    type Saved = { sp: SpeciesId; hp: number; maxHp: number; atk: number; hunger: number; energy: number; grow: number; xp?: number; care?: Record<Care, number>; bias?: Care; seed?: number; rare?: boolean; age?: number; life?: number; nick?: unknown }
     /** 見た目のシード（古いセーブには無いので、その時は新しく決める）。色ちがいは 保存されたものだけ */
     const lookOfSaved = (s: Saved) => ({ seed: Math.round(num(s.seed, 0, 0x7fffffff, newSeed())), rare: s.rare === true && SPECIES[s.sp].tier > 0 })
     const apply = (c: Creature, s: Saved) => {
@@ -207,6 +207,8 @@ export function load(this: World): boolean {
       if (s.xp !== undefined) c.xp = s.xp
       if (s.care) c.care = Object.assign({ power: 0, guard: 0, spirit: 0 }, s.care)
       if (s.bias) c.bias = s.bias
+      // ニックネーム（カタカナ・ひらがな・ー・★ だけ 8 文字まで。古い セーブは spawn で つけた 名前の まま）
+      if (typeof s.nick === 'string' && /^[\u3040-\u30ffー]{1,8}$/.test(s.nick)) c.nick = s.nick
       // じゅみょう（古いセーブには無い：その時は今から数える）
       if (c.team !== 'pet' && c.sp.temper !== 'wild') {
         c.life = num(s.life, FRIEND_LIFE[0] * 0.5, FRIEND_LIFE[1], newLife())
@@ -254,7 +256,7 @@ export function load(this: World): boolean {
     }
     this.loadRoadState(d.road)
     this.loadSecrets(d.secrets, friends, Array.isArray(d.friends) ? d.friends.slice(0, 40) : [])
-    this.say(`おかえり！ ${this.pet.sp.name}が まっていたよ`)
+    this.say(`おかえり！ ${this.nm(this.pet)}が まっていたよ`)
     return true
   } catch {
     return false
