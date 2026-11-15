@@ -90,6 +90,7 @@ export function update(this: World, dt: number) {
   this.updateResources(dt)
   this.updateHouses(dt)
   this.updateStructs(dt)
+  this.updateOrders(dt)
   this.updateVillage(dt)
   this.updateFestival(dt)
   this.updateMarket(dt)

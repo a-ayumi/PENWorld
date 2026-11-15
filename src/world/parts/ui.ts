@@ -8,7 +8,7 @@ import { ITEM_INFO, ITEM_SPEC, type ItemKind } from '../items'
 import { SHOP, drawShop as drawShopWindow, type ShopCheck, type ShopItem } from '../shop'
 import { CHAPTERS, bossReady, nowGoal } from '../../roadmap'
 import type { World } from '../World'
-import { Creature, Res, House, Struct, Food, ROLE_NAME, ROLE_COLOR, LIFESPAN, Item, Egg, Pick, STATE_NAME, STRUCT_DESC, ICONS, ICON_COLORS, ICON_BMP, FOODS, CARE_NAME, SeasonShop, FONT, HOUSE_STEPS, MAX_STRUCTS, FORT_RANGE, houseMaxHp, WEATHER_NAME, MAX_FRIENDS } from '../World'
+import { Creature, Res, House, Struct, Food, ROLE_NAME, ROLE_COLOR, LIFESPAN, Item, Egg, Pick, STATE_NAME, STRUCT_DESC, ICONS, ICON_COLORS, ICON_BMP, FOODS, CARE_NAME, SeasonShop, FONT, HOUSE_STEPS, MAX_STRUCTS, MAX_ORDERS, FORT_RANGE, houseMaxHp, WEATHER_NAME, MAX_FRIENDS } from '../World'
 
 /** タップした場所（液晶の座標）にいちばん近い物をさがす */
 export function pickAt(this: World, x: number, y: number): Pick | null {
@@ -390,7 +390,7 @@ export function shopCheck(this: World, s: ShopItem): ShopCheck {
   }
   if (s.item) {
     max = ITEM_SPEC[s.item].max
-    have = this.items.filter((it) => it.kind === s.item && it.stage === this.stageIndex).length
+    have = this.items.filter((it) => it.kind === s.item && it.stage === this.stageIndex).length + this.pendingOf(s)
     if (have >= max) return no('full', `この箱庭には もう おけない（${have}/${max}）`)
   }
   if (s.egg) {
@@ -400,15 +400,22 @@ export function shopCheck(this: World, s: ShopItem): ShopCheck {
   }
   if (s.plan) {
     const here = this.structs.filter((b) => b.stage === this.stageIndex)
-    have = here.filter((b) => b.kind === s.plan).length
+    have = here.filter((b) => b.kind === s.plan).length + this.pendingOf(s)
     max = s.plan === 'castle' ? 1 : s.plan === 'wall' ? undefined : 3
-    if (here.length >= MAX_STRUCTS) return no('full', 'もう たてる ばしょが ない')
+    if (here.filter((b) => b.kind !== 'crate').length + this.orders.filter((o) => o.stage === this.stageIndex && SHOP.find((x) => x.id === o.id)?.plan).length >= MAX_STRUCTS) return no('full', 'もう たてる ばしょが ない')
     if (max !== undefined && have >= max) return no('full', s.plan === 'castle' ? 'おしろは ひとつだけ' : `${STRUCTS[s.plan].name}は これいじょう いらない（${have}/${max}）`)
     if (s.plan === 'bridge' && !this.stage.obstacles.some((o) => o.water && !here.some((b) => b.kind === 'bridge' && Math.hypot(b.x - o.x, b.z - o.z) < 0.6)))
       return no('lock', 'この箱庭には わたる みずうみが ない')
   }
+  if ((s.plan || s.item) && this.orders.length >= MAX_ORDERS) return no('full', `ちゅうもんが いっぱい（${MAX_ORDERS} けん）。できあがるのを まとう`)
   if (this.coins < s.price) return no('coin', `コインが たりない（あと ${s.price - this.coins}）`)
   return { ok: true, tone: 'ok', why: '', have, max }
+}
+
+/** まだ できあがっていない ちゅうもん（列 + 組み立て中）の数 */
+export function pendingOf(this: World, s: ShopItem) {
+  const here = this.stageIndex
+  return this.orders.filter((o) => o.stage === here && o.id === s.id).length + (s.item ? this.structs.filter((b) => b.stage === here && b.kind === 'crate' && b.item === s.item).length : 0)
 }
 
 export function pay(this: World, s: ShopItem) {
@@ -443,13 +450,12 @@ export function buyItem(this: World, s: ShopItem) {
     this.shopOpen = false
     return
   }
-  if (s.plan) {
-    // せっけいず：見ている所のまわりに建設現場ができる（みんなが資材を運んで建てる）
-    const site = this.planStruct(s.plan)
-    if (!site) return this.onSfx('cancel')
+  if (s.plan || s.item) {
+    // ちゅうもん（計画 B1）：列に ならべるだけ。場所と 順番は 住民が きめて、だいくが 建てる
     this.pay(s)
-    this.buyFx(site.x, site.z, 0.8)
-    this.say(`${STRUCTS[s.plan].name}の せっけいず！ みんなが たてはじめる`)
+    this.addOrder(s)
+    const n = this.orderNames().length
+    this.say(`${s.name}を たのんだ！${n > 1 ? `（ちゅうもん ${n} けんめ）` : ' だいくが とりかかる'}`)
     this.shopOpen = false
     return
   }
@@ -474,10 +480,6 @@ export function buyItem(this: World, s: ShopItem) {
     }
     this.buyFx(f.x, f.z, 0.3)
     this.say(`${s.name}を おいた`)
-  } else if (s.item) {
-    const it = this.placeItem(s.item)
-    this.buyFx(it.x, it.z, 0.6)
-    this.say(`${s.name}を 箱庭に おいた`)
   }
   this.shopOpen = false
 }
@@ -764,6 +766,16 @@ export function drawHud(this: World) {
       this.text('もくひょう', 11, 45, '#9fd8ff', 9)
       this.text(t, 11 + Math.ceil(g.measureText('もくひょう ').width), 45, '#ffffff', 9)
     }
+  }
+  // ちゅうもんの列（右がわ・天気の下）
+  const on = this.orderNames()
+  if (on.length && this.banner <= 0) {
+    const t = `ちゅうもん ${on[0]}${on.length > 1 ? ` ほか${on.length - 1}` : ''}`
+    g.font = `9px ${FONT}`
+    const ow = Math.ceil(g.measureText(t).width) + 10
+    g.fillStyle = 'rgba(10,14,40,0.7)'
+    g.fillRect(RES.w - ow - 6, 43, ow, 14)
+    this.text(t, RES.w - ow - 1, 45, '#ffd9a0', 9)
   }
   if (this.army) {
     const a = this.army
