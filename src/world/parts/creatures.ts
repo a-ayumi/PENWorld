@@ -1437,8 +1437,8 @@ export function tryBreed(this: World, dt: number) {
 }
 
 /** この場所でよく見つかる系統のたまご */
-export function stageEggKind(this: World): EggKind {
-  const pool = STAGE_EGGS[this.stageIndex] ?? STAGE_EGGS[0]
+export function stageEggKind(this: World, x = this.pet.x, z = this.pet.z): EggKind {
+  const pool = STAGE_EGGS[this.regionId(x, z)] ?? STAGE_EGGS[0]
   return pool[Math.floor(Math.random() * pool.length)]
 }
 
@@ -1459,7 +1459,7 @@ export function updateWildEgg(this: World, dt: number) {
   this.wildEggT = 480 + Math.random() * 300
   if (this.eggs.length >= 3 || this.calmWildCount() >= MAX_WILD_CALM) return
   const q = this.freePos(3)
-  const kind = this.stageEggKind()
+  const kind = this.stageEggKind(q.x, q.z)
   this.layEgg(q.x, q.z, [], 60, kind, true)
   if (Math.hypot(q.x - this.look.x, q.z - this.look.z) < 10) this.say(`${FAMILY_NAME[kind]}のたまごが おちている！`)
 }

@@ -507,6 +507,7 @@ export class World {
   wallJob = Vi.wallJob
   wallSpot = Vi.wallSpot
   layWall = Vi.layWall
+  regionId = Ev.regionId
   taskOf = Ui.taskOf
   cookJob = Cr.cookJob
   plantJob = Cr.plantJob
@@ -736,6 +737,9 @@ export class World {
   shopOpen = false
   shopCursor = 0
   banner = 0
+  /** 大きな世界：いま 見ている 地方の 名前（かわったら バナー）と、バナーに 出す 名前 */
+  regionName = ''
+  bannerText: { name: string; sub: string } | null = null
   night = 0
   nightTarget = 0
   /** 村の かざり（道・石段・小物。decor.ts） */
@@ -1000,6 +1004,10 @@ export class World {
       const p = this.farPos(8)
       this.spawn(enemyFor(id, i), 'wild', p.x, p.z)
     })
+    for (const r of s.regionResidents ?? []) {
+      const p = this.freePos(8, r.ox, r.oz, 12)
+      if (Math.hypot(p.x - r.ox, p.z - r.oz) < 20) this.spawn(enemyFor(r.id, r.region), 'wild', p.x, p.z)
+    }
     this.peaceT = PEACE_TIME
     this.makeAmbient()
     this.buildSeasonDeco()
