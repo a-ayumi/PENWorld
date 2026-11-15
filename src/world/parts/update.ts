@@ -1,4 +1,5 @@
 /** World.ts から分けた「update」のメソッド。this は World（World.ts のクラスのつなぎの行から呼ばれる） */
+/** 中身：毎コマの 更新：update() → 生き物ごとの updateCreature()（moveTo で 歩く・食べる・建てる）・エフェクト */
 import * as THREE from 'three'
 import { BUILD_SCALE } from '../eras'
 import { RES } from '../psx'

@@ -1,4 +1,5 @@
 /** World.ts から分けた「village」のメソッド。this は World（World.ts のクラスのつなぎの行から呼ばれる） */
+/** 中身：町：家・建物・ちゅうもんの 列・町の 区画 townLot・時代 townEra・城壁 growRings・敵の 町 */
 import * as THREE from 'three'
 import { psx } from '../psx'
 import { SpriteAnim } from '../sprites'

@@ -1,4 +1,5 @@
 /** World.ts から分けた「ui」のメソッド。this は World（World.ts のクラスのつなぎの行から呼ばれる） */
+/** 中身：画面：タップ（pickAt / describe）・ボタン・ショップ・HUD の 文字・render() */
 import * as THREE from 'three'
 import { BUILD_SCALE } from '../eras'
 import { RES, SCENE } from '../psx'

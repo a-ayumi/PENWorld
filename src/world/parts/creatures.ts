@@ -1,4 +1,5 @@
 /** World.ts から分けた「creatures」のメソッド。this は World（World.ts のクラスのつなぎの行から呼ばれる） */
+/** 中身：生き物：think()（次に何をするか えらぶ 状態マシン）・技・進化・役わり・世代交代・たまご・ずかん */
 import * as THREE from 'three'
 import { BUILD_SCALE } from '../eras'
 import { SpriteAnim, iconSheet } from '../sprites'
