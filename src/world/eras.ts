@@ -347,6 +347,39 @@ class Kit {
     if (!this.ruin) for (let i = 0; i < 3; i++) this.box(w * (0.3 + this.r() * 0.5), 0.02, 0.01, this.glow(this.old ? '#203038' : '#ffffff'), x - w * 0.1, y - h * 0.3 + i * h * 0.3, z + 0.04)
     else this.box(0.03, h, 0.02, this.m('#5a6068', true), x, y, z + 0.04).rotation.z = 0.6
   }
+  /**
+   * やぶれ目（まざりの町）：かべが かけた所が まっ黒で、中に 緑の 文字の 列が 流れて見える。
+   * 古いほど 大きく・多い。ふちに ばらけた 四角い かけら。side = 横の かべ（x 向き）
+   */
+  tear(w: number, h: number, x: number, y: number, z: number, side = false) {
+    const put = (bw: number, bh: number, c: string | THREE.Material, dx: number, dy: number, dz: number, name = '') => {
+      const o = side ? this.box(0.02, bh, bw, c, x + dz, y + dy, z + dx) : this.box(bw, bh, 0.02, c, x + dx, y + dy, z + dz)
+      if (name) o.name = name
+      return o
+    }
+    put(w, h, this.glow('#040807'), 0, 0, 0)
+    // ふちを ぎざぎざに：かべ色の 四角で 欠けを かくす / 黒い 四角が はみ出す
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2 + this.r()
+      const s = 0.06 + this.r() * 0.08
+      put(s, s, this.glow('#040807'), Math.cos(a) * w * 0.52, Math.sin(a) * h * 0.52, 0.002)
+    }
+    // 文字の 列：上が 暗く、先頭（下）が 明るい
+    const cols = Math.max(3, Math.round(w / 0.07))
+    for (let c = 0; c < cols; c++) {
+      const cx = -w / 2 + (c + 0.5) * (w / cols)
+      const len = h * (0.3 + this.r() * 0.6)
+      const top = h / 2 - this.r() * (h - len)
+      const n = Math.max(2, Math.round(len / 0.05))
+      for (let i = 0; i < n; i++) {
+        if (this.r() < 0.25) continue
+        const head = i === n - 1
+        put(0.035, 0.03, this.glow(head ? '#d8ffe4' : i > n * 0.5 ? '#3dff7a' : '#1a8a40'), cx, top - (i + 0.5) * (len / n), 0.012, 'lit')
+      }
+    }
+    // ういた かけら（かべから はがれた 四角）
+    for (let i = 0; i < 4; i++) put(0.05, 0.05, this.glow(i % 2 ? '#3dff7a' : '#040807'), (this.r() - 0.5) * w * 1.5, (this.r() - 0.5) * h * 1.5, 0.05 + this.r() * 0.12, i % 2 ? 'lit' : '')
+  }
   /** たれさがる ケーブル */
   cable(x0: number, y0: number, x1: number, y1: number, z: number, sag = 0.2) {
     const n = 6
@@ -665,8 +698,13 @@ export function eraHouse(era: Era, ctx: EraCtx, wear: Wear = 0, seed = 1): THREE
       k.door(0.34, 0.56, -0.4, 0.66, '#4a3a2a', true)
       k.box(0.1, 0.06, 0.02, k.glow(k.W ? '#2a4a40' : '#7dffc0'), -0.4, 0.7, 0.7).name = 'lit'
       k.screen(0.36, 0.26, 0.3, 0.62, 0.67, '#7dffc0')
+      // やぶれ目：新しくても 1 つ・古いほど 大きく 多い
+      k.tear(0.24 + k.W * 0.1, 0.3 + k.W * 0.12, 0.82, 0.55, 0, true)
+      if (k.old) k.tear(0.3, 0.34, -0.05, 0.5, 0.67)
+      if (k.ruin) k.tear(0.5, 0.4, 0.45, 0.3, 0.672)
       if (!k.ruin) {
         k.timber(1.4, 0.6, 1.1, '#d6d2bc', 0, 1.3, 0)
+        if (k.old) k.tear(0.3, 0.26, -0.1, 1.42, 0.58)
         k.win(0.2, 0.22, -0.4, 1.3, 0.57, { shut: true })
         k.screen(0.3, 0.2, 0.3, 1.32, 0.57, '#5ef2ff')
         k.gable(1.4, 1.1, 0.7, '#5a7a5a', 1.6, '#d6d2bc')
@@ -984,6 +1022,9 @@ export function eraTower(era: Era, ctx: EraCtx, wear: Wear = 0, seed = 2): THREE
       k.door(0.32, 0.5, 0, 0.84, '#4a3a2a', true)
       k.screen(0.34, 0.24, 0, 1.3, 0.66, '#7dffc0')
       if (H > 2.5) k.screen(0.26, 0.2, 0, 2.3, 0.63, '#5ef2ff')
+      k.tear(0.3 + k.W * 0.08, 0.5 + k.W * 0.2, 0.3, 1.9, 0.6)
+      if (k.old) k.tear(0.26, 0.4, -0.34, 0.9, 0.62)
+      if (k.ruin) k.tear(0.4, 0.6, -0.2, 1.7, 0.6)
       // からむ 木（幹が らせんに のぼる）
       const trunk: [number, number, number][] = []
       for (let i = 0; i <= 7; i++) {
