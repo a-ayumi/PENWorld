@@ -37,7 +37,7 @@ export function dropFood(this: World, x?: number, z?: number, from = 2.5, kind: 
     // 広い 箱庭では 町の 近く（16 マス いない）の 実の なる 所を 7 わり えらぶ
     const c = this.townCenter()
     const near = spots.filter((p) => Math.hypot(p.x - c.x, p.z - c.z) < 16)
-    const pool = near.length && Math.random() < 0.7 ? near : spots
+    const pool = near.length && Math.random() < 0.85 ? near : spots
     const s = pool[Math.floor(Math.random() * pool.length)] ?? { x: 0, z: 0 }
     const a = Math.random() * Math.PI * 2
     x = s.x + Math.cos(a) * (0.7 + Math.random() * 0.6)
@@ -365,7 +365,9 @@ export function claimHouse(this: World, c: Creature): House | null {
     return empty
   }
   const here = this.houses.filter((h) => h.stage === this.stageIndex)
-  if (here.length >= MAX_HOUSES) return null
+  // なかまは 建てかけの 家が 2 けん 以上 ある うちは 新しく 始めない（手つだいに 回る）
+  if (this.ally(c) && here.filter((h) => h.level < 3 && (!h.owner || this.ally(h.owner))).length >= 2) return null
+  if (here.filter((h) => !h.owner || this.ally(h.owner) === this.ally(c)).length >= MAX_HOUSES) return null
   // なかまの家は 町の 区画に（まんなかから 外へ 順に）。野生の子は 今までどおり 自分の そばに
   const lot = this.ally(c) ? this.townLot(2.8 * BUILD_SCALE) : null
   for (let i = 0; i < 40; i++) {
@@ -1030,7 +1032,7 @@ export function updateStructs(this: World, dt: number) {
       case 'farm':
         if (b.t > 22 / (this.season === 'autumn' ? 1.5 : 1)) {
           b.t = 0
-          if (this.foods.length < (this.season === 'autumn' ? 13 : 9)) {
+          if (this.foods.length < (this.season === 'autumn' ? 13 : 9) + this.creatures.filter((c) => this.ally(c)).length / 2) {
             this.dropFood(b.x + (Math.random() - 0.5) * 1.2, b.z + 0.9, 1.4)
             this.burst(b.x, this.stage.heightAt(b.x, b.z) + 0.5, b.z, 'spark', 4, 1.2)
           }
