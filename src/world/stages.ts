@@ -11,16 +11,17 @@ import { FLORA, tree } from './flora'
  * オリジナルのステージ 5 種。どれも「デジタル空間に浮かぶ四角い箱庭」。
  * 地形・小物はローポリ + Gouraud（頂点ライティング）+ Nearest テクスチャで PS1 風に。
  */
-export let SIZE = 40
+export let SIZE = 64
 export let HALF = SIZE / 2 - 0.8
 /** 箱庭の広さ（かいたくで ひろがる）。ステージを作り直す前に呼ぶ */
-export const LAND_SIZES = [40, 48, 56]
+export const LAND_SIZES = [64, 80, 96]
 export function setLandSize(n: number) {
   SIZE = n
   HALF = n / 2 - 0.8
 }
 /** 広くなったぶん、木や岩などの小物も増やす */
-const dens = (n: number) => Math.round(n * (SIZE / 20) ** 2)
+// 広い 箱庭ほど ひらけた 土地に（数は 面積に 比例させず、40 マスの 2.4 倍で 止める = 重くしない）
+const dens = (n: number) => Math.round(n * Math.min((SIZE / 20) ** 2, 9.6))
 
 /** water = 水場（泳げる/浮けるモンスターだけ入れる）。lava = 溶岩（water の仲間。見た目と はしの扱いだけ ちがう） */
 export interface Obstacle { x: number; z: number; r: number; water?: boolean; lava?: boolean }

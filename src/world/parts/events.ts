@@ -620,8 +620,12 @@ export function spawnResource(this: World, x?: number, z?: number, want?: ResKin
   const kind: ResKind = want ?? (Math.random() < 0.55 ? 'wood' : 'stone')
   if (x === undefined || z === undefined) {
     // 木や岩のそばに落ちている
+    // 広い 箱庭では 町の 近く（16 マス いない）の 木や 岩を 7 わり えらぶ（運ぶ 道のりを みじかく）
     const land = this.stage.obstacles.filter((o) => !o.water)
-    const o = land[Math.floor(Math.random() * land.length)]
+    const c = this.townCenter()
+    const near = land.filter((o) => Math.hypot(o.x - c.x, o.z - c.z) < 16)
+    const pool = near.length && Math.random() < 0.7 ? near : land
+    const o = pool[Math.floor(Math.random() * pool.length)]
     if (!o) return
     const a = Math.random() * Math.PI * 2
     x = o.x + Math.cos(a) * (o.r + 0.6 + Math.random() * 0.7)
