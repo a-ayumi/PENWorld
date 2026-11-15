@@ -144,7 +144,14 @@ export interface House {
 export interface Struct {
   kind: StructKind; stage: number; x: number; z: number; rot: number; len: number
   mats: number; hp: number; mesh: THREE.Group | null; shake: number; q: number; t: number; alerted: number
+  /** 発注された 置き物の 組み立て場（kind = 'crate'）：できあがると この置き物に かわる */
+  item?: ItemKind
+  /** 人が 発注した物（ちゅうもんの列から 始まった 現場） */
+  ordered?: boolean
 }
+/** ちゅうもん（発注）：ショップの品の id と、たのんだ箱庭 */
+export interface Order { id: string; stage: number }
+export const MAX_ORDERS = 8
 /** むらの おまつり：中心・のこり時間・おどった数 */
 export interface Festival { x: number; z: number; t: number; dur: number; n: number; tick: number; fx: number; ring: number; rad: number }
 /** いちばに来る やどかり（行商）：in = 歩いてくる / sell = 売っている / out = 帰る */
@@ -207,6 +214,7 @@ export const STRUCT_DESC: Record<StructKind, string> = {
   market: 'しゅうにゅうUP。やどかりが くる',
   playground: 'こどもが はやく そだつ。こころも そだつ',
   fort: 'ちかくの なかまの こうげきUP',
+  crate: 'たのまれた おきものを くみたてている',
 }
 /** 完成した時に もう 1 つ出すメッセージ */
 export const STRUCT_DONE: Partial<Record<StructKind, string>> = {
@@ -431,6 +439,10 @@ export class World {
   dropFood = Vi.dropFood
   removeFood = Vi.removeFood
   lam = Vi.lam
+  addOrder = Vi.addOrder
+  pendingOf = Ui.pendingOf
+  updateOrders = Vi.updateOrders
+  orderNames = Vi.orderNames
   settle = Vi.settle
   mountItem = Vi.mountItem
   unmountItem = Vi.unmountItem
@@ -1184,6 +1196,9 @@ export class World {
   // ================= セーブ / ロード =================
   /** 読み込み・やり直しの直前は自動セーブを止める（上書きしないように） */
   saveLocked = false
+  /** ちゅうもんの列（計画 B1）：買った物は ここに ならび、だいくたちが 順番に 取りかかる */
+  orders: Order[] = []
+  orderT = 0
   /** ひとつづきの世界の 見本（`?world=1`）。ワープ・かいたく・セーブを 止める */
   worldMode = false
 

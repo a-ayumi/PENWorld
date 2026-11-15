@@ -3,11 +3,12 @@ import { EGG_COLORS, SPECIES, familyOf, newSeed, type Care, type EggKind, type S
 import type { Facts } from '../../journal'
 import { HALF, LAND_SIZES, STAGES, setLandSize } from '../stages'
 import { STRUCTS, isStructKind, type StructKind } from '../structures'
-import { ITEM_SPEC, isItemKind } from '../items'
+import { ITEM_SPEC, isItemKind, type ItemKind } from '../items'
+import { SHOP } from '../shop'
 import { MissionBook, isSeason, sanitizeStats } from '../../missions'
 import { backfill, loadRoad, newRoad, saveRoad } from '../../roadmap'
 import type { World } from '../World'
-import { Creature, House, LIFESPAN, FRIEND_LIFE, newLife, isSpecies, num, SAVE_KEY, houseLevel } from '../World'
+import { Creature, House, LIFESPAN, FRIEND_LIFE, MAX_ORDERS, newLife, isSpecies, num, SAVE_KEY, houseLevel } from '../World'
 
 export function save(this: World) {
   if (!this.pet || this.saveLocked) return
@@ -24,7 +25,8 @@ export function save(this: World) {
     pet: c2(this.pet),
     friends: friends.map(c2),
     houses: this.houses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, ownerSp: h.ownerSp, owner: ownerKey(h), mats: h.mats, hp: Math.round(h.hp) })),
-    structs: this.structs.map((b) => ({ kind: b.kind, stage: b.stage, x: b.x, z: b.z, rot: b.rot, len: b.len, mats: b.mats, hp: Math.round(b.hp) })),
+    structs: this.structs.map((b) => ({ kind: b.kind, stage: b.stage, x: b.x, z: b.z, rot: b.rot, len: b.len, mats: b.mats, hp: Math.round(b.hp), item: b.item, ordered: b.ordered || undefined })),
+    orders: this.orders,
     items: this.items.map((it) => ({ kind: it.kind, stage: it.stage, x: it.x, z: it.z, grow: it.grow, rot: it.rot })),
     eggs: this.eggs.map((e) => ({ x: e.x, z: e.z, t: e.t, parents: e.parents, kind: e.kind, wild: e.wild, lucky: e.lucky, deco: e.deco, luck: e.luck })),
     secrets: this.saveSecrets(friends),
@@ -89,17 +91,23 @@ export function load(this: World): boolean {
     type SavedHouse = { stage: number; x: number; z: number; ownerSp: SpeciesId; owner: string; mats: number; hp: number }
     const savedHouses = ((Array.isArray(d.houses) ? d.houses : []) as SavedHouse[]).filter((h) => h && typeof h.owner === 'string').slice(0, 40)
     this.houses = savedHouses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, owner: null, ownerSp: isSpecies(h.ownerSp) ? h.ownerSp : 'mebu', mats: num(h.mats, 0, 12), hp: num(h.hp, 0, 100), mesh: null, shake: 0, level: houseLevel(h.mats), alerted: 0 }))
-    type SavedStruct = { kind: unknown; stage: number; x: number; z: number; rot: number; len: number; mats: number; hp: number }
+    type SavedStruct = { kind: unknown; stage: number; x: number; z: number; rot: number; len: number; mats: number; hp: number; item?: unknown; ordered?: unknown }
     this.structs = ((Array.isArray(d.structs) ? d.structs : []) as SavedStruct[])
-      .filter((b) => b && isStructKind(b.kind))
+      .filter((b) => b && isStructKind(b.kind) && (b.kind !== 'crate' || isItemKind(b.item)))
       .slice(0, 60)
       .map((b) => {
         const kind = b.kind as StructKind
         return {
           kind, stage: Math.round(num(b.stage, 0, STAGES.length - 1)), x: num(b.x, -HALF, HALF), z: num(b.z, -HALF, HALF), rot: num(b.rot, -7, 7, 0),
           len: num(b.len, 0, 12, 0), mats: Math.round(num(b.mats, 0, STRUCTS[kind].need)), hp: num(b.hp, 0, 999, STRUCTS[kind].hp), mesh: null, shake: 0, q: -1, t: 0, alerted: 0,
+          item: kind === 'crate' ? (b.item as ItemKind) : undefined, ordered: b.ordered === true || undefined,
         }
       })
+    // ちゅうもんの列：ショップに ある品（せっけいず・おきもの）だけ
+    this.orders = ((Array.isArray(d.orders) ? d.orders : []) as { id?: unknown; stage?: unknown }[])
+      .filter((o) => o && typeof o.id === 'string' && SHOP.some((x) => x.id === o.id && (x.plan || x.item)))
+      .slice(0, MAX_ORDERS)
+      .map((o) => ({ id: o.id as string, stage: Math.round(num(o.stage as number, 0, STAGES.length - 1)) }))
     this.loadStage(Math.min(STAGES.length - 1, Math.round(num(d.stage, 0, STAGES.length - 1))))
     type Saved = { sp: SpeciesId; hp: number; maxHp: number; atk: number; hunger: number; energy: number; grow: number; xp?: number; care?: Record<Care, number>; bias?: Care; seed?: number; rare?: boolean; age?: number; life?: number }
     /** 見た目のシード（古いセーブには無いので、その時は新しく決める）。色ちがいは 保存されたものだけ */

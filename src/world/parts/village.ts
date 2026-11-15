@@ -6,8 +6,9 @@ import { Tex } from '../textures'
 import { HALF, LAND_SIZES, SIZE, setLandSize } from '../stages'
 import { buildDecor, disposeDecor } from '../decor'
 import { STRUCTS, buildScaffold, buildStructModel, styleOf, type StructKind } from '../structures'
-import { ITEM_SPEC, buildItem, disposeItem, tickItem, type ItemKind } from '../items'
+import { ITEM_INFO, ITEM_SPEC, buildItem, disposeItem, tickItem, type ItemKind } from '../items'
 import type { World } from '../World'
+import { SHOP, type ShopItem } from '../shop'
 import { Creature, House, Struct, Festival, Peddler, FoodKind, Food, Item, STRUCT_DONE, FOODS, HOUSE_STEPS, MAX_STRUCTS, FORT_RANGE, MAX_HOUSES, MAX_RES, houseLevel, houseMaxHp, ROOF, BOSSES } from '../World'
 
 export function makeFoodMesh(this: World, kind: FoodKind) {
@@ -104,11 +105,12 @@ export function setItemQuality(this: World, q: 'high' | 'low') {
 }
 
 /** 買った置き物を、見ている所のまわりに「上から落として」置く */
-export function placeItem(this: World, kind: ItemKind): Item {
-  const p = this.freePos(1.2, this.look.x, this.look.z, 3)
+export function placeItem(this: World, kind: ItemKind, at?: { x: number; z: number }): Item {
+  // at：だいくが 組み立てた場所（そこに ぽんと 出る）。無ければ 見ている所の まわりに 上から 落とす
+  const p = at ?? this.freePos(1.2, this.look.x, this.look.z, 3)
   const it: Item = {
     kind, stage: this.stageIndex, x: p.x, z: p.z, grow: kind === 'sapling' ? 0 : 1, vx: 0, vz: 0, mesh: null,
-    rot: ITEM_SPEC[kind].turn ? (Math.random() - 0.5) * 1.1 : 0, fall: 4.4, fvy: 0, sq: 0, tick: 0,
+    rot: ITEM_SPEC[kind].turn ? (Math.random() - 0.5) * 1.1 : 0, fall: at ? 0.7 : 4.4, fvy: 0, sq: 0, tick: 0,
   }
   this.items.push(it)
   this.mountItem(it)
@@ -710,14 +712,14 @@ export function planStruct(this: World, kind: StructKind, nx = this.look.x, nz =
     if (!quiet) this.say(t)
     return null
   }
-  if (here.length >= MAX_STRUCTS) return fail('もう たてる ばしょが ない…')
+  if (kind !== 'crate' && here.filter((b) => b.kind !== 'crate').length >= MAX_STRUCTS) return fail('もう たてる ばしょが ない…')
   if (kind === 'castle' && here.some((b) => b.kind === 'castle')) return fail('おしろは ひとつだけ')
   if (kind === 'market' && this.vLv < 1) return fail('いちばは むらが うまれてから ひらける')
   if (kind !== 'wall' && kind !== 'castle' && here.filter((b) => b.kind === kind).length >= (spec.max ?? 3)) return fail(`${spec.name}は これいじょう いらない`)
   let x = 0
   let z = 0
   let len = 0
-  let spread = 3
+  let spread = kind === 'crate' ? 4.5 : 3
   if (kind === 'fountain' && quiet) {
     // 自分たちで建てる時は むらの まん中（家のあつまり）に
     const c = this.villageCenter()
@@ -848,6 +850,21 @@ export function addStructMaterial(this: World, b: Struct, by: Creature) {
 
 export function onStructDone(this: World, b: Struct, by: Creature) {
   const spec = STRUCTS[b.kind]
+  if (b.kind === 'crate') {
+    // 組み立て場 → 置き物に かわる
+    this.unmountStruct(b)
+    const i = this.structs.indexOf(b)
+    if (i >= 0) this.structs.splice(i, 1)
+    for (const c of this.creatures) if (c.site === b) c.site = null
+    if (b.item) {
+      const it = this.placeItem(b.item, { x: b.x, z: b.z })
+      this.ring(it.x, it.z, '#ffe27a', 1.6, 0.6)
+      this.mark(it.x, it.z, 2)
+      this.onSfx('built')
+      this.say(`${by.sp.name}たちが ${ITEM_INFO[b.item].name}を くみたてた！`)
+    }
+    return
+  }
   b.hp = spec.hp
   this.burst(b.x, this.stage.heightAt(b.x, b.z) + 1, b.z, 'spark', 12, 2.5)
   if (b.kind === 'wall') return void this.earn(1, b.x, b.z)
@@ -1235,6 +1252,44 @@ export function villageName(this: World) {
 }
 
 /** 箱庭をひろげる（ステージを作り直す。家・建物・置き物・たまごはそのまま残る） */
+/** ちゅうもん（計画 B1）：買った物は 列に ならぶ。だいくたちが 順番に 取りかかる */
+export function addOrder(this: World, s: ShopItem) {
+  this.orders.push({ id: s.id, stage: this.stageIndex })
+  this.orderT = Math.min(this.orderT, 0.6)
+}
+
+/** この箱庭の ちゅうもんの 名前（列の順） */
+export function orderNames(this: World) {
+  return this.orders.filter((o) => o.stage === this.stageIndex).map((o) => SHOP.find((s) => s.id === o.id)?.name ?? '？')
+}
+
+/**
+ * ちゅうもんの列を すすめる。いちどに 進める 現場は「1 + 村のレベル」まで。
+ * 場所は 人ではなく 住民が 決める（村の まんなかの まわり）。置き物は 組み立て場（crate）を へて できあがる
+ */
+export function updateOrders(this: World, dt: number) {
+  this.orderT -= dt
+  if (this.orderT > 0) return
+  this.orderT = 1.5
+  const here = this.stageIndex
+  const i = this.orders.findIndex((o) => o.stage === here)
+  if (i < 0) return
+  if (this.structs.filter((b) => b.stage === here && b.ordered && !this.structDone(b)).length >= 1 + this.vLv) return
+  if (!this.creatures.some((c) => this.ally(c) && c.state !== 'dead' && c.state !== 'faint')) return
+  const o = this.orders[i]
+  const s = SHOP.find((x) => x.id === o.id)
+  if (!s || (!s.plan && !s.item)) return void this.orders.splice(i, 1)
+  const c = this.villageCenter()
+  const site = this.planStruct(s.plan ?? 'crate', c.x, c.z, true)
+  // 場所が 見つからない時は 列の うしろへ まわす
+  if (!site) return void this.orders.push(this.orders.splice(i, 1)[0])
+  site.ordered = true
+  if (s.item) site.item = s.item
+  this.orders.splice(i, 1)
+  this.mark(site.x, site.z, 2)
+  this.say(`${s.name}に とりかかった！`)
+}
+
 /**
  * 地形が 変わった後（地形の作りなおし・かいたく）に、水・溶岩・急な坂・島の外に かさなった 家・建物・置き物を
  * いちばん近い 平らな所へ うつす。ステージを読みこむ時、モデルを 置く前に 呼ぶ。はしは 水の上に無ければ 取りのぞく

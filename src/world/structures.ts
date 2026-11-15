@@ -9,7 +9,7 @@ import * as THREE from 'three'
  *   flag = 旗（ゆれる） / lit = 窓・ランプ（夜と雨と雪で光る） / snow = 雪の屋根（雪の間だけ見える）
  *   chimney = けむりの出口 / blades = ふうしゃの羽根 / beam = とうだいの光 / jet・water・curtain = ふんすい / swing = ブランコ
  */
-export type StructKind = 'farm' | 'well' | 'tower' | 'cradle' | 'wall' | 'castle' | 'bridge' | 'fountain' | 'windmill' | 'lighthouse' | 'market' | 'playground' | 'fort'
+export type StructKind = 'farm' | 'well' | 'tower' | 'cradle' | 'wall' | 'castle' | 'bridge' | 'fountain' | 'windmill' | 'lighthouse' | 'market' | 'playground' | 'fort' | 'crate'
 
 export interface StructSpec {
   name: string
@@ -40,6 +40,8 @@ export const STRUCTS: Record<StructKind, StructSpec> = {
   market: { name: 'いちば', need: 8, hp: 70, r: 1.1, score: 2, max: 1, foot: 1.6 },
   playground: { name: 'あそびば', need: 6, hp: 50, r: 0, score: 1.5, max: 2, foot: 1.4 },
   fort: { name: 'いしのとりで', need: 12, hp: 200, r: 1.1, score: 3, max: 2, foot: 1.5 },
+  // 発注した 置き物の 組み立て場（できあがると 置き物に かわる。Struct.item）
+  crate: { name: 'くみたてば', need: 2, hp: 20, r: 0, score: 0, max: 99, foot: 0.6 },
 }
 
 /**
@@ -60,6 +62,7 @@ export const STRUCT_H: Record<StructKind, [number, number, number]> = {
   market: [1.2, 1.9, 1.8],
   playground: [1.0, 1.7, 1.6],
   fort: [2.2, 3.0, 2.9],
+  crate: [0.6, 1.0, 1.0],
 }
 
 export const isStructKind = (v: unknown): v is StructKind => typeof v === 'string' && Object.prototype.hasOwnProperty.call(STRUCTS, v)
@@ -147,6 +150,15 @@ export function buildStructModel(kind: StructKind, ctx: ModelCtx, len = 3): THRE
   const dark = ctx.lam('#3d2a1e')
   const roof = ctx.lam(ctx.style.roof)
   switch (kind) {
+    case 'crate': {
+      // 木箱と つつみ（なわで しばってある）
+      g.add(box(0.5, 0.4, 0.5, wood, 0, 0.2, 0))
+      g.add(box(0.54, 0.06, 0.54, dark, 0, 0.2, 0))
+      g.add(box(0.06, 0.44, 0.54, dark, 0, 0.2, 0))
+      g.add(box(0.3, 0.24, 0.3, ctx.lam('#e8d9a8'), 0.42, 0.12, 0.2))
+      g.add(box(0.32, 0.04, 0.05, ctx.basic(ctx.style.accent), 0.42, 0.25, 0.2))
+      break
+    }
     case 'farm': {
       g.add(box(1.9, 0.1, 1.5, ctx.lam('#5a3d28'), 0, 0.05, 0))
       for (const z of [-0.45, 0, 0.45]) {
