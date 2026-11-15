@@ -8,6 +8,7 @@ import { EGG_COLORS, NEW_SKILLS, SPECIES, enemyFor, newSeed, type Care, type Egg
 import { WeatherFx, fxLod } from './fxprops'
 import { SIZE, STAGES, type Stage } from './stages'
 import { buildWorldMap } from './worldmap'
+import type { EraPath } from './eras'
 import { BABY } from './families'
 import { type StructKind } from './structures'
 import { type ItemKind } from './items'
@@ -140,6 +141,8 @@ export interface House {
   stage: number; x: number; z: number; owner: Creature | null; ownerSp: SpeciesId
   /** 運びこまれた資材の数（2 = 土台 / 5 = かべ / 8 = 屋根まで完成） */
   mats: number; hp: number; mesh: THREE.Group | null; shake: number; level: number; alerted: number
+  /** 建てた（建てなおした）時の 町の 時代と、それからの 年齢（秒）。年齢と まんなかからの 遠さで 古びる */
+  era: number; age: number
 }
 /** 家のほかの建物（はたけ・いど・みはりとう・ゆりかごごや・へい・おしろ・はし・ふんすい・ふうしゃ・とうだい・いちば・あそびば・いしのとりで）。mats が need になると完成 */
 export interface Struct {
@@ -442,6 +445,9 @@ export class World {
   removeFood = Vi.removeFood
   lam = Vi.lam
   addOrder = Vi.addOrder
+  townEra = Vi.townEra
+  houseWear = Vi.houseWear
+  updateTownEra = Vi.updateTownEra
   townCenter = Vi.townCenter
   townLot = Vi.townLot
   showEras = Vi.showEras
@@ -1209,6 +1215,9 @@ export class World {
   // ================= セーブ / ロード =================
   /** 読み込み・やり直しの直前は自動セーブを止める（上書きしないように） */
   saveLocked = false
+  /** 町の 枝（ステージごと。6 段めに 上がった時に 住民の 系統で 決まる） */
+  eraPath: Record<number, EraPath> = {}
+  eraT = 0
   /** ちゅうもんの列（計画 B1）：買った物は ここに ならび、だいくたちが 順番に 取りかかる */
   orders: Order[] = []
   orderT = 0

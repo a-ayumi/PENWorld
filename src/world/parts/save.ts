@@ -24,7 +24,8 @@ export function save(this: World) {
     coins: this.coins, stage: this.stageIndex, care: this.care, xp: this.xp, stats: this.stats, night: this.nightTarget,
     pet: c2(this.pet),
     friends: friends.map(c2),
-    houses: this.houses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, ownerSp: h.ownerSp, owner: ownerKey(h), mats: h.mats, hp: Math.round(h.hp) })),
+    houses: this.houses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, ownerSp: h.ownerSp, owner: ownerKey(h), mats: h.mats, hp: Math.round(h.hp), era: h.era, age: Math.round(h.age) })),
+    eraPath: this.eraPath,
     structs: this.structs.map((b) => ({ kind: b.kind, stage: b.stage, x: b.x, z: b.z, rot: b.rot, len: b.len, mats: b.mats, hp: Math.round(b.hp), item: b.item, ordered: b.ordered || undefined })),
     orders: this.orders,
     items: this.items.map((it) => ({ kind: it.kind, stage: it.stage, x: it.x, z: it.z, grow: it.grow, rot: it.rot })),
@@ -88,9 +89,12 @@ export function load(this: World): boolean {
         rot: num(it.rot, -7, 7, 0), vx: 0, vz: 0, mesh: null, sq: 0, tick: 0,
       })
     }
-    type SavedHouse = { stage: number; x: number; z: number; ownerSp: SpeciesId; owner: string; mats: number; hp: number }
+    type SavedHouse = { stage: number; x: number; z: number; ownerSp: SpeciesId; owner: string; mats: number; hp: number; era?: number; age?: number }
     const savedHouses = ((Array.isArray(d.houses) ? d.houses : []) as SavedHouse[]).filter((h) => h && typeof h.owner === 'string').slice(0, 40)
-    this.houses = savedHouses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, owner: null, ownerSp: isSpecies(h.ownerSp) ? h.ownerSp : 'mebu', mats: num(h.mats, 0, 12), hp: num(h.hp, 0, 100), mesh: null, shake: 0, level: houseLevel(h.mats), alerted: 0 }))
+    this.houses = savedHouses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, owner: null, ownerSp: isSpecies(h.ownerSp) ? h.ownerSp : 'mebu', mats: num(h.mats, 0, 12), hp: num(h.hp, 0, 100), mesh: null, shake: 0, level: houseLevel(h.mats), alerted: 0, era: Math.round(num(h.era, 1, 9, 3)), age: num(h.age, 0, 1e7, 0) }))
+    // 町の 枝（white / steam だけ）
+    this.eraPath = {}
+    if (d.eraPath && typeof d.eraPath === 'object') for (const [k, v] of Object.entries(d.eraPath as Record<string, unknown>)) if ((v === 'white' || v === 'steam') && Number.isInteger(+k) && +k >= 0 && +k < STAGES.length) this.eraPath[+k] = v
     type SavedStruct = { kind: unknown; stage: number; x: number; z: number; rot: number; len: number; mats: number; hp: number; item?: unknown; ordered?: unknown }
     this.structs = ((Array.isArray(d.structs) ? d.structs : []) as SavedStruct[])
       .filter((b) => b && isStructKind(b.kind) && (b.kind !== 'crate' || isItemKind(b.item)))

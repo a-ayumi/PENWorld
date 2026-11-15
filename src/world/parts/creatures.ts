@@ -1,5 +1,6 @@
 /** World.ts から分けた「creatures」のメソッド。this は World（World.ts のクラスのつなぎの行から呼ばれる） */
 import * as THREE from 'three'
+import { BUILD_SCALE } from '../eras'
 import { SpriteAnim, iconSheet } from '../sprites'
 import { MonsterModel, hasModel } from '../models'
 import { BABY, FAMILY_NAME, SPECIES, STAGE_EGGS, SpriteMonster, XP_NEED, familyOf, newSeed, nextForm, variantOf, type Care, type EggKind, type MonsterView, type Species, type SpeciesId } from '../monsters'
@@ -259,7 +260,7 @@ export function obstacles(this: World) {
   const extra = this.items
     .filter((it) => it.stage === this.stageIndex && ITEM_SPEC[it.kind].r > 0 && (it.kind !== 'sapling' || it.grow >= 1))
     .map((it) => ({ x: it.x, z: it.z, r: ITEM_SPEC[it.kind].r, water: false }))
-  const homes = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 1).map((h) => ({ x: h.x, z: h.z, r: 0.85, water: false }))
+  const homes = this.houses.filter((h) => h.stage === this.stageIndex && h.level >= 1).map((h) => ({ x: h.x, z: h.z, r: 0.85 * BUILD_SCALE, water: false }))
   const bridged = (o: { x: number; z: number; water?: boolean }) =>
     !!o.water && this.structs.some((b) => b.kind === 'bridge' && b.stage === this.stageIndex && b.mats >= STRUCTS.bridge.need && Math.hypot(b.x - o.x, b.z - o.z) < 0.6)
   const land = this.stage.obstacles.filter((o) => !bridged(o))
@@ -389,7 +390,7 @@ export function think(this: World, c: Creature) {
   const home = this.homeOf(c)
   if (!wild && home && home.level >= 2 && (this.weather === 'rain' || this.weather === 'ember' || this.night > 0.5) && Math.random() < 0.7) {
     c.tx = home.x
-    c.tz = home.z + 0.95
+    c.tz = home.z + 1.25 * BUILD_SCALE
     c.inside = true
     return this.setState(c, 'rest', 10)
   }
