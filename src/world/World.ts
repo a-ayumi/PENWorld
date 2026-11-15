@@ -156,6 +156,7 @@ export interface Struct {
 /** ちゅうもん（発注）：ショップの品の id と、たのんだ箱庭 */
 export interface Order { id: string; stage: number }
 export const MAX_ORDERS = 8
+export interface TownRing { r: number; era: number; built: number; age: number; cx: number; cz: number; gate: number }
 /** むらの おまつり：中心・のこり時間・おどった数 */
 export interface Festival { x: number; z: number; t: number; dur: number; n: number; tick: number; fx: number; ring: number; rad: number }
 /** いちばに来る やどかり（行商）：in = 歩いてくる / sell = 売っている / out = 帰る */
@@ -448,6 +449,9 @@ export class World {
   townEra = Vi.townEra
   houseWear = Vi.houseWear
   updateTownEra = Vi.updateTownEra
+  updateTownWall = Vi.updateTownWall
+  mountWalls = Vi.mountWalls
+  wallSegs = Vi.wallSegs
   townCenter = Vi.townCenter
   townLot = Vi.townLot
   showEras = Vi.showEras
@@ -906,6 +910,7 @@ export class World {
       if (h.stage === i) this.mountHouse(h)
     }
     for (const st of this.structs) if (st.stage === i) this.mountStruct(st)
+    this.mountWalls()
     this.armyCd = 150
     this.calcVillage()
     this.villageSeen = this.vLv
@@ -1217,6 +1222,12 @@ export class World {
   saveLocked = false
   /** 町の 枝（ステージごと。6 段めに 上がった時に 住民の 系統で 決まる） */
   eraPath: Record<number, EraPath> = {}
+  /** 城壁の 輪（ステージごと・内がわから 外へ）。r = 半径 / era = 建てた 時代 / built = できた 区切りの 数 / age = 年齢 / gate = 門の 向き */
+  townWalls: Record<number, TownRing[]> = {}
+  wallT = 0
+  wallObs: { x: number; z: number; r: number; water: boolean }[] = []
+  wallVer = 0
+  wallMesh: THREE.Group | null = null
   eraT = 0
   /** ちゅうもんの列（計画 B1）：買った物は ここに ならび、だいくたちが 順番に 取りかかる */
   orders: Order[] = []

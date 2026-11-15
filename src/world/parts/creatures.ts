@@ -247,7 +247,7 @@ export function moveTo(this: World, c: Creature, tx: number, tz: number, speed: 
 }
 
 export function obstacles(this: World) {
-  const key = `${this.obsFrame}|${this.stageIndex}|${this.items.length}|${this.houses.length}|${this.structs.length}|${this.stage.obstacles.length}`
+  const key = `${this.obsFrame}|${this.stageIndex}|${this.items.length}|${this.houses.length}|${this.structs.length}|${this.stage.obstacles.length}|${this.wallVer}`
   if (key === this.obsKey && this.obsTick === this.obsFrame) {
     if (!this.navKey) {
       this.navKey = 'cached'
@@ -265,7 +265,7 @@ export function obstacles(this: World) {
     !!o.water && this.structs.some((b) => b.kind === 'bridge' && b.stage === this.stageIndex && b.mats >= STRUCTS.bridge.need && Math.hypot(b.x - o.x, b.z - o.z) < 0.6)
   const land = this.stage.obstacles.filter((o) => !bridged(o))
   const builds = this.structs.filter((b) => b.stage === this.stageIndex && STRUCTS[b.kind].r > 0 && b.mesh).map((b) => ({ x: b.x, z: b.z, r: STRUCTS[b.kind].r, water: false }))
-  this.obsCache = [...land, ...extra, ...homes, ...builds]
+  this.obsCache = [...land, ...extra, ...homes, ...builds, ...this.wallObs]
   // 物の置き方が変わった時だけ、歩ける所の升目を作り直す
   const nk = key.slice(key.indexOf('|') + 1) + '|' + builds.length + '|' + land.length
   if (nk !== this.navKey) {

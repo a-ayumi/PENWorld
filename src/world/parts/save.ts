@@ -26,6 +26,7 @@ export function save(this: World) {
     friends: friends.map(c2),
     houses: this.houses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, ownerSp: h.ownerSp, owner: ownerKey(h), mats: h.mats, hp: Math.round(h.hp), era: h.era, age: Math.round(h.age) })),
     eraPath: this.eraPath,
+    townWalls: this.townWalls,
     structs: this.structs.map((b) => ({ kind: b.kind, stage: b.stage, x: b.x, z: b.z, rot: b.rot, len: b.len, mats: b.mats, hp: Math.round(b.hp), item: b.item, ordered: b.ordered || undefined })),
     orders: this.orders,
     items: this.items.map((it) => ({ kind: it.kind, stage: it.stage, x: it.x, z: it.z, grow: it.grow, rot: it.rot })),
@@ -92,6 +93,16 @@ export function load(this: World): boolean {
     type SavedHouse = { stage: number; x: number; z: number; ownerSp: SpeciesId; owner: string; mats: number; hp: number; era?: number; age?: number }
     const savedHouses = ((Array.isArray(d.houses) ? d.houses : []) as SavedHouse[]).filter((h) => h && typeof h.owner === 'string').slice(0, 40)
     this.houses = savedHouses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, owner: null, ownerSp: isSpecies(h.ownerSp) ? h.ownerSp : 'mebu', mats: num(h.mats, 0, 12), hp: num(h.hp, 0, 100), mesh: null, shake: 0, level: houseLevel(h.mats), alerted: 0, era: Math.round(num(h.era, 1, 9, 3)), age: num(h.age, 0, 1e7, 0) }))
+    // 城壁の 輪（ステージごと・数は 検査する）
+    this.townWalls = {}
+    if (d.townWalls && typeof d.townWalls === 'object')
+      for (const [k, v] of Object.entries(d.townWalls as Record<string, unknown>)) {
+        if (!Number.isInteger(+k) || +k < 0 || +k >= STAGES.length || !Array.isArray(v)) continue
+        this.townWalls[+k] = (v as Record<string, number>[]).slice(0, 6).filter((r) => r && typeof r === 'object').map((r) => ({
+          r: num(r.r, 2, 80, 10), era: Math.round(num(r.era, 1, 9, 2)), built: Math.round(num(r.built, 0, 400, 0)), age: num(r.age, 0, 1e7, 0),
+          cx: num(r.cx, -HALF, HALF, 0), cz: num(r.cz, -HALF, HALF, 0), gate: num(r.gate, -7, 7, 0),
+        }))
+      }
     // 町の 枝（white / steam だけ）
     this.eraPath = {}
     if (d.eraPath && typeof d.eraPath === 'object') for (const [k, v] of Object.entries(d.eraPath as Record<string, unknown>)) if ((v === 'white' || v === 'steam') && Number.isInteger(+k) && +k >= 0 && +k < STAGES.length) this.eraPath[+k] = v
