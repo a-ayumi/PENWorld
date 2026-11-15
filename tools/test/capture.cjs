@@ -11,6 +11,7 @@ const srv = http.createServer((q, r) => { let f = path.join(dir, decodeURICompon
     let a = 12345; Math.random = () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296 }
     try { localStorage.clear(); localStorage.setItem('pulsar-hint', '1') } catch {}
   })
+  p.on('console', (m) => m.text().startsWith('TOWN') && console.log(m.text()))
   p.on('pageerror', (e) => console.log('pageerror', e.message))
   await p.goto(`http://localhost:${srv.address().port}/${query}`)
   await p.waitForFunction(() => window.__pulsar, null, { timeout: 150000 })
