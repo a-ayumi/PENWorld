@@ -7,11 +7,11 @@ import { FAMILY_NAME, LOOK_NAME, SPECIES, XP_NEED, familyOf, lookOf, portraitFor
 import { HALF, type Stage } from '../stages'
 import { STRUCTS, STRUCT_H, type StructKind } from '../structures'
 import { ITEM_INFO, ITEM_SPEC, type ItemKind } from '../items'
-import { DINER_MAX } from './village'
+import { DINER_MAX, MAX_ROOMS, roomNeed } from './village'
 import { SHOP, shownCat, drawShop as drawShopWindow, type ShopCheck, type ShopItem } from '../shop'
 import { CHAPTERS, bossReady, nowGoal } from '../../roadmap'
 import type { World } from '../World'
-import { TOWN_PLANS, TOWN_PLAN_NAME, TOWN_PLAN_DESC, PET_PLANS, PLAN_NAME, PLAN_DESC, ROLE_DESC, Creature, Res, House, Struct, Food, ROLE_NAME, ROLE_COLOR, LIFESPAN, Item, Egg, Pick, STATE_NAME, STRUCT_DESC, ICONS, ICON_COLORS, ICON_BMP, FOODS, CARE_NAME, SeasonShop, FONT, HOUSE_STEPS, MAX_STRUCTS, MAX_ORDERS, FORT_RANGE, houseMaxHp, WEATHER_NAME, MAX_FRIENDS } from '../World'
+import { SKILLS, HEAL_SKILLS, TOWN_PLANS, TOWN_PLAN_NAME, TOWN_PLAN_DESC, PET_PLANS, PLAN_NAME, PLAN_DESC, ROLE_DESC, Creature, Res, House, Struct, Food, ROLE_NAME, ROLE_COLOR, LIFESPAN, Item, Egg, Pick, STATE_NAME, STRUCT_DESC, ICONS, ICON_COLORS, ICON_BMP, FOODS, CARE_NAME, SeasonShop, FONT, HOUSE_STEPS, MAX_STRUCTS, MAX_ORDERS, FORT_RANGE, houseMaxHp, WEATHER_NAME, MAX_FRIENDS } from '../World'
 
 /** タップした場所（液晶の座標）にいちばん近い物をさがす */
 export function pickAt(this: World, x: number, y: number): Pick | null {
@@ -89,6 +89,7 @@ export function describe(this: World, p: Pick): { title: string; sub: string; li
       if (c === this.pet) lines.push(`ほうしん：${PLAN_NAME[this.petPlan]}`, `　${PLAN_DESC[this.petPlan]}`)
       else if (this.ally(c)) lines.push(...(c.grow > 0 || c.sp.tier < 2 ? ['やくわり：まだ こども', '　あそんで そだつ'] : [`やくわり：${ROLE_NAME[c.role]}`, `　${ROLE_DESC[c.role]}`]))
       lines.push(`いま：${this.taskOf(c)}`)
+      if (this.ally(c) && c.sp.tier >= 2 && c.grow === 0) lines.push(`わざ：${SKILLS[c.sp.id]?.name ?? '-'}・${HEAL_SKILLS[familyOf(c.sp.id)].name}`)
       if (this.fortBoost(c) > 1) lines.push('いしのとりでの ちから：こうげき UP！')
       bars.push(['たいりょく', c.hp / c.maxHp, '#7cf29b'])
       if (c.team === 'wild' && c.sp.temper === 'calm') bars.push(['なかよし', Math.min(1, c.affinity / 100), '#ff7eb6'])
@@ -160,11 +161,12 @@ export function describe(this: World, p: Pick): { title: string; sub: string; li
     case 'keep': {
       const here = this.stageIndex
       const allies = this.creatures.filter((c) => this.ally(c) && c.state !== 'dead')
-      const hs = this.houses.filter((h) => h.stage === here && (!h.owner || this.ally(h.owner)))
       const rings = this.townWalls[here] ?? []
       lines.push(`じだい：${ERA_NAME[this.townEra()]}・てん ${this.vScore.toFixed(1)}`)
-      lines.push(`じゅうにん ${allies.length}・いえ ${hs.filter((h) => h.level >= 3).length}/${hs.length}・へい ${rings.length}じゅう`)
+      const cd = this.castleData[here] ?? { mats: 0, rooms: 0 }
+      lines.push(`へや ${cd.rooms}・すむ子 ${allies.length}・へい ${rings.length}じゅう`)
       lines.push(`おふれ：${TOWN_PLAN_NAME[this.townPlan]}`, `　${TOWN_PLAN_DESC[this.townPlan]}`)
+      if (cd.rooms < MAX_ROOMS) bars.push(['つぎの へや', cd.mats / roomNeed(cd.rooms + 1), '#c8955a'])
       const next = eraStepScore(this.vScore)
       if (next) bars.push(['つぎの じだい', next, '#ffd23f'])
       return { title: this.villageName() || 'まち', sub: 'まちの まんなか', lines, bars, del: `おふれ ▸ ${TOWN_PLAN_NAME[TOWN_PLANS[(TOWN_PLANS.indexOf(this.townPlan) + 1) % TOWN_PLANS.length]]}` }
@@ -435,6 +437,7 @@ export function shopCheck(this: World, s: ShopItem): ShopCheck {
     have = this.eggs.length
     if (have >= max) return no('full', `たまごは いっぱい（${have}/${max}）`)
   }
+  if (s.plan === 'castle' && this.stage.start) return no('done', 'しろは まちの まんなかに ある（みんなで そだてている）')
   if (s.plan) {
     const here = this.structs.filter((b) => b.stage === this.stageIndex)
     have = here.filter((b) => b.kind === s.plan).length + this.pendingOf(s)

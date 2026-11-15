@@ -18,7 +18,7 @@ import { WeatherFx, fxLod } from './fxprops'
 import { SIZE, STAGES, type Stage } from './stages'
 import { buildWorldMap, worldForest } from './worldmap'
 import type { EraPath } from './eras'
-import { BABY } from './families'
+import { BABY, type Family } from './families'
 import { type StructKind } from './structures'
 import { type ItemKind } from './items'
 import { SHOP, setShopLand, type ShopItem } from './shop'
@@ -43,7 +43,7 @@ export type Team = 'pet' | 'friend' | 'wild'
 export type State =
   | 'idle' | 'wander' | 'hunt' | 'fight' | 'assist' | 'seek' | 'eat' | 'sleep' | 'rest' | 'play'
   | 'happy' | 'faint' | 'dead' | 'train' | 'come' | 'gather' | 'build' | 'raid' | 'march' | 'work' | 'tend' | 'dance' | 'frolic'
-  | 'deliver' | 'plant'
+  | 'deliver' | 'plant' | 'heal'
 
 export interface Creature {
   sp: Species; team: Team; anim: MonsterView; shadow: THREE.Mesh
@@ -72,6 +72,10 @@ export interface Creature {
   inside: boolean
   /** 技を出せるまでの時間 */
   skillCd: number
+  /** いやし技を 出せるまでの 時間 */
+  healCd?: number
+  /** なおしに いく あいて */
+  healTo?: Creature | null
   /** おうえんされた（次の攻撃で技を出す） */
   cheer: boolean
   /** 眠りはじめた時の げんき・たいりょく（起きた時に増えた分を出す） */
@@ -98,6 +102,8 @@ export interface Creature {
   plantAt?: { x: number; z: number; kind: ItemKind; water?: Item } | null
   /** 手つだう 家（自分の 家が できた だいくが、ほかの 子の 建てかけの 家に しざいを はこぶ） */
   helpHouse?: House | null
+  /** 城の 資材を つむ 場所（運ぶ あいだ おぼえておく） */
+  castleAt?: { x: number; z: number } | null
   tendTo: Struct | null
   /** あそびば（frolic）の場所 / おまつり（dance）の輪の角度と半径 */
   spot: Struct | null
@@ -150,6 +156,20 @@ export const SKILLS: Record<string, Skill> = {
   gougan: { name: 'マグマパンチ', kind: 'wave', color: '#ff7a2a', mult: 2.2 },
 }
 for (const [id, sk] of Object.entries(NEW_SKILLS)) SKILLS[id] = sk
+/**
+ * いやし技：成長期から 上の なかまは みんな、系統ごとの 回復の 技も もつ（ふつうの 技とは べつ）。
+ * たたかいの 中では 弱った 味方を 先に なおし、ふだんも けがを した なかまを 見つけると なおしに いく
+ */
+export const HEAL_SKILLS: Record<Family, Skill> = {
+  plain: { name: 'はっぱの いやし', kind: 'heal', color: '#9be28a', mult: 0 },
+  machine: { name: 'リペアビーム', kind: 'heal', color: '#8fe0ff', mult: 0 },
+  dragon: { name: 'ぬくもりの いき', kind: 'heal', color: '#ffb86b', mult: 0 },
+  cat: { name: 'ねこの てあて', kind: 'heal', color: '#ffd0e6', mult: 0 },
+  dog: { name: 'ぺろぺろヒール', kind: 'heal', color: '#ffe9a8', mult: 0 },
+  bird: { name: 'はねの いやし', kind: 'heal', color: '#fff6c8', mult: 0 },
+  water: { name: 'しずくの めぐみ', kind: 'heal', color: '#8fd8ff', mult: 0 },
+  monster: { name: 'ふしぎな おまじない', kind: 'heal', color: '#c9a8ff', mult: 0 },
+}
 export interface Shot { sprite: THREE.Sprite; from: THREE.Vector3; src: Creature; dst: Creature; t: number; dur: number; dmg: number; skill: Skill; arc: number }
 export interface Ring { mesh: THREE.Mesh; t: number; dur: number; size: number }
 export interface Later { t: number; run: () => void }
@@ -165,6 +185,8 @@ export interface House {
   era: number; age: number
   /** 敵の 町の 家（`World.foeHouses`） */
   foe?: boolean
+  /** みんなの 城（なかまの 家の かわり。`World.castleHome()`） */
+  castle?: boolean
 }
 /** 家のほかの建物（はたけ・いど・みはりとう・ゆりかごごや・へい・おしろ・はし・ふんすい・ふうしゃ・とうだい・いちば・あそびば・いしのとりで）。mats が need になると完成 */
 export interface Struct {
@@ -249,7 +271,7 @@ export const STATE_NAME: Record<string, string> = {
   idle: 'ぼんやり', wander: 'さんぽ', hunt: 'おいかけている', fight: 'たたかっている', seek: 'ごはんへ むかう', eat: 'たべている', sleep: 'ねむっている', rest: 'やすんでいる',
   play: 'あそんでいる', happy: 'うれしい', faint: 'きぜつ', dead: 'たおれた', train: 'トレーニング', come: 'よばれた', gather: 'しざいを ひろう', build: 'しざいを はこぶ',
   raid: 'こわしている', march: 'しんぐん中', work: 'トントン つくっている', tend: 'はたけの せわ', assist: 'たすけに むかう', dance: 'おまつりで おどっている', frolic: 'あそびばで あそんでいる',
-  deliver: 'ごはんを はこぶ', plant: 'うえに いく',
+  deliver: 'ごはんを はこぶ', plant: 'うえに いく', heal: 'なおしに いく',
 }
 export const STRUCT_DESC: Record<StructKind, string> = {
   farm: 'たべものが みのる。はたけがかりが せわをする',
@@ -405,7 +427,7 @@ export const MAX_FRIENDS = 10
 export const MAX_KIDS = 2
 export const MAX_WILD_CALM = 3
 /** モンスターの大きさの倍率（建物と見くらべて ちょうど良いように。種族の height × これ） */
-export const CREATURE_SCALE = 0.7
+export const CREATURE_SCALE = 0.85
 /** 敵軍のボス（たおすと実績） */
 export const BOSSES = new WeakSet<object>()
 /** 色ちがいの出やすさ（ふつう 3% / ふしぎなたまご 8%） */
@@ -517,6 +539,14 @@ export class World {
   wallJob = Vi.wallJob
   wallSpot = Vi.wallSpot
   layWall = Vi.layWall
+  castleRooms = Vi.castleRooms
+  castleHome = Vi.castleHome
+  castleWants = Vi.castleWants
+  castleAdd = Vi.castleAdd
+  castleSpot = Vi.castleSpot
+  canHeal = Cr.canHeal
+  castHeal = Cr.castHeal
+  healJob = Cr.healJob
   updateWish = Vi.updateWish
   grantWish = Vi.grantWish
   cullSmall = Up.cullSmall
@@ -871,6 +901,8 @@ export class World {
   small: { o: THREE.Object3D; x: number; z: number }[] = []
   smallOf: Stage | null = null
   smallT = 0
+  /** ドット絵の 生き物に かける 光の 色（applyLight が 決める） */
+  creatureTint = new THREE.Color(1, 1, 1)
   /** 住民の おねがい（ほしい 品の ショップ id・だれ・のこり 秒・つぶやきの 時計） */
   wish: { id: string; who: Creature; t: number; say: number } | null = null
   wishT = 150
@@ -1337,6 +1369,11 @@ export class World {
   keepMesh: THREE.Group | null = null
   /** 敵の 町（計画 B6）：家・へいの 輪・枝・中心の 建物 */
   foeHouses: House[] = []
+  /** みんなの 城：箱庭ごとの 部屋の 数と、つぎの 部屋に つんだ 資材（セーブする） */
+  castleData: Record<number, { mats: number; rooms: number }> = {}
+  castleH: House | null = null
+  /** 敵の 町の 城の 部屋の 数（箱庭ごと・セーブする） */
+  foeRooms: Record<number, number> = {}
   foeWalls: Record<number, TownRing[]> = {}
   foePath: Record<number, EraPath> = {}
   foeT = 4

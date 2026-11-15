@@ -11,7 +11,7 @@ import { MissionBook, isSeason, sanitizeStats } from '../../missions'
 import { backfill, loadRoad, newRoad, saveRoad } from '../../roadmap'
 import type { World } from '../World'
 import { type TownRing, type PetPlan, PET_PLANS, type TownPlan, TOWN_PLANS, Creature, House, LIFESPAN, FRIEND_LIFE, MAX_ORDERS, newLife, isSpecies, num, SAVE_KEY, houseLevel } from '../World'
-import { DINER_MAX } from './village'
+import { DINER_MAX, MAX_ROOMS } from './village'
 
 export function save(this: World) {
   if (!this.pet || this.saveLocked) return
@@ -35,6 +35,8 @@ export function save(this: World) {
     townPlan: this.townPlan,
     world: this.worldMode || undefined,
     townWalls: this.townWalls,
+    castle: this.castleData,
+    foeRooms: this.foeRooms,
     foeHouses: this.foeHouses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, mats: h.mats, hp: Math.round(h.hp), era: h.era, age: Math.round(h.age) })),
     foeWalls: this.foeWalls,
     foePath: this.foePath,
@@ -179,6 +181,17 @@ export function load(this: World): boolean {
       this.foeWalls = {}
       this.orders = this.orders.filter((o) => o.stage === 0)
     }
+    // みんなの 城と 敵の 城の 部屋の 数（箱庭の 番号 → 数。読んだ 値は 検査する）
+    this.castleData = {}
+    this.foeRooms = {}
+    this.castleH = null
+    if (d.castle && typeof d.castle === 'object')
+      for (const [k, v] of Object.entries(d.castle as Record<string, { mats?: unknown; rooms?: unknown }>))
+        if (Number.isInteger(+k) && +k >= 0 && +k < STAGES.length && v && typeof v === 'object')
+          this.castleData[+k] = { mats: Math.round(num(v.mats as number, 0, 40, 0)), rooms: Math.round(num(v.rooms as number, 0, MAX_ROOMS, 0)) }
+    if (d.foeRooms && typeof d.foeRooms === 'object')
+      for (const [k, v] of Object.entries(d.foeRooms as Record<string, unknown>))
+        if (Number.isInteger(+k) && +k >= 0 && +k < STAGES.length) this.foeRooms[+k] = Math.round(num(v as number, 0, MAX_ROOMS, 0))
     // 古い 1 まいの セーブを 大きな 世界から もどす 時も ステージ 0 から
     this.loadStage(this.worldMode ? 0 : Math.min(STAGES.length - 1, Math.round(num(d.stage, 0, STAGES.length - 1))))
     type Saved = { sp: SpeciesId; hp: number; maxHp: number; atk: number; hunger: number; energy: number; grow: number; xp?: number; care?: Record<Care, number>; bias?: Care; seed?: number; rare?: boolean; age?: number; life?: number }
@@ -210,6 +223,22 @@ export function load(this: World): boolean {
       const owner = h.owner === 'pet' ? this.pet : h.owner.startsWith('f') ? friends[Number(h.owner.slice(1))] : undefined
       this.houses[i].owner = owner ?? null
     })
+    // 小さな 家を やめた（2026-11-15）：町の まんなかが ある 箱庭の 古い 家は 城の 部屋に かえる（敵の 家も 敵の 城の 部屋に）
+    if (this.stage.start) {
+      const here = this.stageIndex
+      const old = this.houses.filter((h) => h.stage === here)
+      const oldFoe = this.foeHouses.filter((h) => h.stage === here)
+      if (old.length || oldFoe.length) {
+        const c0 = (this.castleData[here] ??= { mats: 0, rooms: 0 })
+        c0.rooms = Math.min(MAX_ROOMS, c0.rooms + old.filter((h) => h.level >= 3).length + Math.floor(old.filter((h) => h.level === 2).length / 2))
+        this.foeRooms[here] = Math.min(MAX_ROOMS, (this.foeRooms[here] ?? 0) + oldFoe.filter((h) => h.level >= 2).length)
+        for (const h of [...old, ...oldFoe]) this.unmountHouse(h)
+        this.houses = this.houses.filter((h) => !old.includes(h))
+        this.foeHouses = this.foeHouses.filter((h) => !oldFoe.includes(h))
+        this.calcVillage()
+        this.mountWalls()
+      }
+    }
     for (const e of (Array.isArray(d.eggs) ? d.eggs : []).slice(0, 6)) {
       if (!e) continue
       const kind: EggKind = typeof e.kind === 'string' && Object.prototype.hasOwnProperty.call(EGG_COLORS, e.kind) ? e.kind : 'inherit'
@@ -233,7 +262,7 @@ export function journalFacts(this: World): Facts {
   const care = (['power', 'guard', 'spirit'] as Care[]).sort((a, b) => this.care[b] - this.care[a])[0]
   return {
     coins: this.coins, gen: this.stats.gen, pet: this.pet.sp.name, family: familyOf(this.pet.sp.id), care, weather: this.weather,
-    houses: this.houses.filter((h) => h.level >= 3).length, structs: this.structs.filter((b) => this.structDone(b) && b.kind !== 'wall').length,
+    houses: this.houses.filter((h) => h.level >= 3).length + this.castleRooms(), structs: this.structs.filter((b) => this.structDone(b) && b.kind !== 'wall').length,
     children: this.stats.children, friends: friends.length, friendNames: [...new Set(friends.map((c) => c.sp.name))].slice(0, 4),
     dex: Object.values(this.dex).filter((v) => v === 2).length, vName: this.villageName(), vLv: this.vLv, lineage: this.stats.lineage.slice(-3),
   }

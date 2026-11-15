@@ -8,7 +8,7 @@ import { SPECIES, enemyFor, type Face } from '../monsters'
 import { HALF, SIZE, STAGES } from '../stages'
 import { STRUCTS } from '../structures'
 import { ITEM_SPEC, slidePath } from '../items'
-import { DINER_MAX } from './village'
+import { DINER_MAX, roomNeed } from './village'
 import { SHOP, catIndexes, catOf, shopTap } from '../shop'
 import type { World } from '../World'
 import { Creature, FOODS, CARE_NAME, FX_SHEETS, CAM_OFF, HOUSE_STEPS, MAX_FRIENDS } from '../World'
@@ -30,6 +30,8 @@ export function update(this: World, dt: number) {
   // 読みこみ範囲：引いて 見ている ほど 広く
   this.stage.cull?.(this.look.x, this.look.z, 18 + 16 * Math.max(1, this.camZoom))
   this.cullSmall(dt)
+  for (const c of this.creatures) (c.anim as { material?: THREE.SpriteMaterial }).material?.color.copy(this.creatureTint)
+  for (const e of this.eggs) (e.anim as { material?: THREE.SpriteMaterial }).material?.color.copy(this.creatureTint)
 
   if (this.warp > 0) {
     this.warp = Math.max(0, this.warp - dt)
@@ -201,6 +203,7 @@ export function updateCreature(this: World, c: Creature, dt: number) {
   c.lunge = Math.max(0, c.lunge - dt)
   c.hurt = Math.max(0, c.hurt - dt)
   c.skillCd -= dt
+  if (c.healCd) c.healCd -= dt
   if (c.state !== 'sleep') c.energy = Math.max(0, c.energy - dt * 0.5)
   // 雪の日は雪の種族が元気、それ以外は少し疲れやすい
   if (this.weather === 'snow') {
@@ -290,7 +293,9 @@ export function updateCreature(this: World, c: Creature, dt: number) {
         anim = 'walk'
       } else anim = c.lunge > 0 ? 'attack' : 'idle'
       if (c.cd <= 0 && d < 1.3 && c.hurt <= 0) {
-        if (this.canSkill(c)) this.useSkill(c, f)
+        // 弱った 味方が ちかくに いれば、こうげきより 先に いやし技
+        if (this.canHeal(c) && this.creatures.some((o) => this.alive(o) && this.ally(o) && o.hp < o.maxHp * 0.4 && Math.hypot(o.x - c.x, o.z - c.z) < 3.5)) this.castHeal(c)
+        else if (this.canSkill(c)) this.useSkill(c, f)
         else this.attack(c, f)
         c.cd = (1.5 / sp.speed) * (0.8 + Math.random() * 0.5)
       }
@@ -308,7 +313,8 @@ export function updateCreature(this: World, c: Creature, dt: number) {
       anim = d > 0.3 ? 'walk' : c.lunge > 0 ? 'attack' : 'idle'
       if (d < 0.5) c.anim.facing = f.x > c.x ? 1 : -1
       if (c.cd <= 0 && Math.hypot(f.x - c.x, f.z - c.z) < 1.4) {
-        if (this.canSkill(c)) this.useSkill(c, f)
+        if (this.canHeal(c) && this.creatures.some((o) => this.alive(o) && this.ally(o) && o.hp < o.maxHp * 0.4 && Math.hypot(o.x - c.x, o.z - c.z) < 3.5)) this.castHeal(c)
+        else if (this.canSkill(c)) this.useSkill(c, f)
         else this.attack(c, f)
         c.cd = (1.8 / sp.speed) * (0.8 + Math.random() * 0.5)
       }
@@ -561,21 +567,50 @@ export function updateCreature(this: World, c: Creature, dt: number) {
         break
       }
       if (!h) break
-      if (this.moveTo(c, h.x + (c.x < h.x ? -1 : 1) * 0.6, h.z + 0.85 * BUILD_SCALE + 0.5, sp.speed * 0.9, dt) < 0.5) {
-        c.anim.facing = h.x > c.x ? 1 : -1
+      // 城は まわりの 空いた 所（運んできた 向き）で つむ
+      const spot = h.castle ? (c.castleAt ??= this.castleSpot(c)) : { x: h.x + (c.x < h.x ? -1 : 1) * 0.6, z: h.z + 0.85 * BUILD_SCALE + 0.5 }
+      if (!spot) {
+        this.dropCarry(c, true)
+        this.setState(c, 'idle', 0.5)
+        break
+      }
+      if (this.moveTo(c, spot.x, spot.z, sp.speed * 0.9, dt) < 0.5) {
+        c.castleAt = null
+        const st = this.stage.start
+        c.anim.facing = (h.castle && st ? st.x : h.x) > c.x ? 1 : -1
         c.finish = () => {
           this.dropCarry(c, false)
-          if (this.houses.includes(h)) {
+          if (h.castle || this.houses.includes(h)) {
             const m0 = h.mats
             this.addMaterial(h, c)
             this.addCare(c, 'guard', 1)
             this.gainXp(c, 2)
-            if (c === this.pet && h.level < 4)
+            if (c === this.pet && h.castle) {
+              const d = this.castleData[this.stageIndex]
+              if (d) this.say(`${sp.name}は しろに しざいを はこんだ（つぎの へや ${d.mats}/${roomNeed(d.rooms + 1)}） まもり+1`)
+            } else if (c === this.pet && h.level < 4)
               this.say(`${sp.name}は しざいを はこんだ（いえ ${h.mats}/${HOUSE_STEPS[Math.min(4, h.level + 1)]}${h.mats - m0 > 1 ? ' どうぐで 2ばい' : ''}） まもり+1`)
           }
           this.setState(c, 'happy', 0.8)
         }
         this.setState(c, 'work', 1.1)
+      }
+      break
+    }
+    case 'heal': {
+      // いやし：けがを した なかまの そばへ 行って いやし技
+      anim = 'walk'
+      const to = c.healTo
+      if (!to || !this.alive(to) || c.t <= 0 || to.hp >= to.maxHp * 0.95) {
+        c.healTo = null
+        this.setState(c, 'idle', 0.4)
+        break
+      }
+      if (this.moveTo(c, to.x, to.z, sp.speed * 1.1, dt, true) < 1.6) {
+        c.anim.facing = to.x > c.x ? 1 : -1
+        c.healTo = null
+        this.castHeal(c)
+        this.setState(c, 'happy', 0.9)
       }
       break
     }
@@ -922,7 +957,7 @@ export function updateCreature(this: World, c: Creature, dt: number) {
   if (c.pj > 0 && c.jy === 0) c.squash = 0.2
   c.pj = c.jy
   c.squash = Math.max(0, c.squash - dt * 1.6)
-  const walking = c.state === 'deliver' || c.state === 'plant' || c.state === 'wander' || c.state === 'hunt' || c.state === 'seek' || c.state === 'gather' || c.state === 'build' || c.state === 'raid' || c.state === 'march' || c.state === 'come' || c.state === 'assist' || c.state === 'rest'
+  const walking = c.state === 'heal' || c.state === 'deliver' || c.state === 'plant' || c.state === 'wander' || c.state === 'hunt' || c.state === 'seek' || c.state === 'gather' || c.state === 'build' || c.state === 'raid' || c.state === 'march' || c.state === 'come' || c.state === 'assist' || c.state === 'rest'
   const wp = this.time * (7 + sp.speed * 2.2) + c.phase
   let sx = 1
   let sy = 1

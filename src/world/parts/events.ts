@@ -182,7 +182,13 @@ export function applyLight(this: World, dt = 0.03) {
     this.hemi.color.lerp(EMBER_SUN, 0.35 * this.wx.ember)
   }
   this.scene.background = fog.color
+  // ドット絵の 生き物にも 箱庭の 光を あてる（ライトを 受けない 材質なので 色で かける）：
+  // 夜は 暗く 青く、くもり・雨は すこし 暗く、日の 色（夕方・ひのこ）を すこし うつす
+  const lit = 0.52 + 0.48 * k
+  this.creatureTint.setRGB(1, 1, 1).lerp(this.sun.color, 0.22).multiplyScalar(lit)
+  if (this.night > 0.01) this.creatureTint.lerp(NIGHT_TINT, this.night * 0.35)
 }
+const NIGHT_TINT = new THREE.Color('#5a6aa0')
 
 /** ゲーム内コインを使う（足りなければ false） */
 export function spendCoins(this: World, n: number): boolean {
@@ -246,7 +252,8 @@ export function roadState(this: World): RoadState {
   for (let i = 0; i < STAGES.length; i++) if (this.road.visited & (1 << i)) stages++
   return {
     time: (this.stats.gen - 1) * LIFESPAN + this.stats.petAge,
-    houses: this.houses.filter((h) => h.level >= 3).length,
+    // 城の 部屋も 家 1 けんと 数える
+    houses: this.houses.filter((h) => h.level >= 3).length + this.castleRooms(),
     vLv: this.vLv,
     built,
     friends: this.creatures.filter((c) => c.team === 'friend' && c.state !== 'dead').length,
@@ -365,7 +372,7 @@ export function gauges(this: World): Gauges {
   const info = this.dexInfo()
   return {
     friends: friends.length, sameFam, dexOwned: info.owned, dexSeen: info.seen, dexTotal: info.all,
-    houses3: this.houses.filter((h) => h.level >= 3).length, houses4: this.houses.filter((h) => h.level >= 4).length,
+    houses3: this.houses.filter((h) => h.level >= 3).length + this.castleRooms(), houses4: this.houses.filter((h) => h.level >= 4).length + Math.floor(this.castleRooms() / 2),
     village: this.vLv, vscore: this.vScore, land: this.land, tier4: allies.filter((c) => c.sp.tier >= 4).length,
     coins: this.coins, streak: this.book.streak, gen: this.stats.gen,
   }
