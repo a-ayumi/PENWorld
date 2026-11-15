@@ -26,9 +26,7 @@ export interface ShopItem {
 }
 
 export const SHOP_CATS: { id: ShopCat; name: string }[] = [
-  { id: 'food', name: 'たべもの' },
   { id: 'item', name: 'おきもの' },
-  { id: 'egg', name: 'たまご' },
   { id: 'plan', name: 'せっけいず' },
   { id: 'land', name: 'かいたく' },
 ]
@@ -39,9 +37,6 @@ export const SHOP_CATS: { id: ShopCat; name: string }[] = [
  * 終盤は 160〜500（おしろ・かいたく）。同じカテゴリの中は 安い順。
  */
 export const SHOP: ShopItem[] = [
-  { id: 'sweet', cat: 'food', icon: 'sweet', name: 'あまいみ', price: 20, desc: 'おなか +25・きげん +20。\nこころの けいこうが そだつ', food: 'sweet' },
-  { id: 'nut', cat: 'food', icon: 'nut', name: 'かたいナッツ', price: 25, desc: 'おなか +35。\nまもりの けいこうが そだつ', food: 'nut' },
-  { id: 'meat', cat: 'food', icon: 'meat', name: 'スタミナにく', price: 30, desc: 'おなか +45。\nちからの けいこうが そだつ', food: 'meat' },
 
   { id: 'ball', cat: 'item', icon: 'ball', name: 'ボール', price: 30, desc: 'みんなが かってに けって あそぶ。\nあそぶと こころが そだち、きげんが あがる', item: 'ball' },
   { id: 'sapling', cat: 'item', icon: 'sapling', name: 'なえ', price: 40, desc: 'めばえ → わかぎ → みのる木に そだつ。\nそだつと たべものが ふえる', item: 'sapling' },
@@ -56,14 +51,6 @@ export const SHOP: ShopItem[] = [
   { id: 'banner', cat: 'item', icon: 'banner', name: 'おうえんばた', price: 110, desc: 'ちかくで たたかう なかまの\nこうげきが 2わり つよくなる', item: 'banner' },
   { id: 'slide', cat: 'item', icon: 'slide', name: 'ミニすべりだい', price: 130, desc: 'のぼって すべって あそぶ。\nあそぶと こころと けいけんが そだつ', item: 'slide' },
 
-  { id: 'egg-random', cat: 'egg', icon: 'egg?', name: 'ふしぎなたまご', price: 70, desc: 'なにが うまれるか わからない。\nどの系統の子が くるかは おたのしみ', egg: 'random' },
-  { id: 'egg-bird', cat: 'egg', icon: 'egg:bird', name: 'とりのたまご', price: 90, desc: 'ピヨが うまれる（とりの系統）', egg: 'bird' },
-  { id: 'egg-cat', cat: 'egg', icon: 'egg:cat', name: 'ねこのたまご', price: 100, desc: 'ミミコが うまれる（ねこの系統）', egg: 'cat' },
-  { id: 'egg-dog', cat: 'egg', icon: 'egg:dog', name: 'いぬのたまご', price: 100, desc: 'ワンコが うまれる（いぬの系統）', egg: 'dog' },
-  { id: 'egg-water', cat: 'egg', icon: 'egg:water', name: 'みずのたまご', price: 100, desc: 'シズクが うまれる（みずの系統）', egg: 'water' },
-  { id: 'egg-machine', cat: 'egg', icon: 'egg:machine', name: 'きかいのたまご', price: 110, desc: 'ネジルが うまれる（ロボの系統）', egg: 'machine' },
-  { id: 'egg-monster', cat: 'egg', icon: 'egg:monster', name: 'モンスターのたまご', price: 120, desc: 'ガブコが うまれる（おばけの系統）', egg: 'monster' },
-  { id: 'egg-dragon', cat: 'egg', icon: 'egg:dragon', name: 'りゅうのたまご', price: 140, desc: 'リュウコが うまれる（りゅうの系統）', egg: 'dragon' },
 
   { id: 'kit', cat: 'plan', icon: 'kit', name: 'ざいもくセット', price: 35, desc: '木3つと 石2つを まとめて おく。\n家づくりの ざいりょうに', kit: true },
   { id: 'bp-well', cat: 'plan', icon: 'well', name: 'せっけいず：いど', price: 35, desc: 'ちかくの みんなの たいりょくが\nすこしずつ かいふくする', plan: 'well' },

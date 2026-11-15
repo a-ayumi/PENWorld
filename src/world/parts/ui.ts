@@ -491,12 +491,14 @@ export function run(this: World, i: number) {
   switch (i) {
     case 0: {
       if (busy) return this.say('いまは それどころじゃない！')
-      const f = this.dropFood(p.x + p.anim.facing * 0.9, p.z + 0.2, 3)
+      // 食べ物は あげない（計画 B2）。みのっている 物を じぶんで とりに いく
+      const f = this.foods.filter((f) => f.landed && (!f.taken || f.taken === p)).sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0]
+      if (!f) return this.say('たべものが みあたらない… 木や はたけが みのるのを まとう')
       if (p.food) p.food.taken = null
       f.taken = p
       p.food = f
       this.setState(p, 'seek', 10)
-      return this.say(`${this.stage.food.name}を あげた`)
+      return this.say(`${p.sp.name}は ${this.stage.food.name}を とりに いった`)
     }
     case 1:
       if (busy) return this.say('いまは それどころじゃない！')

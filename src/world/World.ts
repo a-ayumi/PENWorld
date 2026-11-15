@@ -4,10 +4,11 @@ import { DioramaLook } from './diorama'
 import { NavGrid } from './nav'
 import { SkyFx } from './sky'
 import { SpriteAnim, iconSheet } from './sprites'
-import { EGG_COLORS, NEW_SKILLS, SPECIES, enemyFor, type Care, type EggKind, type MonsterView, type Species, type SpeciesId } from './monsters'
+import { EGG_COLORS, NEW_SKILLS, SPECIES, enemyFor, newSeed, type Care, type EggKind, type MonsterView, type Species, type SpeciesId } from './monsters'
 import { WeatherFx, fxLod } from './fxprops'
 import { SIZE, STAGES, type Stage } from './stages'
 import { buildWorldMap } from './worldmap'
+import { BABY } from './families'
 import { type StructKind } from './structures'
 import { type ItemKind } from './items'
 import { SHOP, type ShopItem } from './shop'
@@ -264,7 +265,8 @@ export const SEASON_SHOP: SeasonShop[] = [
 /** いまの季節の品だけが SHOP に並ぶようにする */
 export function syncSeasonShop(season: Season) {
   for (let i = SHOP.length - 1; i >= 0; i--) if ('season' in SHOP[i]) SHOP.splice(i, 1)
-  SHOP.push(...SEASON_SHOP.filter((it) => it.season === season))
+  // たまごは ショップに ならべない（計画 B2：たまごは 交配と 寿命・野生だけ）
+  SHOP.push(...SEASON_SHOP.filter((it) => it.season === season && it.cat !== 'egg'))
 }
 /** 季節ごとの天気の出やすさ（かけ算） */
 export const SEASON_WEATHER: Record<Season, Partial<Record<Weather, number>>> = {
@@ -650,7 +652,7 @@ export class World {
   fx: Fx[] = []
   fxSheets = FX_SHEETS()
   eggSheets = Object.fromEntries((Object.keys(EGG_COLORS) as EggKind[]).map((k) => [k, EGG_SHEET(k)])) as Record<EggKind, ReturnType<typeof EGG_SHEET>>
-  wildEggT = 45
+  wildEggT = 300
   shadowGeo = new THREE.CircleGeometry(0.5, 10).rotateX(-Math.PI / 2)
   shadowMat = new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.3, depthWrite: false })
 
@@ -816,6 +818,13 @@ export class World {
       this.loadStage(0)
       this.pet = this.spawn('mebu', 'pet', 0, 1.5)
       this.say('メブが うまれた！')
+      // はじめの仲間 2 匹（計画 B2：たまごは 交配と 寿命だけなので、さいしょから 3 匹で 始める）
+      {
+        const kinds = (['cat', 'dog', 'bird', 'water', 'machine', 'monster', 'dragon'] as EggKind[]).sort(() => Math.random() - 0.5)
+        this.spawn(BABY[kinds[0]] as SpeciesId, 'friend', -1.6, 2.4, 0.01, { seed: newSeed(), rare: false })
+        this.spawn(BABY[kinds[1]] as SpeciesId, 'friend', 1.6, 2.4, 0.01, { seed: newSeed(), rare: false })
+        this.say('なかまが 2ひき いっしょに くらしはじめた')
+      }
     }
     this.coinMark = this.coins
     document.addEventListener('visibilitychange', () => document.hidden && this.save())
