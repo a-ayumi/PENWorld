@@ -25,6 +25,8 @@ export function update(this: World, dt: number) {
   this.applyLight(dt)
   // くもり・雨の空の暗さ・灰色は fxU（uGrey）で空のシェーダーに入る
   this.stage.update(this.time, this.night)
+  // 読みこみ範囲：引いて 見ている ほど 広く
+  this.stage.cull?.(this.look.x, this.look.z, 18 + 16 * Math.max(1, this.camZoom))
 
   if (this.warp > 0) {
     this.warp = Math.max(0, this.warp - dt)
