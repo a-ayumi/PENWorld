@@ -551,6 +551,7 @@ export class World {
   wallJob = Vi.wallJob
   wallSpot = Vi.wallSpot
   layWall = Vi.layWall
+  updateLightPools = Up.updateLightPools
   giveNick = Cr.giveNick
   msgKind = Ui.msgKind
   tileAt = Wa.tileAt
@@ -933,6 +934,9 @@ export class World {
   onLog?: (text: string, kind: Ui.MsgKind) => void
   /** おまかせカメラの 速さ（なめらかに 動きだす） */
   autoV = 0
+  /** 夜の 光だまりの 点の 光（updateLightPools） */
+  pools: THREE.PointLight[] = []
+  poolT = 0
   /** 住民の おねがい（ほしい 品の ショップ id・だれ・のこり 秒・つぶやきの 時計） */
   wish: { id: string; who: Creature; t: number; say: number } | null = null
   wishT = 150

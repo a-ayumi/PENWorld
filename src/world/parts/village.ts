@@ -2155,8 +2155,10 @@ export function updateDecor(this: World, dt: number) {
   const nodes = [
     ...this.houses.filter((h) => h.stage === here && h.level >= 1).map((h) => ({ x: h.x, z: h.z, r: 0.85 * BUILD_SCALE, house: true })),
     ...this.structs.filter((b) => b.stage === here && b.mats >= STRUCTS[b.kind].need && b.kind !== 'wall' && b.kind !== 'bridge').map((b) => ({ x: b.x, z: b.z, r: Math.max(0.5, STRUCTS[b.kind].r), house: false })),
+    // みんなの 城（町の まんなか）：まわりに 小物・街灯・花
+    ...(this.stage.start && this.keepMesh ? [{ x: this.stage.start.x, z: this.stage.start.z, r: keepRadius(this.townEra(), this.castleRooms()), house: true }] : []),
   ]
-  const key = here + '|' + (this.high ? 1 : 0) + '|' + SIZE + '|' + nodes.map((n) => n.x.toFixed(1) + ',' + n.z.toFixed(1)).join(';')
+  const key = here + '|' + (this.high ? 1 : 0) + '|' + SIZE + '|' + nodes.map((n) => n.x.toFixed(1) + ',' + n.z.toFixed(1) + ',' + n.r.toFixed(1)).join(';')
   if (key === this.decorKey) return
   this.decorKey = key
   if (this.decor) {
