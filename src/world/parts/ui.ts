@@ -11,7 +11,7 @@ import { DINER_MAX, MAX_ROOMS, roomNeed } from './village'
 import { SHOP, shownCat, drawShop as drawShopWindow, type ShopCheck, type ShopItem } from '../shop'
 import { CHAPTERS, bossReady, nowGoal } from '../../roadmap'
 import type { World } from '../World'
-import { SKILLS, HEAL_SKILLS, TOWN_PLANS, TOWN_PLAN_NAME, TOWN_PLAN_DESC, PET_PLANS, PLAN_NAME, PLAN_DESC, ROLE_DESC, Creature, Res, House, Struct, Food, ROLE_NAME, ROLE_COLOR, LIFESPAN, Item, Egg, Pick, STATE_NAME, STRUCT_DESC, ICONS, ICON_COLORS, ICON_BMP, FOODS, CARE_NAME, SeasonShop, FONT, HOUSE_STEPS, MAX_STRUCTS, MAX_ORDERS, FORT_RANGE, houseMaxHp, WEATHER_NAME, MAX_FRIENDS } from '../World'
+import { EXTRAS, SKILLS, HEAL_SKILLS, TOWN_PLANS, TOWN_PLAN_NAME, TOWN_PLAN_DESC, PET_PLANS, PLAN_NAME, PLAN_DESC, ROLE_DESC, Creature, Res, House, Struct, Food, ROLE_NAME, ROLE_COLOR, LIFESPAN, Item, Egg, Pick, STATE_NAME, STRUCT_DESC, ICONS, ICON_COLORS, ICON_BMP, FOODS, CARE_NAME, SeasonShop, FONT, HOUSE_STEPS, MAX_STRUCTS, MAX_ORDERS, FORT_RANGE, houseMaxHp, WEATHER_NAME, MAX_FRIENDS } from '../World'
 
 /** タップした場所（液晶の座標）にいちばん近い物をさがす */
 export function pickAt(this: World, x: number, y: number): Pick | null {
@@ -165,11 +165,11 @@ export function describe(this: World, p: Pick): { title: string; sub: string; li
       lines.push(`じだい：${ERA_NAME[this.townEra()]}・てん ${this.vScore.toFixed(1)}`)
       const cd = this.castleData[here] ?? { mats: 0, rooms: 0 }
       lines.push(`へや ${cd.rooms}・すむ子 ${allies.length}・へい ${rings.length}じゅう`)
-      lines.push(`おふれ：${TOWN_PLAN_NAME[this.townPlan]}`, `　${TOWN_PLAN_DESC[this.townPlan]}`)
+      if (EXTRAS) lines.push(`おふれ：${TOWN_PLAN_NAME[this.townPlan]}`, `　${TOWN_PLAN_DESC[this.townPlan]}`)
       if (cd.rooms < MAX_ROOMS) bars.push(['つぎの へや', cd.mats / roomNeed(cd.rooms + 1), '#c8955a'])
       const next = eraStepScore(this.vScore)
       if (next) bars.push(['つぎの じだい', next, '#ffd23f'])
-      return { title: this.villageName() || 'まち', sub: 'まちの まんなか', lines, bars, del: `おふれ ▸ ${TOWN_PLAN_NAME[TOWN_PLANS[(TOWN_PLANS.indexOf(this.townPlan) + 1) % TOWN_PLANS.length]]}` }
+      return { title: this.villageName() || 'まち', sub: 'まちの まんなか', lines, bars, del: EXTRAS ? `おふれ ▸ ${TOWN_PLAN_NAME[TOWN_PLANS[(TOWN_PLANS.indexOf(this.townPlan) + 1) % TOWN_PLANS.length]]}` : null }
     }
   }
 }
@@ -795,7 +795,7 @@ export function drawHud(this: World) {
     this.text(t, 11, 29, '#ffe9a8', 9)
   }
   // いまの もくひょう（村の名前の下に 1 行）
-  if (this.banner <= 0 && this.road.cleared < CHAPTERS.length) {
+  if (EXTRAS && this.banner <= 0 && this.road.cleared < CHAPTERS.length) {
     const ng = nowGoal(this.road, this.roadState())
     if (ng) {
       let t = bossReady(this.road) && !this.army ? 'だいぐんぜいに そなえよう' : ng.goal.text + (ng.need > 1 ? ` ${Math.floor(ng.val)}/${ng.need}` : '')

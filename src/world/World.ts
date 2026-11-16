@@ -390,6 +390,11 @@ export const MAX_STRUCTS = 26
 /** いしのとりでの力がとどく距離 */
 export const FORT_RANGE = 6.5
 export const MAX_HOUSES = 12
+/**
+ * あまり 使われなかった あそび（おねがい・もくひょう・うんだめし・ひみつ・おふれ・住民の おねがい）を ゲームに 出すか。
+ * 2026-11-15 に ゲームから 外した（コードは のこしてある。外す前の 形は `archive/extras` ブランチ）。true に すると もどる
+ */
+export const EXTRAS = false
 export const MAX_RES = 12
 export const houseLevel = (mats: number) => (mats >= 12 ? 4 : mats >= 8 ? 3 : mats >= 5 ? 2 : mats >= 2 ? 1 : 0)
 export const houseMaxHp = (level: number) => level * 25
@@ -539,6 +544,9 @@ export class World {
   wallJob = Vi.wallJob
   wallSpot = Vi.wallSpot
   layWall = Vi.layWall
+  settlerFamily = Cr.settlerFamily
+  /** 戦争で とった 地方の 系統（戦争の しくみが 入るまでは 無し） */
+  ownedFamilies?: () => EggKind[]
   rallyPoint = Ev.rallyPoint
   rallyAllies = Ev.rallyAllies
   castleRooms = Vi.castleRooms
@@ -966,13 +974,14 @@ export class World {
     if (!this.load()) {
       this.loadStage(0)
       const st = this.stage.start ?? { x: 0, z: 0 }
-      this.pet = this.spawn('mebu', 'pet', st.x, st.z + 1.5)
-      this.say('メブが うまれた！')
+      // ペットと はじめの なかま 2 匹は、はじまりの 地方の 系統（森 = いぬ）
+      const home = this.stageEggKind(st.x, st.z)
+      this.pet = this.spawn(BABY[home] as SpeciesId, 'pet', st.x, st.z + 1.5)
+      this.say(`${this.pet.sp.name}が うまれた！`)
       // はじめの仲間 2 匹（計画 B2：たまごは 交配と 寿命だけなので、さいしょから 3 匹で 始める）
       {
-        const kinds = (['cat', 'dog', 'bird', 'water', 'machine', 'monster', 'dragon'] as EggKind[]).sort(() => Math.random() - 0.5)
-        this.spawn(BABY[kinds[0]] as SpeciesId, 'friend', st.x - 1.6, st.z + 2.4, 0.01, { seed: newSeed(), rare: false })
-        this.spawn(BABY[kinds[1]] as SpeciesId, 'friend', st.x + 1.6, st.z + 2.4, 0.01, { seed: newSeed(), rare: false })
+        this.spawn(BABY[home] as SpeciesId, 'friend', st.x - 1.6, st.z + 2.4, 0.01, { seed: newSeed(), rare: false })
+        this.spawn(BABY[home] as SpeciesId, 'friend', st.x + 1.6, st.z + 2.4, 0.01, { seed: newSeed(), rare: false })
         this.say('なかまが 2ひき いっしょに くらしはじめた')
       }
     }

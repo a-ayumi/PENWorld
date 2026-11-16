@@ -12,7 +12,7 @@ import { ITEM_SPEC, type ItemKind } from '../items'
 import { DINER_MAX } from './village'
 import { SEASON_INFO, type Season } from '../../missions'
 import type { World } from '../World'
-import { HEAL_SKILLS, Team, State, Creature, Evo, Skill, SKILLS, Struct, Food, Role, ROLE_NAME, LIFESPAN, newLife, Item, DECO_SHEET, houseMaxHp, MAX_FRIENDS, MAX_KIDS, MAX_WILD_CALM, BOSSES, RARE_RATE, RARE_RATE_LUCKY, CREATURE_SCALE } from '../World'
+import { EXTRAS, HEAL_SKILLS, Team, State, Creature, Evo, Skill, SKILLS, Struct, Food, Role, ROLE_NAME, LIFESPAN, newLife, Item, DECO_SHEET, houseMaxHp, MAX_FRIENDS, MAX_KIDS, MAX_WILD_CALM, BOSSES, RARE_RATE, RARE_RATE_LUCKY, CREATURE_SCALE } from '../World'
 
 export function spawn(this: World, id: SpeciesId, team: Team, x: number, z: number, grow = 0, look?: { seed: number; rare: boolean }): Creature {
   const sp = SPECIES[id]
@@ -975,7 +975,7 @@ export function gainXp(this: World, c: Creature, n: number) {
   // ペットは育て方どおり。ほかの子は生まれつきの性格と気まぐれも入る
   const score = (k: Care) => care[k] + (c === this.pet ? 0 : (c.bias === k ? 3 : 0) + Math.random() * 2.5)
   const top = (['power', 'guard', 'spirit'] as Care[]).sort((a, b) => score(b) - score(a))[0]
-  this.evolve(c, this.pickSecret(c, top) ?? nextForm(c.sp.id, tier, top))
+  this.evolve(c, (EXTRAS ? this.pickSecret(c, top) : null) ?? nextForm(c.sp.id, tier, top))
 }
 
 export function evolve(this: World, c: Creature, to: SpeciesId) {
@@ -1401,8 +1401,10 @@ export function updateVillage(this: World, dt: number) {
   this.villageT = 0
   this.calcVillage()
   this.updateDex()
-  this.updateRoad()
-  this.updateSecrets()
+  if (EXTRAS) {
+    this.updateRoad()
+    this.updateSecrets()
+  }
   this.releaseFoods()
   this.roleT += 1
   if (this.roleT >= 15) {
@@ -1466,6 +1468,8 @@ export function tryBreed(this: World, dt: number) {
 
 /** この場所でよく見つかる系統のたまご */
 export function stageEggKind(this: World, x = this.pet.x, z = this.pet.z): EggKind {
+  const rg = this.stage.region?.(x, z)
+  if (rg) return rg.family
   const pool = STAGE_EGGS[this.regionId(x, z)] ?? STAGE_EGGS[0]
   return pool[Math.floor(Math.random() * pool.length)]
 }
@@ -1616,7 +1620,8 @@ export function updateSettlers(this: World, dt: number) {
   const a = Math.random() * Math.PI * 2
   const p = this.freePos(0, t.x + Math.cos(a) * 20, t.z + Math.sin(a) * 20, 4)
   if (Math.hypot(p.x - t.x, p.z - t.z) < 10) return
-  const fam = this.stageEggKind(p.x, p.z)
+  // ひっこしてくる 子は 町の ある 地方の 系統（地方を とったら その 地方の 子も くる：`settlerFamily()`）
+  const fam = this.settlerFamily()
   const care = (['power', 'guard', 'spirit'] as Care[])[Math.floor(Math.random() * 3)]
   const id = nextForm(BABY[fam] as SpeciesId, 1, care)
   const c = this.spawn(id, 'friend', p.x, p.z)
@@ -1664,4 +1669,12 @@ export function healJob(this: World, c: Creature): boolean {
   c.healTo = hurt
   this.setState(c, 'heal', 10)
   return true
+}
+
+/** ひっこしてくる 子の 系統：町の 地方 + とった 地方（戦争）から えらぶ */
+export function settlerFamily(this: World): EggKind {
+  const t = this.townCenter()
+  const pool: EggKind[] = [this.stageEggKind(t.x, t.z)]
+  for (const f of this.ownedFamilies?.() ?? []) if (!pool.includes(f)) pool.push(f)
+  return pool[Math.floor(Math.random() * pool.length)]
 }

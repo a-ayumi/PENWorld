@@ -8,6 +8,8 @@
  * - 重さ：cull(x, z, r) で 見ている 所から 遠い 地方の 小物と 地面を かくす
  */
 import * as THREE from 'three'
+import { REGION_FAMILY } from './families'
+import type { EggKind } from './monsters'
 import { Tex } from './textures'
 import { STAGES, SIZE, base, edge, lambert, setEdgeOff, setLandSize, smooth, terrain } from './stages'
 import { waterSurface } from './fxprops'
@@ -334,7 +336,7 @@ export function buildWorldMap(): Stage {
       const n = LAYOUT[j][i]
       const t = tiles[j * 3 + i].s
       // 丘は 森と、海は 入り江と 同じ 天気・たまご
-      return { id: n === -1 ? 0 : n === SEA ? 2 : n, name: t.name, sub: t.sub }
+      return { id: n === -1 ? 0 : n === SEA ? 2 : n, name: t.name, sub: t.sub, family: (n === -1 ? 'bird' : n === SEA ? 'water' : REGION_FAMILY[n]) as EggKind }
     },
     cull(x: number, z: number, r: number) {
       tiles.forEach((t, i) => {

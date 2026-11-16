@@ -178,15 +178,12 @@ EVOLVE.hireru = { power: 'shioryu', guard: 'shioryu', spirit: 'hoshikujira' }
 EVOLVE.fuwari = { power: 'hoshikujira', guard: 'shioryu', spirit: 'hoshikujira' }
 
 /** ステージごとに よく見つかる たまごの系統 */
-export const STAGE_EGGS: EggKind[][] = [
-  ['bird', 'dog', 'cat', 'monster'], // はじまりの森
-  ['machine', 'dragon', 'monster', 'cat'], // ガラスの砂丘
-  ['water', 'bird', 'dragon', 'dog'], // さんごの入り江
-  ['cat', 'dog', 'bird', 'water'], // わたゆきの原
-  ['machine', 'water', 'dragon', 'monster'], // こおりの回路峰
-  ['dragon', 'machine', 'monster', 'dog'], // ほむらのかざん
-  ['monster', 'machine', 'bird', 'cat'], // こだいのいせき
-]
+/**
+ * 地方ごとの 系統（2026-11-15：地方ごとに 1 つに きめた）。そこで 生まれる たまご・ひっこしてくる 子は この 系統。
+ * はじまりの森 = いぬ（ペットと はじめの なかまも）。大きな世界の まんなかの 丘 = とり・海 = みず（`worldmap.ts` の region）
+ */
+export const REGION_FAMILY: EggKind[] = ['dog', 'dragon', 'water', 'cat', 'machine', 'monster', 'monster']
+export const STAGE_EGGS: EggKind[][] = REGION_FAMILY.map((f) => [f])
 
 /** 段階ごとの基本ステータス（ちから型は攻撃が高く、まもり型は体力が高い） */
 export const TIER_BASE: Record<1 | 2 | 3 | 4, { h: number; hp: number; atk: number }> = {
