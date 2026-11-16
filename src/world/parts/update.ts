@@ -8,7 +8,7 @@ import { SPECIES, enemyFor, type Face } from '../monsters'
 import { HALF, SIZE, STAGES } from '../stages'
 import { STRUCTS } from '../structures'
 import { ITEM_SPEC, slidePath } from '../items'
-import { DINER_MAX, roomNeed } from './village'
+import { DINER_MAX, keepRadius, roomNeed } from './village'
 import { SHOP, catIndexes, catOf, shopTap } from '../shop'
 import type { World } from '../World'
 import { EXTRAS, Creature, FOODS, CARE_NAME, FX_SHEETS, CAM_OFF, HOUSE_STEPS, MAX_FRIENDS } from '../World'
@@ -30,6 +30,7 @@ export function update(this: World, dt: number) {
   // 読みこみ範囲：引いて 見ている ほど 広く
   this.stage.cull?.(this.look.x, this.look.z, 18 + 16 * Math.max(1, this.camZoom))
   this.cullSmall(dt)
+  this.updateLightPools(dt)
   for (const c of this.creatures) (c.anim as { material?: THREE.SpriteMaterial }).material?.color.copy(this.creatureTint)
   for (const e of this.eggs) (e.anim as { material?: THREE.SpriteMaterial }).material?.color.copy(this.creatureTint)
 
@@ -1367,4 +1368,55 @@ export function cullSmall(this: World, dt: number) {
   const lx = this.look.x
   const lz = this.look.z
   for (const s of this.small) s.o.visible = r > 0 && Math.abs(s.x - lx) < r && Math.abs(s.z - lz) < r
+}
+
+/**
+ * 夜の 光だまり（2026-11-16）：城の 窓・街灯・ごはんや・いちば・みはりとうの まわりだけ あたたかく 照らす。
+ * 見ている 所に 近い 光の 元を 1 秒ごとに えらび、点の 光を 置く（高 6 こ / 低 2 こ。数は かえない = 材質を 作りなおさない）。
+ * 夜・雨・ひのこの 時だけ ともる（ランタンと たき火は 置き物が 自分の 光を もつ）
+ */
+export function updateLightPools(this: World, dt: number) {
+  const N = 6
+  if (!this.pools.length) {
+    for (let i = 0; i < N; i++) {
+      const l = new THREE.PointLight('#ffa040', 0, 7.5, 1.3)
+      l.castShadow = false
+      this.scene.add(l)
+      this.pools.push(l)
+    }
+  }
+  const want = Math.max(this.night, this.weather === 'rain' ? 0.45 : 0, this.weather === 'ember' ? 0.35 : 0)
+  if ((this.poolT -= dt) <= 0) {
+    this.poolT = 1
+    const src: { x: number; y: number; z: number; k: number }[] = []
+    const st = this.stage.start
+    if (st && this.keepMesh) {
+      // 城：まわりの 4 か所（窓の あかりが もれる）+ 入口
+      const r = keepRadius(this.townEra(), this.castleRooms())
+      const gy = this.stage.heightAt(st.x, st.z)
+      for (let i = 0; i < 4; i++) {
+        const a = i * (Math.PI / 2) + Math.PI / 4
+        src.push({ x: st.x + Math.cos(a) * r * 0.75, y: gy + 1.6, z: st.z + Math.sin(a) * r * 0.75, k: 1 })
+      }
+    }
+    for (const p of (this.decor?.userData.lamps as { x: number; y: number; z: number }[] | undefined) ?? []) src.push({ ...p, k: 0.8 })
+    for (const b of this.structs) {
+      if (b.stage !== this.stageIndex || !this.structDone(b)) continue
+      if (b.kind === 'diner' || b.kind === 'market' || b.kind === 'tower' || b.kind === 'fort') src.push({ x: b.x, y: this.stage.heightAt(b.x, b.z) + 1.4, z: b.z + 0.6, k: b.kind === 'diner' ? 1 : 0.8 })
+    }
+    const lx = this.look.x
+    const lz = this.look.z
+    src.sort((a, b) => Math.hypot(a.x - lx, a.z - lz) - Math.hypot(b.x - lx, b.z - lz))
+    const n = this.high ? N : 2
+    this.pools.forEach((l, i) => {
+      const s = i < n ? src[i] : undefined
+      l.userData.on = s ? s.k : 0
+      if (s) l.position.set(s.x, s.y, s.z)
+    })
+  }
+  // ゆらめき（たき火ほどでは ない）
+  this.pools.forEach((l, i) => {
+    const target = (l.userData.on ?? 0) * want * 5 * (0.92 + 0.08 * Math.sin(this.time * 7 + i * 1.7))
+    l.intensity += (target - l.intensity) * Math.min(1, dt * 3)
+  })
 }

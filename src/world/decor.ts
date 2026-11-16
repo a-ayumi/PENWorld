@@ -82,6 +82,27 @@ function prop(kind: number, r: () => number): THREE.Group {
       }
       break
     }
+    case 6: { // 花の かたまり（地面に じかに さく）
+      const cols = m.fl
+      const base = cols[Math.floor(r() * cols.length)]
+      for (let i = 0; i < 7; i++) {
+        const st = cyl(0.012, 0.012, 0.12 + r() * 0.08, m.leaf, (r() - 0.5) * 0.36, 0.06, (r() - 0.5) * 0.3, 3)
+        g.add(st)
+        const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.045, 0), r() < 0.2 ? cols[Math.floor(r() * cols.length)] : base)
+        b.position.set(st.position.x, 0.14 + r() * 0.06, st.position.z)
+        g.add(b)
+      }
+      break
+    }
+    case 7: { // 草の 株（ほそい とがりの たば）
+      for (let i = 0; i < 5; i++) {
+        const c = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.22 + r() * 0.14, 3), m.leaf)
+        c.position.set((r() - 0.5) * 0.2, 0.11, (r() - 0.5) * 0.2)
+        c.rotation.set((r() - 0.5) * 0.5, r() * 3, (r() - 0.5) * 0.5)
+        g.add(c)
+      }
+      break
+    }
     default: { // さく（みじかい）
       for (const x of [-0.45, 0, 0.45]) g.add(box(0.07, 0.42, 0.07, m.dark, x, 0.21, 0))
       g.add(box(1.0, 0.05, 0.04, m.wood, 0, 0.3, 0), box(1.0, 0.05, 0.04, m.wood, 0, 0.16, 0))
@@ -179,16 +200,21 @@ export function buildDecor(inp: DecorInput): THREE.Group {
   // --- 小物：家のまわり（入口の正面は あける）。坂・道の上・ほかの物の中には 置かない
   const nearStone = (x: number, z: number) => stones.some((s) => Math.hypot(s.x - x, s.z - z) < 0.45)
   const placed: { x: number; z: number }[] = []
+  // 街灯の 場所（World が 夜の 光だまりに 使う）
+  const lamps: { x: number; y: number; z: number }[] = []
   for (const n of nodes) {
     if (!n.house) continue
     const r = rng(Math.round(n.x * 97 + n.z * 57) + 11)
-    const want = inp.high ? 3 + Math.floor(r() * 2) : 2
+    // 大きな 城は まわりに たくさん（街灯を 2 つ 先に）
+    const big = n.r > 2.5
+    const want = big ? (inp.high ? 12 : 7) : inp.high ? 3 + Math.floor(r() * 2) : 2
     // 入口（+z）から 左右と うしろ：角度は +z を 0 として 50°〜310°
     const kinds = [0, 1, 2, 3, 4, 5].sort(() => r() - 0.5)
+    if (big) kinds.unshift(0, 0, 3, 1, 2, 4)
     let done = 0
-    for (let tries = 0; tries < 10 && done < want; tries++) {
-      const a = (50 + r() * 260) * (Math.PI / 180)
-      const rad = n.r + 0.5 + r() * 0.35
+    for (let tries = 0; tries < want * 4 && done < want; tries++) {
+      const a = (big ? r() * 360 : 50 + r() * 260) * (Math.PI / 180)
+      const rad = n.r + 0.5 + r() * (big ? 1.2 : 0.35)
       const x = n.x + Math.sin(a) * rad
       const z = n.z + Math.cos(a) * rad
       if (!nav.standable(x, z, false) || nearStone(x, z)) continue
@@ -200,9 +226,31 @@ export function buildDecor(inp: DecorInput): THREE.Group {
       p.rotation.y = kinds[done % kinds.length] === 5 ? a + Math.PI / 2 : r() * 0.8 - 0.4
       group.add(p)
       placed.push({ x, z })
+      if (kinds[done % kinds.length] === 0) lamps.push({ x, y: heightAt(x, z) + 1.15, z })
       done++
     }
   }
+  // 花の かたまりと 草の 株を 町の まわりに ちらす（道・物の 上・坂には 置かない）
+  for (const n of nodes) {
+    const r = rng(Math.round(n.x * 31 + n.z * 71) + 3)
+    const want = (n.r > 2.5 ? 26 : 5) * (inp.high ? 1 : 0.5)
+    let done = 0
+    for (let tries = 0; tries < want * 4 && done < want; tries++) {
+      const a = r() * Math.PI * 2
+      const rad = n.r + 0.8 + r() * (n.r > 2.5 ? 6 : 2)
+      const x = n.x + Math.cos(a) * rad
+      const z = n.z + Math.sin(a) * rad
+      if (!nav.standable(x, z, false) || nearStone(x, z)) continue
+      if (Math.abs(heightAt(x + 0.3, z) - heightAt(x - 0.3, z)) + Math.abs(heightAt(x, z + 0.3) - heightAt(x, z - 0.3)) > 0.3) continue
+      if (placed.some((p) => Math.hypot(p.x - x, p.z - z) < 0.4)) continue
+      const p = prop(r() < 0.45 ? 6 : 7, r)
+      p.position.set(x, heightAt(x, z), z)
+      group.add(p)
+      placed.push({ x, z })
+      done++
+    }
+  }
+  group.userData.lamps = lamps
   return group
 }
 
