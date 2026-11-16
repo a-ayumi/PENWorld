@@ -240,61 +240,159 @@ export function floaters(group: THREE.Group, pool: { x: number; z: number; r: nu
 export interface WaterOpt {
   deep: string
   shallow: string
-  /** 同心円のゆらぎ（光る泉用） */
+  /** 同心円のゆらぎ（光る泉用・いまは 使わない） */
   rings?: boolean
+  /** 海（青い 色の 組・岸に あしや はすを 置かない）。deep が 海の 色なら 自動 */
+  sea?: boolean
 }
 
 /**
- * 水面（CircleGeometry 用。uv の中心が円の中心）。
- * さざ波（2 層・マス目に量子化してスクロール）+ ふちの泡 + 太陽/月のきらめき（高画質）+ 雨の波紋（高画質）。
- * 夜は暗くなる。時刻などは fxU を共有するので、ステージの update で `uniforms.time` を更新しなくてもよい。
+ * 水の 色の 組（記事の 10 色：0〜6 = 暗い → 明るい 水・7 = 浅い 所・8 / 9 = 水に 映る 岸の 土 / 草）。
+ * 色を まぜずに この 中から えらぶ（ドット絵の 水が にごらない）
+ */
+const RAMP_POND = ['#1d3a44', '#24505a', '#2e6468', '#3f8484', '#5d9fa6', '#6fb3a8', '#c4ece2', '#5a9384', '#2c3b36', '#2d5246']
+const RAMP_SEA = ['#173452', '#1d4a70', '#245f88', '#3279a0', '#4f98ba', '#6cb4c4', '#d0eef0', '#5a9ca0', '#2c3a44', '#2d5246']
+
+/**
+ * 水面（2026-11-16 に 作りなおし：SpriteCook の 記事「pixel art pond with reflections and ripples」の 6 つの 層）。
+ * 岸からの 距離と 木の 高さは pond.ts の `bakePond()` が 焼いた テクスチャ（`fxPond()`）から 読む。
+ * 1 深さ：岸から はなれるほど 暗い（岸の すぐそばは 明るい ふち）
+ * 2 空の 光：奥の 岸から 手前へ 行くほど 明るい（見下ろすと 手前は 空が 映る）
+ * 3 木の 映りこみ：カメラと 反対へ たどって 木の 葉に あたれば 暗い 3 段。行ごとに 1 ドット ゆれる
+ * 4 岸：奥の 岸の 下に 暗い 線と 岸の 草の 映り・手前の 岸は 浅い 色と 打ちよせる 点線
+ * 5 きらめき（横に のびて ちぢむ 線）・水てきの 輪（5 コマ）・雨の 波紋
+ * どの 層も 1 ドットの 格子（世界に はりついた 画面の ドット）で 決めて、色は 組から えらぶだけ。ループは 5 秒
  */
 export function waterSurface(o: WaterOpt) {
-  return new THREE.ShaderMaterial({
+  const sea = o.sea ?? /^#14|^#1d7f/.test(o.deep)
+  const mat = new THREE.ShaderMaterial({
     uniforms: {
-      time: fxU.uTime, deep: { value: new THREE.Color(o.deep) }, shallow: { value: new THREE.Color(o.shallow) }, uSnap: snapUniform,
+      uSnap: snapUniform, ramp: { value: (sea ? RAMP_SEA : RAMP_POND).map((c) => new THREE.Color(c)) },
       uTime: fxU.uTime, uHigh: fxU.uHigh, uWind: fxU.uWind, uWindDir: fxU.uWindDir, uDrift: fxU.uDrift, uWet: fxU.uWet, uRain: fxU.uRain,
-      uSnow: fxU.uSnow, uCloud: fxU.uCloud, uGlint: fxU.uGlint, uNight: fxU.uNight,
+      uSnow: fxU.uSnow, uCloud: fxU.uCloud, uGlint: fxU.uGlint, uNight: fxU.uNight, uPond: fxU.uPond, uPondBox: fxU.uPondBox,
     },
-    defines: o.rings ? { RINGS: '' } : {},
-    vertexShader: `${SNAP_GLSL} varying vec2 vUv; varying vec3 vW;
-      void main(){ vUv = uv; vec4 wp = modelMatrix * vec4(position, 1.0); vW = wp.xyz;
+    vertexShader: `${SNAP_GLSL} varying vec3 vW; varying float vPx;
+      void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); vW = wp.xyz;
+        vPx = projectionMatrix[3][3] > 0.5 ? 2.0 / (projectionMatrix[1][1] * 320.0) : 0.06;
         gl_Position = psxSnap(projectionMatrix * viewMatrix * wp); }`,
     fragmentShader: /* glsl */ `
       ${FX_PARS}
-      uniform vec3 deep; uniform vec3 shallow; varying vec2 vUv; varying vec3 vW;
+      uniform vec3 ramp[10]; varying vec3 vW; varying float vPx;
+      #define LOOP 5.0
+      #define TAU 6.2831853
+      float ph(float cycles) { return TAU * cycles * uTime / LOOP; }
+      vec3 rampC(float t) { vec3 c = ramp[0]; for (int i = 1; i < 10; i++) if (float(i) == t) c = ramp[i]; return c; }
       void main(){
-        vec2 wp = vW.xz;
-        float d = distance(vUv, vec2(0.5)) * 2.0;
-        float flow = uTime * (0.7 + uWind * 0.8);
-        // さざ波：2 層をマス目に量子化してスクロール（風で速くなる）
-        vec2 q = floor(wp * 6.0) / 6.0;
-        float w1 = sin(q.x * 3.1 + flow * 1.3 + sin(q.y * 2.3 + flow * 0.8) * 1.6);
-        float w2 = sin(q.y * 3.7 - flow * 1.0 + sin(q.x * 2.9 - flow * 0.7) * 1.4);
-        float w = w1 * w2;
-        vec3 c = mix(deep, shallow, smoothstep(0.15, 0.95, d));
-        c *= 1.0 - 0.16 * step(0.35, w);
-        c += step(0.72, w) * 0.1;
-        #ifdef RINGS
-          float ring = step(0.5, fract(d * 9.0 - uTime * 0.8));
-          c = mix(c, c + vec3(0.3, 0.4, 0.15), ring * 0.45);
-        #endif
-        // ふちの泡（波にあわせてゆれる）と、そのすぐ内側のあわつぶ
-        float edge = d + sin(atan(vUv.y - 0.5, vUv.x - 0.5) * 9.0 + uTime * 2.0) * 0.03 + sin(wp.x * 5.0 + uTime * 1.8) * 0.012;
-        float spray = step(0.62, fxHash(floor(wp * 11.0) + floor(uTime * 1.5))) * step(0.82, edge) * step(edge, 0.9);
-        c = mix(c, vec3(0.95, 1.0, 1.0), max(step(0.9, edge), spray * 0.8));
-        // きらめき（太陽・月が波の頂に映る）。雨の波紋
-        if (uHigh > 0.5) {
-          vec2 gc = floor(wp * 9.0);
-          float gh = fxHash(gc + floor(uTime * 2.0 + fxHash(gc.yx) * 3.0));
-          c += step(0.985, gh) * step(0.15, w) * uGlint * mix(vec3(1.0, 0.98, 0.82), vec3(0.75, 0.85, 1.0), uNight);
-          float rg = fxRings(wp, 0.9) + fxRings(wp + 3.0, 0.65) * 0.8;
-          c += vec3(0.5, 0.6, 0.7) * rg * uRain * 0.55;
+        vec2 P = vW.xz;
+        // カメラ：画面の 右・上・カメラへ 向く 向き。1 ドットの 大きさ（平行投影なら 投影から）
+        vec3 camR = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
+        vec3 camU = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
+        vec3 camF = vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]);
+        float px = vPx;
+        vec2 away = -normalize(camF.xz + vec2(1e-5));
+        float sinE = clamp(camF.y, 0.2, 1.0);
+        float tanE = camF.y / max(length(camF.xz), 0.05);
+        // 世界に はりついた 画面の ドット（カメラは 1 ドットの 格子に 吸わせてある）
+        float sx = floor(dot(vW, camR) / px);
+        float sy = floor(dot(vW, camU) / px);
+        // 岸の 形は 地面の 三角では なく 焼いた 距離で 決める（ドットの ぎざぎざな 岸に なる）
+        vec4 T = fxPond(P);
+        // 岸に ゆらぎ（まっすぐな 岸を くずす。はなれた 所は かわらない）
+        float sd = fxPondSd(T) - 0.32 * fxNoise(P * 0.85 + 2.0) - 0.12 * fxNoise(P * 2.3);
+        if (sd < 0.03) discard;
+        float tl = mod(uTime, LOOP);
+        float loopN = floor(uTime / LOOP);
+
+        // 3 映りこみ ＋ 奥の 岸までの 距離：カメラと 反対へ たどる（行ごとに 1 ドット ゆらす）
+        float wob = floor(sin(sy * 0.75 - ph(2.0)) + 0.5);
+        vec2 Pw = P + normalize(camR.xz) * wob * px;
+        float far = 99.0;
+        float refl = 9.0;
+        for (int i = 1; i <= 30; i++) {
+          if (uHigh < 0.5 && i > 12) break;
+          float t = float(i) * 0.28;
+          vec4 q = fxPond(Pw + away * t);
+          if (far > 90.0 && fxPondSd(q) <= 0.0) far = t;
+          if (q.g > 0.0 && uHigh > 0.5) {
+            float top = q.g * 12.0;
+            float bot = q.b * 12.0;
+            float y = vW.y + t * tanE / 0.55;
+            if (y >= bot && y <= top) {
+              // 葉の むら（世界の 位置で きまる・かたまりの 大きさ）を 足して 3 段に
+              vec2 Q = Pw + away * t;
+              float f = (y - bot) / max(top - bot, 0.01) + (fxNoise(Q * 2.6) - 0.5) * 0.7;
+              refl = min(refl, f < 0.12 ? 0.0 : f < 0.6 ? 1.0 : 2.0);
+            }
+          }
         }
+        float rows = far * sinE / px;
+
+        // 1 深さ と 2 空の 光
+        float tone = sd > 0.6 ? 1.0 : 2.0;
+        if (sd < 0.22) tone = 3.0;
+        else {
+          if (far >= 1.1) tone = 3.0;
+          if (far >= 2.2 && far < 90.0) tone = 4.0;
+          if (far >= 90.0 && sd > 5.0) tone = 2.0;
+        }
+        tone = min(tone, refl);
+        // 4 奥の 岸：水ぎわの 暗い 線と、岸の 草の 映り（ときどき 草が 水へ はみ出す・うすい さざ波）
+        if (far < 90.0 && rows < 4.0) {
+          float creep = sin(sx * 0.35 - ph(1.0)) + 0.5 * sin(sx * 0.13 + 1.0 - ph(1.0));
+          tone = rows < 1.0 || (rows < 2.0 && creep > 0.6) ? 0.0 : 9.0;
+          float w = sin(sx * 0.6 - ph(1.0) + floor(rows) * 1.7) + 0.6 * sin(sx * 0.23 + floor(rows) - ph(1.0));
+          if (rows >= 2.0 && w > 0.95) tone = 1.0;
+        }
+        // 手前の 岸：浅い 色と、打ちよせる 点線（ふち ぜんぶを 光らせると 輪郭に 見える）
+        float spx = sd / px;
+        if (rows > 8.0 && tone >= 3.0) {
+          if (sd < 0.18) tone = 7.0;
+          float along = sx * 0.9 + sy * 0.4;
+          bool dash = sin(along * 0.55 - ph(2.0)) + 0.6 * sin(along * 0.23 + 1.3 - ph(1.0)) > 0.55;
+          float ring = sin(ph(2.0)) > 0.35 ? 3.0 : 2.0;
+          if (dash && abs(spx - ring) < 0.5) tone = 5.0;
+        }
+        // 5 きらめき：空の 映る 所に 横の 線が のびて ちぢむ（0.6 秒）。ループごとに 場所を かえる
+        if (uHigh > 0.5 && tone >= 3.0 && tone != 7.0 && rows > 10.0) {
+          vec2 cell = floor(vec2(sx / 9.0, sy / 7.0));
+          float h = fxHash(cell + loopN * 17.13);
+          if (h < 0.16 * uGlint) {
+            float age = (tl - fxHash(cell * 1.7 + loopN) * (LOOP - 0.6)) / 0.6;
+            float cx = cell.x * 9.0 + 2.0 + floor(fxHash(cell + 3.1) * 5.0);
+            float cy = cell.y * 7.0 + 3.0;
+            float dx = abs(sx - cx);
+            if (age >= 0.0 && age < 1.0 && sy == cy) {
+              bool on = age < 0.15 ? dx < 0.5 : age < 0.3 ? dx < 1.5 : age < 0.65 ? dx < 2.5 : age < 0.85 ? (dx < 2.5 && dx > 0.5) : (dx > 1.5 && dx < 2.5);
+              if (on) tone = dx < 1.5 ? 6.0 : 5.0;
+            }
+          }
+          // 水てきの 輪：5 コマ × 0.2 秒
+          vec2 rc = floor(vec2(sx / 40.0, sy / 30.0));
+          float rh = fxHash(rc + loopN * 3.7 + 0.5);
+          if (rh < 0.45) {
+            float f = floor((tl - fxHash(rc * 2.3 + loopN) * (LOOP - 1.0)) / 0.2);
+            if (f >= 0.0 && f < 5.0) {
+              vec2 c0 = rc * vec2(40.0, 30.0) + vec2(8.0, 6.0) + floor(vec2(fxHash(rc + 9.1), fxHash(rc + 4.7)) * vec2(24.0, 18.0));
+              float rx = f < 0.5 ? 1.0 : f < 1.5 ? 2.0 : f < 2.5 ? 4.0 : f < 3.5 ? 6.0 : 8.0;
+              float ry = f;
+              vec2 d = vec2(sx, sy) - c0;
+              float e = ry < 0.5 ? (abs(d.y) < 0.5 ? abs(abs(d.x) - rx) : 9.0) : abs(length(d / vec2(rx, ry)) - 1.0) * ry;
+              bool keep = f < 2.5 || abs(d.y) >= ry * 0.5;
+              if (e < 0.5 && keep && sd > 0.15) tone = f < 2.5 ? 6.0 : 5.0;
+            }
+          }
+          // 雨の 波紋
+          float rg = fxRings(P, 0.9) + fxRings(P + 3.0, 0.65) * 0.8;
+          if (rg * uRain > 0.35) tone = 5.0;
+        }
+        vec3 c = rampC(tone);
         c *= 1.0 - uNight * 0.5;
         gl_FragColor = vec4(c, 1.0);
       }`,
   })
+  mat.userData.water = true
+  mat.userData.sea = sea
+  return mat
 }
 
 // ---------- 雨・雪・火の粉・しぶき・もや ----------

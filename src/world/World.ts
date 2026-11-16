@@ -16,6 +16,7 @@ import { SpriteAnim, iconSheet } from './sprites'
 import { EGG_COLORS, NEW_SKILLS, SPECIES, enemyFor, newSeed, type Care, type EggKind, type MonsterView, type Species, type SpeciesId } from './monsters'
 import { WeatherFx, fxLod } from './fxprops'
 import { SIZE, STAGES, type Stage } from './stages'
+import { bakePond } from './pond'
 import { buildWorldMap, worldForest } from './worldmap'
 import type { EraPath } from './eras'
 import { BABY, type Family } from './families'
@@ -1063,6 +1064,8 @@ export class World {
     const s = this.stage
     this.scene.add(s.group)
     fxLod(s.group, this.high)
+    // 水べの 下ごしらえ（岸からの 距離・木の 高さ）と、岸の あし・はすの 葉
+    s.group.add(bakePond(s.group, s.heightAt, SIZE, this.high).props)
     this.wfx.setGround(s.heightAt, SIZE, s.obstacles.filter((o) => o.water))
     this.scene.fog = new THREE.Fog(s.fog, ...(s.fogRange ?? [14, 34]))
     this.hemi.color.set(s.hemi[0])
