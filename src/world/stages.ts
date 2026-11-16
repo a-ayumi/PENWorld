@@ -104,9 +104,10 @@ function terrain(
     pos.setY(i, Math.max(0.24, heightAt(x, z)))
   }
   // 面ごとに色をつける：急な面（崖）は地層の色（高さで 2 色のしま）、ふつうの面は少しずつ ちがう明るさ
+  // なめらかな 法線（つながった 頂点で 平均）：三角ごとの 明暗の つぎはぎを 出さない（2026-11-16・ドット絵らしく）
+  geo.computeVertexNormals()
   const flat = geo.toNonIndexed()
   geo.dispose()
-  flat.computeVertexNormals()
   const fp = flat.attributes.position
   const fn = flat.attributes.normal
   // 地面のテクスチャ（草など）と かけ合わせるので、明るめの色にしておく
@@ -130,7 +131,7 @@ function terrain(
       // 高い所の急な面と 山の上のほうは 岩はだ
       g = 1
       c = rockC[Math.floor(y / 0.5) % 2]
-    } else c = ny < 0.72 ? strata[Math.floor(y / 0.32) % 3] : a.clone().lerp(b, r())
+    } else c = ny < 0.72 ? strata[Math.floor(y / 0.32) % 3] : a.clone().lerp(b, 0.35 + r() * 0.3)
     const B = buckets[g]
     for (let k = f; k < f + 3; k++) {
       B.p.push(fp.getX(k), fp.getY(k), fp.getZ(k))

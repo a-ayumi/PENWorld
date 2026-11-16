@@ -10,16 +10,16 @@ import { fxPatch, type FxOpt } from './fx'
  */
 /** HUD（文字・アイコン）のキャンバス解像度 */
 export const RES = { w: 320, h: 320 }
-/** 箱庭を描く解像度（ドット絵の細かさを出すため HUD の 1.5 倍） */
-export const SCENE = { w: 480, h: 480 }
-/** 最終出力（HUD の 3 倍・箱庭の 2 倍 = どちらもドットが均等に拡大される） */
+/** 箱庭を描く解像度（2026-11-16：ドットを はっきり 見せるため 480 → 320 = HUD と 同じ。出力の 3 倍で のばす） */
+export const SCENE = { w: 320, h: 320 }
+/** 最終出力（HUD・箱庭の 3 倍 = ドットが均等に拡大される） */
 export const OUT = { w: 960, h: 960 }
 
 /**
  * トゥーン（ピクセル・ジオラマの見た目で使う）：太陽の光を 3 段にする。uToon = 0 の間は何もしない（PS1 風のまま）。
  * uSunLum は いまの太陽の明るさ（光の量を 0〜1 にそろえるため）。diorama.ts が描く直前に入れて、描いたら 0 に戻す。
  */
-export const toonU = { uToon: { value: 0 }, uSunLum: { value: 1 } }
+export const toonU = { uToon: { value: 0 }, uSunLum: { value: 1 }, uGrain: { value: 0 } }
 
 /** 頂点スナップの格子（小さいほど揺れが強い） */
 const snap = { value: new THREE.Vector2(SCENE.w / 2, SCENE.h / 2) }
@@ -42,6 +42,24 @@ export function psx<T extends THREE.Material>(m: T, fx?: FxOpt): T {
         #include <logdepthbuf_vertex>`,
       )
     if (o.sway || o.ground || o.snow) fxPatch(shader, o)
+    // ドットの つぶ（2026-11-16）：光を うける 面に、世界の 位置で きまる 明暗の 点を のせる（手で 描いた ドット絵の 模様のように）。
+    // 1 つぶ ≒ 箱庭の 1〜2 ドット。uGrain = 0 の 間は 何も しない
+    if (shader.fragmentShader.includes('#include <lights_fragment_end>') && shader.vertexShader.includes('#include <project_vertex>') && shader.fragmentShader.includes('#include <color_fragment>')) {
+      shader.uniforms.uGrain = toonU.uGrain
+      shader.vertexShader = 'varying vec3 vGrainP;\n' + shader.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n  vGrainP = (modelMatrix * vec4(transformed, 1.0)).xyz;')
+      shader.fragmentShader =
+        'varying vec3 vGrainP; uniform float uGrain;\n' +
+        shader.fragmentShader.replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+          if (uGrain > 0.0) {
+            vec3 gc = floor(vGrainP / 0.07);
+            float gn = fract(sin(dot(gc, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+            float gm = fract(sin(dot(floor(vGrainP / 0.21), vec3(7.13, 157.1, 113.7))) * 24634.6345);
+            diffuseColor.rgb *= 1.0 + (step(0.8, gn) * 0.13 - step(gn, 0.22) * 0.14 + (gm - 0.5) * 0.1) * uGrain;
+          }`,
+        )
+    }
     if (shader.fragmentShader.includes('#include <lights_fragment_end>')) {
       shader.uniforms.uToon = toonU.uToon
       shader.uniforms.uSunLum = toonU.uSunLum
