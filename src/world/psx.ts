@@ -19,7 +19,7 @@ export const OUT = { w: 960, h: 960 }
  * トゥーン（ピクセル・ジオラマの見た目で使う）：太陽の光を 3 段にする。uToon = 0 の間は何もしない（PS1 風のまま）。
  * uSunLum は いまの太陽の明るさ（光の量を 0〜1 にそろえるため）。diorama.ts が描く直前に入れて、描いたら 0 に戻す。
  */
-export const toonU = { uToon: { value: 0 }, uSunLum: { value: 1 }, uGrain: { value: 0 } }
+export const toonU = { uToon: { value: 0 }, uSunLum: { value: 1 }, uGrain: { value: 0 }, uPat: { value: 0 } }
 
 /** 頂点スナップの格子（小さいほど揺れが強い） */
 const snap = { value: new THREE.Vector2(SCENE.w / 2, SCENE.h / 2) }
@@ -29,6 +29,39 @@ const snap = { value: new THREE.Vector2(SCENE.w / 2, SCENE.h / 2) }
  * `fx` を渡すと風のゆれ・ぬれ・雪の積もりなどの天気の見た目も足す（fx.ts）。
  * オプションは材質の userData.fx に入るので、コンパイル前なら後から足してもよい（swayify）。
  */
+/**
+ * 建物の ドットの 模様（2026-11-17・見本は 描きこんだ ドット絵の 町）：面の 向きで かえる。
+ * かべ = れんが / 板の 段（目地の 線と 互いちがいの つなぎ目・1 段ごとに 色の ゆらぎ）/ 屋根 = かわらの 段（下の ふちが 暗く 上が 明るい）。
+ * 線は いつも 1 ドット 以上（画面の 1 ドットの 大きさ fwidth で 太さを きめる）
+ */
+const PATTERN = /* glsl */ `
+          if (uPat > 0.0) {
+            vec3 P = vGrainP;
+            vec3 N = normalize(cross(dFdx(P), dFdy(P)));
+            float ny = abs(N.y);
+            vec2 hz = normalize(vec2(-N.z, N.x) + vec2(1e-5));
+            float u = dot(P.xz, hz);
+            float k = 1.0;
+            if (ny < 0.35) {
+              float S = 0.17;
+              float row = floor(P.y / S);
+              float fy = fract(P.y / S);
+              float fu = fract(u / 0.4 + mod(row, 2.0) * 0.5);
+              float lw = max(0.16, fwidth(P.y) / S);
+              float jw = max(0.07, fwidth(u) / 0.4);
+              k = fy < lw ? 0.8 : fu < jw ? 0.87 : 1.0 + (fract(sin(dot(vec2(row, floor(u / 0.4 + mod(row, 2.0) * 0.5)), vec2(12.9898, 78.233))) * 43758.5453) - 0.5) * 0.1;
+            } else if (ny < 0.97) {
+              float S = 0.14;
+              float row = floor(P.y / S);
+              float fy = fract(P.y / S);
+              float fu = fract(u / 0.24 + mod(row, 2.0) * 0.5);
+              float lw = max(0.22, fwidth(P.y) / S);
+              float jw = max(0.1, fwidth(u) / 0.24);
+              k = fy < lw ? 0.74 : fu < jw ? 0.85 : fy > 0.78 ? 1.08 : 1.0;
+            }
+            diffuseColor.rgb *= mix(1.0, k, uPat);
+          }`
+
 export function psx<T extends THREE.Material>(m: T, fx?: FxOpt): T {
   const o: FxOpt = fx ?? {}
   m.userData.fx = o
@@ -47,9 +80,10 @@ export function psx<T extends THREE.Material>(m: T, fx?: FxOpt): T {
     // 1 つぶ ≒ 箱庭の 1〜2 ドット。uGrain = 0 の 間は 何も しない
     if (shader.fragmentShader.includes('#include <lights_fragment_end>') && shader.vertexShader.includes('#include <project_vertex>') && shader.fragmentShader.includes('#include <color_fragment>')) {
       shader.uniforms.uGrain = toonU.uGrain
+      shader.uniforms.uPat = toonU.uPat
       shader.vertexShader = 'varying vec3 vGrainP;\n' + shader.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n  vGrainP = (modelMatrix * vec4(transformed, 1.0)).xyz;')
       shader.fragmentShader =
-        'varying vec3 vGrainP; uniform float uGrain;\n' +
+        'varying vec3 vGrainP; uniform float uGrain; uniform float uPat;\n' +
         shader.fragmentShader.replace(
           '#include <color_fragment>',
           `#include <color_fragment>
@@ -58,7 +92,8 @@ export function psx<T extends THREE.Material>(m: T, fx?: FxOpt): T {
             float gn = fract(sin(dot(gc, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
             float gm = fract(sin(dot(floor(vGrainP / 0.21), vec3(7.13, 157.1, 113.7))) * 24634.6345);
             diffuseColor.rgb *= 1.0 + (step(0.8, gn) * 0.13 - step(gn, 0.22) * 0.14 + (gm - 0.5) * 0.1) * uGrain * ${o.soft ? '1.5' : '1.0'};
-          }`,
+          }
+          ${o.build ? PATTERN : ''}`,
         )
     }
     if (!o.soft && shader.fragmentShader.includes('#include <lights_fragment_end>')) {
@@ -81,7 +116,7 @@ export function psx<T extends THREE.Material>(m: T, fx?: FxOpt): T {
         )
     }
   }
-  m.customProgramCacheKey = () => 'psx' + (o.sway ? 'w' : '') + (o.ground ? 'g' : '') + (o.snow ? 's' : '') + (o.soft ? 'f' : '') + (o.clump ? 'c' : '')
+  m.customProgramCacheKey = () => 'psx' + (o.sway ? 'w' : '') + (o.ground ? 'g' : '') + (o.snow ? 's' : '') + (o.soft ? 'f' : '') + (o.clump ? 'c' : '') + (o.build ? 'b' : '')
   return m
 }
 

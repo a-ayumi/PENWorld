@@ -65,6 +65,8 @@ export interface FxOpt {
   soft?: boolean
   /** 木の 葉の かたまり（2026-11-16）：かたまりごとに 1 ドットずつ カクッと ゆれる。風下へ じゅんばんに（頂点の 属性 aClump = 位相・大きさ） */
   clump?: boolean
+  /** 建物（2026-11-17）：かべに れんが・板の 段、屋根に かわらの 段を ドットで 描く（世界の 位置で きまる・ジオラマで 描く 間だけ） */
+  build?: boolean
 }
 
 /** どのシェーダーにも入れる共通部品（hash / noise / 波紋 / きらめき） */
@@ -179,6 +181,15 @@ function fragmentPatch(o: FxOpt) {
         ${
           ground
             ? /* glsl */ `
+        if (uHigh > 0.5) {
+          // 草の 穂の ドット（2026-11-17：見本の 町の 地面）：1 ドットほどの 升目で まばらに 明るい 穂と こい 根もと
+          vec2 tc = floor(wp / 0.075);
+          float th = fxHash(tc);
+          float tb = fxHash(tc + vec2(0.0, -1.0));
+          float tm = fxNoise(wp * 0.6);
+          if (th > 0.94 - tm * 0.05) diffuseColor.rgb *= 1.28;
+          else if (tb > 0.94 - tm * 0.05) diffuseColor.rgb *= 0.78;
+        }
         {
           // 水べの ぬれた 土（岸から 0.5 マス・すこし 暗く）
           float psd = fxPondSd(fxPond(wp));
