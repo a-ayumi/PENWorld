@@ -20,8 +20,9 @@ function make(draw: Draw, size = 64, seed = 1, repeat: [number, number] = [1, 1]
   const t = new THREE.CanvasTexture(c)
   t.colorSpace = THREE.SRGBColorSpace
   t.magFilter = THREE.NearestFilter
-  t.minFilter = THREE.NearestFilter
-  t.generateMipmaps = false
+  // 2026-11-17：小さく 見える 時は ならした 色に（細かい 模様が 画面の ドットと ぶつかって ひっかき傷の ような 筋に なっていた）
+  t.minFilter = THREE.LinearMipmapLinearFilter
+  t.generateMipmaps = true
   t.wrapS = t.wrapT = THREE.RepeatWrapping
   t.repeat.set(repeat[0], repeat[1])
   return t
@@ -51,7 +52,7 @@ function clumps(g: CanvasRenderingContext2D, s: number, rnd: () => number, palet
       const ty = fy - iy
       const a = at(ix, iy) * (1 - tx) + at(ix + 1, iy) * tx
       const b = at(ix, iy + 1) * (1 - tx) + at(ix + 1, iy + 1) * tx
-      const k = a * (1 - ty) + b * ty + (rnd() - 0.5) * 0.35
+      const k = a * (1 - ty) + b * ty + (rnd() - 0.5) * 0.12
       g.fillStyle = palette[Math.max(0, Math.min(palette.length - 1, Math.floor(k * palette.length)))]
       g.fillRect(x, y, 1, 1)
     }
