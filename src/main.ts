@@ -1016,10 +1016,46 @@ diveScene.background = new THREE.Color('#05060f')
 const pad = document.getElementById('pad')!
 const enterBtn = document.getElementById('enter-btn') as HTMLButtonElement
 
+// ---------------- 画面の まわり（ようす・できごとの ログ・こうどう） ----------------
+const sideLog = document.getElementById('side-log') as HTMLOListElement
+const sideStat = document.getElementById('side-stat') as HTMLDivElement
+const LOG_TAG = { self: 'じぶん', friend: 'なかま', foe: 'てき', town: 'まち' } as const
+world.onLog = (text, kind) => {
+  const li = document.createElement('li')
+  li.className = kind
+  const tag = document.createElement('span')
+  tag.className = 'tag'
+  tag.textContent = LOG_TAG[kind]
+  li.append(tag, document.createTextNode(text))
+  sideLog.append(li)
+  while (sideLog.children.length > 8) sideLog.firstElementChild?.remove()
+  Array.from(sideLog.children).forEach((el, i, all) => el.classList.toggle('old', i < all.length - 3))
+}
+const WEATHER_JP = { sun: 'はれ', cloud: 'くもり', rain: 'あめ', snow: 'ゆき', ember: 'ひのこ' } as const
+let sideStatText = ''
+function updateSideStat() {
+  if (mode !== 'inside') return
+  const parts = [WEATHER_JP[world.weather], `コイン ${world.coins}`]
+  if (world.vLv > 0) parts.push(`${world.villageName()} ★${Math.floor(world.vScore)}`)
+  const wl = world.warLine()
+  if (wl) parts.push(wl.replace('きょてん ', 'きょてん：'))
+  const t = parts.join('|')
+  if (t === sideStatText) return
+  sideStatText = t
+  sideStat.replaceChildren(...parts.map((p) => Object.assign(document.createElement('span'), { textContent: p })))
+}
+setInterval(updateSideStat, 500)
+document.getElementById('act-shop')!.addEventListener('click', () => world.run(5))
+document.getElementById('act-status')!.addEventListener('click', () => world.run(3))
+document.getElementById('act-call')!.addEventListener('click', () => world.run(7))
+
 function setMode(m: Mode) {
   mode = m
   modeT = 0
   pad.hidden = m !== 'inside'
+  // 画面に 入っている 間は 液晶の 中の アイコン・メッセージを 外して、まわりの 黒い 所に 出す
+  world.hudLite = m === 'inside'
+  world.hudNow = true
   qualityBtn.hidden = m === 'inside'
   dressBtn.hidden = m === 'inside'
   dexBtn.hidden = m === 'inside'

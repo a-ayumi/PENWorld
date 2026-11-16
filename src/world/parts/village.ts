@@ -382,7 +382,7 @@ export function claimHouse(this: World, c: Creature): House | null {
     const h: House = { stage: this.stageIndex, x: q.x, z: q.z, owner: c, ownerSp: c.sp.id, mats: 0, hp: 0, mesh: null, shake: 0, level: 0, alerted: 0, era: this.townEra(), age: 0 }
     this.houses.push(h)
     this.mountHouse(h)
-    if (this.ally(c)) this.say(`${c.sp.name}が いえを たてはじめた`)
+    if (this.ally(c)) this.say(`${this.nm(c)}が いえを たてはじめた`)
     return h
   }
   return null
@@ -442,7 +442,7 @@ export function damageHouse(this: World, h: House, dmg: number, by: Creature | n
   }
   if (by && owner && this.ally(owner) && this.time - h.alerted > 12) {
     h.alerted = this.time
-    this.say(`${owner.sp.name}の いえが ${by.sp.name}に おそわれている！`)
+    this.say(`${this.nm(owner)}の いえが ${this.nm(by)}に おそわれている！`)
   }
   if (h.hp > 0) return
   const lv = h.level
@@ -451,7 +451,7 @@ export function damageHouse(this: World, h: House, dmg: number, by: Creature | n
   h.hp = houseMaxHp(h.level) * 0.5
   for (let i = 0; i < 2; i++) this.spawnResource(h.x + (Math.random() - 0.5) * 2, h.z + 1 + Math.random())
   this.burst(h.x, y, h.z, 'cube', 10, 3)
-  if (owner && this.ally(owner)) this.say(h.level === 0 ? `${owner.sp.name}の いえが こわされた…` : `${owner.sp.name}の いえが こわれかけている`)
+  if (owner && this.ally(owner)) this.say(h.level === 0 ? `${this.nm(owner)}の いえが こわされた…` : `${this.nm(owner)}の いえが こわれかけている`)
   if (h.level === 0) {
     this.unmountHouse(h)
     this.houses.splice(this.houses.indexOf(h), 1)
@@ -858,7 +858,7 @@ export function addStructMaterial(this: World, b: Struct, by: Creature) {
   b.hp = Math.min(this.structMaxHp(b), b.hp + spec.hp * 0.25)
   this.burst(b.x, this.stage.heightAt(b.x, b.z) + 0.8, b.z, 'spark', 4, 1.5)
   if (by === this.pet && !this.structDone(b))
-    this.say(`${by.sp.name}は しざいを はこんだ（${spec.name} ${b.mats}/${spec.need}${b.mats - m0 > 1 ? ' どうぐで 2ばい' : ''}） まもり+1`)
+    this.say(`${this.nm(by)}は しざいを はこんだ（${spec.name} ${b.mats}/${spec.need}${b.mats - m0 > 1 ? ' どうぐで 2ばい' : ''}） まもり+1`)
   const q = this.structDone(b) ? 4 : Math.floor((b.mats / spec.need) * 4)
   if (q !== b.q) this.refreshStruct(b)
   if (this.structDone(b) && !was) this.onStructDone(b, by)
@@ -877,7 +877,7 @@ export function onStructDone(this: World, b: Struct, by: Creature) {
       this.ring(it.x, it.z, '#ffe27a', 1.6, 0.6)
       this.mark(it.x, it.z, 2)
       this.onSfx('built')
-      this.say(`${by.sp.name}たちが ${ITEM_INFO[b.item].name}を くみたてた！`)
+      this.say(`${this.nm(by)}たちが ${ITEM_INFO[b.item].name}を くみたてた！`)
     }
     return
   }
@@ -893,7 +893,7 @@ export function onStructDone(this: World, b: Struct, by: Creature) {
     this.say('おしろが かんせい！')
     this.shake = Math.max(this.shake, 0.4)
   } else {
-    this.say(`${by.sp.name}たちが ${spec.name}を かんせいさせた！`)
+    this.say(`${this.nm(by)}たちが ${spec.name}を かんせいさせた！`)
     const more = STRUCT_DONE[b.kind]
     if (more) this.say(more)
     const col = { fountain: '#9fe3ff', windmill: '#fff2c0', lighthouse: '#ffe27a', market: '#ffd23f', playground: '#ff9ecb', fort: '#ff9f43' }[b.kind as string] ?? '#ffe27a'
@@ -913,7 +913,7 @@ export function damageStruct(this: World, b: Struct, dmg: number, by: Creature |
   if (b.kind === 'castle' || b.kind === 'fort') this.shake = Math.max(this.shake, 0.12)
   if (by && b.kind !== 'wall' && this.time - b.alerted > 12) {
     b.alerted = this.time
-    this.say(`${STRUCTS[b.kind].name}が ${by.sp.name}に おそわれている！`)
+    this.say(`${STRUCTS[b.kind].name}が ${this.nm(by)}に おそわれている！`)
   }
   if (b.hp > 0) return
   this.unmountStruct(b)
@@ -2238,7 +2238,7 @@ export function updateWish(this: World, dt: number) {
     w.t -= dt
     w.say -= dt
     if (w.t <= 0 || !this.alive(w.who)) {
-      if (this.alive(w.who) && w.t <= 0) this.say(`${w.who.sp.name}は ${SHOP.find((s) => s.id === w.id)?.name ?? ''}を あきらめた…`)
+      if (this.alive(w.who) && w.t <= 0) this.say(`${this.nm(w.who)}は ${SHOP.find((s) => s.id === w.id)?.name ?? ''}を あきらめた…`)
       this.wish = null
       this.wishT = 240 + Math.random() * 180
       return
@@ -2274,7 +2274,7 @@ export function updateWish(this: World, dt: number) {
   const pick = ok.find(([, k]) => (r -= k) <= 0) ?? ok[0]
   const name = SHOP.find((x) => x.id === pick[0])!.name.replace('せっけいず：', '')
   this.wish = { id: pick[0], who, t: 480, say: 0 }
-  this.say(`${who.sp.name}「${name}が あったら いいなあ」`)
+  this.say(`${this.nm(who)}「${name}が あったら いいなあ」`)
   this.mark(who.x, who.z, 1)
 }
 
@@ -2293,7 +2293,7 @@ export function grantWish(this: World, s: ShopItem) {
   this.burst(w.who.x, this.ground(w.who) + this.size(w.who), w.who.z, 'heart', 8, 1.6)
   this.setState(w.who, 'happy', 2.2)
   this.popups.push({ pos: new THREE.Vector3(w.who.x, this.ground(w.who) + this.size(w.who) + 0.35, w.who.z), text: 'ありがとう！', color: '#ffd0e6', t: 0 })
-  this.after(0.6, () => this.say(`${w.who.sp.name}は おおよろこび！ おれいに ${back}コイン`))
+  this.after(0.6, () => this.say(`${this.nm(w.who)}は おおよろこび！ おれいに ${back}コイン`))
   this.stat('wishes')
 }
 

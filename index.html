@@ -180,6 +180,14 @@
         <button type="button" id="cam-left" aria-label="左に回す（Q）">⟲</button>
         <button type="button" id="cam-right" aria-label="右に回す（E）">⟳</button>
       </div>
+      <!-- 画面に 入っている 時の まわり（黒い 所）：ようす・メッセージの ログ・よく 使う ボタンだけ -->
+      <div id="side-stat"></div>
+      <ol id="side-log" aria-live="polite" aria-label="できごと"></ol>
+      <div class="act-bar" role="group" aria-label="こうどう">
+        <button type="button" id="act-shop">ショップ</button>
+        <button type="button" id="act-status">ようす</button>
+        <button type="button" id="act-call">よびだす</button>
+      </div>
       <div class="pad-btns">
         <button data-key="A" aria-label="A ボタン">A</button>
         <button data-key="B" aria-label="B ボタン">B</button>

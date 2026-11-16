@@ -109,6 +109,8 @@ export interface Creature {
   /** 戦争の 部隊：むかう 拠点の 番号（-1 / 無し = ちがう）。squadFoe = 敵の 部隊 */
   squad?: number
   squadFoe?: boolean
+  /** ニックネーム（なかまと ペット。セーブする） */
+  nick?: string
   tendTo: Struct | null
   /** あそびば（frolic）の場所 / おまつり（dance）の輪の角度と半径 */
   spot: Struct | null
@@ -549,6 +551,8 @@ export class World {
   wallJob = Vi.wallJob
   wallSpot = Vi.wallSpot
   layWall = Vi.layWall
+  giveNick = Cr.giveNick
+  msgKind = Ui.msgKind
   tileAt = Wa.tileAt
   setupWar = Wa.setupWar
   mountOutpost = Wa.mountOutpost
@@ -923,6 +927,10 @@ export class World {
   smallT = 0
   /** ドット絵の 生き物に かける 光の 色（applyLight が 決める） */
   creatureTint = new THREE.Color(1, 1, 1)
+  /** 画面に 入っている 時：アイコン・コイン・天気・メッセージを 液晶に 描かない（画面の 外の HTML に 出す） */
+  hudLite = false
+  /** メッセージを 画面の 外の ログへ（main.ts） */
+  onLog?: (text: string, kind: Ui.MsgKind) => void
   /** おまかせカメラの 速さ（なめらかに 動きだす） */
   autoV = 0
   /** 住民の おねがい（ほしい 品の ショップ id・だれ・のこり 秒・つぶやきの 時計） */
@@ -987,7 +995,7 @@ export class World {
       // ペットと はじめの なかま 2 匹は、はじまりの 地方の 系統（森 = いぬ）
       const home = this.stageEggKind(st.x, st.z)
       this.pet = this.spawn(BABY[home] as SpeciesId, 'pet', st.x, st.z + 1.5)
-      this.say(`${this.pet.sp.name}が うまれた！`)
+      this.say(`${this.nm(this.pet)}が うまれた！`)
       // はじめの仲間 2 匹（計画 B2：たまごは 交配と 寿命だけなので、さいしょから 3 匹で 始める）
       {
         this.spawn(BABY[home] as SpeciesId, 'friend', st.x - 1.6, st.z + 2.4, 0.01, { seed: newSeed(), rare: false })

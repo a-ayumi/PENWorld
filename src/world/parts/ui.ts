@@ -95,13 +95,13 @@ export function describe(this: World, p: Pick): { title: string; sub: string; li
       if (c.team === 'wild' && c.sp.temper === 'calm') bars.push(['なかよし', Math.min(1, c.affinity / 100), '#ff7eb6'])
       else if (this.ally(c) && c.sp.tier >= 1 && c.sp.tier <= 3) bars.push(['しんか', Math.min(1, (c === this.pet ? this.xp : c.xp) / XP_NEED[c.sp.tier as 1 | 2 | 3]), '#c9a8ff'])
       if (c !== this.pet && c.life > 0) bars.push(['じゅみょう', Math.max(0, 1 - c.age / c.life), '#9be28a'])
-      return { title: (c.rare ? '★' : '') + c.sp.name + (c === this.pet ? ' ★' : ''), sub: c.sp.kind, lines, bars, del: c === this.pet ? `ほうしん ▸ ${PLAN_NAME[PET_PLANS[(PET_PLANS.indexOf(this.petPlan) + 1) % PET_PLANS.length]]}` : null }
+      return { title: this.nm(c) + (c.nick ? `（${c.sp.name}）` : '') + (c === this.pet ? ' ★' : ''), sub: c.sp.kind, lines, bars, del: c === this.pet ? `ほうしん ▸ ${PLAN_NAME[PET_PLANS[(PET_PLANS.indexOf(this.petPlan) + 1) % PET_PLANS.length]]}` : null }
     }
     case 'house': {
       const h: House = p.ref
       const lv = ['たてはじめ', 'どだい', 'かべ', 'かんせい', 'ぞうちく'][h.level]
       lines.push(`しざい ${h.mats}/${HOUSE_STEPS[4]}（${lv}）`)
-      lines.push(h.owner ? `すんでいる：${h.owner.sp.name}` : 'あきや（だれかが すみつく）')
+      lines.push(h.owner ? `すんでいる：${this.nm(h.owner)}` : 'あきや（だれかが すみつく）')
       if (h.level >= 1) bars.push(['じょうぶさ', h.hp / houseMaxHp(h.level), '#ff9f43'])
       bars.push(['できあがり', h.mats / HOUSE_STEPS[4], '#c8955a'])
       return { title: `${h.owner ? h.owner.sp.name : SPECIES[h.ownerSp].name}の いえ`, sub: '家', lines, bars, del: 'かいたい' }
@@ -341,7 +341,7 @@ export function tapInfo(this: World, x: number, y: number): boolean {
     }
     if (p.type === 'creature' && p.ref === this.pet) {
       this.petPlan = PET_PLANS[(PET_PLANS.indexOf(this.petPlan) + 1) % PET_PLANS.length]
-      this.say(`${this.pet.sp.name}の ほうしん：${PLAN_NAME[this.petPlan]}`)
+      this.say(`${this.nm(this.pet)}の ほうしん：${PLAN_NAME[this.petPlan]}`)
       this.onSfx('select')
       return true
     }
@@ -542,11 +542,11 @@ export function run(this: World, i: number) {
       f.taken = p
       p.food = f
       this.setState(p, 'seek', 10)
-      return this.say(`${p.sp.name}は ${this.stage.food.name}を とりに いった`)
+      return this.say(`${this.nm(p)}は ${this.stage.food.name}を とりに いった`)
     }
     case 1:
       if (busy) return this.say('いまは それどころじゃない！')
-      if (p.energy < 15) return this.say(`${p.sp.name}は つかれている…`)
+      if (p.energy < 15) return this.say(`${this.nm(p)}は つかれている…`)
       this.setState(p, 'train', 2.4)
       return this.say('トレーニング かいし！')
     case 2: {
@@ -554,7 +554,7 @@ export function run(this: World, i: number) {
       if (p.state === 'fight') {
         p.cheer = true
         this.burst(p.x, this.ground(p) + this.size(p) + 0.2, p.z, 'spark', 6, 1.5)
-        return this.say(`がんばれ ${p.sp.name}！ わざを だせ！`)
+        return this.say(`がんばれ ${this.nm(p)}！ わざを だせ！`)
       }
       if (busy) return this.say('いまは うごけない…')
       let foe = this.nearest(p, (o) => o.sp.temper === 'wild', 99)
@@ -586,7 +586,7 @@ export function run(this: World, i: number) {
     case 7:
       if (busy) return this.say('いまは よびだせない！')
       this.setState(p, 'come', 4)
-      return this.say(`${p.sp.name}を よんだ`)
+      return this.say(`${this.nm(p)}を よんだ`)
   }
 }
 
@@ -597,8 +597,28 @@ export function delta(this: World, name: string, v: number) {
   return `${name}${n > 0 ? '+' : ''}${n}`
 }
 
+/** メッセージの 種類：じぶん（ペット）/ なかま / てき / まち（そのほか）。画面の 外の ログの 色分けに 使う */
+export type MsgKind = 'self' | 'friend' | 'foe' | 'town'
+const FOE_WORDS = /てき|せめて|とられた|ボス|あらわれた|しゅうげき|おそわれ/
+export function msgKind(this: World, text: string): MsgKind {
+  if (FOE_WORDS.test(text)) return 'foe'
+  // 文の はじめの 名前（ニックネーム）で 見分ける。★（色ちがい）は のぞいて くらべる
+  const t = text.replace(/^★/, '')
+  const p = this.pet
+  const name = (c: Creature) => c.nick ?? c.sp.name
+  if (p && t.startsWith(name(p))) return 'self'
+  for (const c of this.creatures) {
+    if (c === p || !t.startsWith(name(c))) continue
+    if (c.sp.temper === 'wild') return 'foe'
+    if (this.ally(c)) return 'friend'
+  }
+  if (p && text.includes(name(p))) return 'self'
+  return 'town'
+}
+
 export function say(this: World, text: string) {
   this.onNote?.(text)
+  this.onLog?.(text, this.msgKind(text))
   this.messages.push(text)
   if (this.messages.length > 4) this.messages.shift()
   if (this.messages.length === 1) this.msgT = 2.8
@@ -717,7 +737,7 @@ export function drawBossBar(this: World) {
   g.fillRect(x, y, w, 25)
   g.strokeStyle = '#ff9a3a'
   g.strokeRect(x + 0.5, y + 0.5, w - 1, 24)
-  this.text(`ボス ${boss.sp.name}`, x + 8, y + 3, '#ffd0a0', 10)
+  this.text(`ボス ${this.nm(boss)}`, x + 8, y + 3, '#ffd0a0', 10)
   this.text(`${Math.max(0, Math.ceil(boss.hp))}/${boss.maxHp}`, x + w - 8, y + 4, '#ffffff', 8, 'right')
   const r = Math.max(0, Math.min(1, boss.hp / boss.maxHp))
   g.fillStyle = '#10122a'
@@ -752,7 +772,9 @@ export function drawHud(this: World) {
     return
   }
 
-  for (const [y, row] of [[0, 0], [RES.h - 24, 1]] as const) {
+  // 画面に 入っている 時は、アイコン・コイン・天気・メッセージは 画面の 外（HTML）に 出す
+  const lite = this.hudLite
+  if (!lite) for (const [y, row] of [[0, 0], [RES.h - 24, 1]] as const) {
     const grad = g.createLinearGradient(0, y, 0, y + 24)
     grad.addColorStop(0, 'rgba(10,14,40,0.75)')
     grad.addColorStop(1, 'rgba(10,14,40,0.45)')
@@ -762,6 +784,7 @@ export function drawHud(this: World) {
   }
 
   // コイン
+  if (!lite) {
   const coinText = `${this.coins}`
   g.font = `10px ${FONT}`
   const cw = Math.ceil(g.measureText(coinText).width) + 20
@@ -786,9 +809,10 @@ export function drawHud(this: World) {
   g.fillStyle = 'rgba(10,14,40,0.7)'
   g.fillRect(RES.w - cw - ww - 8, 27, ww, 14)
   this.text(wt, RES.w - cw - 8 - ww / 2, 29, { sun: '#ffe9a8', cloud: '#d8dee8', rain: '#9fd8ff', snow: '#ffffff', ember: '#ffa86b' }[this.weather], 10, 'center')
+  }
 
   // 村の名前と にぎわい、敵軍の知らせ
-  if (this.vLv > 0 && this.banner <= 0) {
+  if (this.vLv > 0 && this.banner <= 0 && !lite) {
     const t = `${this.villageName()} ★${Math.floor(this.vScore)}`
     g.font = `9px ${FONT}`
     const vw = Math.ceil(g.measureText(t).width) + 10
@@ -952,7 +976,7 @@ export function drawHud(this: World) {
   this.drawSecretCard()
 
   const label = this.cursor >= 0 && !this.messages.length && !this.shopOpen ? `▶ ${ICONS[this.cursor]}` : this.messages[0]
-  if (label) {
+  if (label && !lite) {
     this.win(8, RES.h - 60, RES.w - 16, 32)
     this.text(label, 18, RES.h - 50, '#ffffff', 11)
   }
@@ -962,7 +986,7 @@ export function drawHud(this: World) {
   if (this.shopOpen) this.drawShop()
   this.drawInfo()
 
-  if (this.night > 0.05) {
+  if (this.night > 0.05 && !lite) {
     g.fillStyle = `rgba(8,10,40,${this.night * 0.18})`
     g.fillRect(0, 24, RES.w, RES.h - 48)
   }
@@ -1161,13 +1185,13 @@ export function debug(this: World) {
     xp: this.xp,
     care: this.care,
     pet: { sp: this.pet.sp.name, state: this.pet.state, hp: Math.round(this.pet.hp), atk: this.pet.atk },
-    creatures: this.creatures.map((c) => `${c.sp.name}:${c.team}:${c.state}${c.grow ? ':child' : ''}`),
+    creatures: this.creatures.map((c) => `${this.nm(c)}:${c.team}:${c.state}${c.grow ? ':child' : ''}`),
     items: this.items.map((it) => `${it.kind}@${it.stage}:${it.grow.toFixed(2)}`),
     weather: this.weather,
     houses: this.houses.map((h) => `${h.ownerSp}${h.owner ? '' : '(空き家)'}@${h.stage}:L${h.level}:${h.mats}/8:hp${Math.round(h.hp)}`),
     structs: this.structs.map((b) => `${b.kind}@${b.stage}:${b.mats}/${STRUCTS[b.kind].need}:hp${Math.round(b.hp)}`),
     gen: `だい${this.stats.gen}せだい age=${Math.round(this.stats.petAge)}s dex=${Object.keys(this.dex).length} land=${this.land}`,
-    roles: this.creatures.filter((c) => c.role !== 'free').map((c) => `${c.sp.name}:${c.role}`),
+    roles: this.creatures.filter((c) => c.role !== 'free').map((c) => `${this.nm(c)}:${c.role}`),
     village: `${this.villageName()} ★${this.vScore} L${this.vLv}`,
     road: `ch${this.road.cleared} wins=${this.road.wins} boss=${this.road.bossWins}/${this.road.bossTry} done=${[...this.road.done].join(',')}`,
     army: this.army ? `${this.army.phase}:${Math.ceil(this.army.t)}s:${this.army.left.length}/${this.army.n}` : null,
@@ -1197,12 +1221,12 @@ export function taskOf(this: World, c: Creature): string {
         return h ? `${base} → ${to(h.x, h.z) || 'じぶんの いえ'}` : base
       }
     case 'deliver':
-      return c.mealTo ? `${base} → ${c.mealTo.sp.name}` : `${base} → ごはんや`
+      return c.mealTo ? `${base} → ${this.nm(c.mealTo)}` : `${base} → ごはんや`
     case 'plant':
       return c.plantAt?.water ? 'なえに みずを やりに いく' : c.plantAt?.kind === 'flowerbed' ? 'はなだんを つくりに いく' : 'なえを うえに いく'
     case 'hunt':
     case 'fight':
-      return c.foe ? `${base}（あいて：${c.foe.sp.name}）` : base
+      return c.foe ? `${base}（あいて：${this.nm(c.foe)}）` : base
     case 'seek':
       return c.food && this.structs.some((b) => b.kind === 'diner' && Math.hypot(b.x - c.food!.x, b.z - c.food!.z) < 2.5) ? 'ごはんやで ごはんを もらう' : base
     default:

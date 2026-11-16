@@ -221,7 +221,7 @@ export function updateCreature(this: World, c: Creature, dt: number) {
     if (c.grow >= 1) {
       c.grow = 0
       c.maxHp = sp.hp
-      this.say(`${sp.name}の こどもが おとなに なった！`)
+      this.say(`${this.nm(c)}の こどもが おとなに なった！`)
       this.burst(c.x, this.ground(c) + 0.6, c.z, 'spark', 10, 2)
     }
   }
@@ -233,6 +233,7 @@ export function updateCreature(this: World, c: Creature, dt: number) {
     const friends = this.creatures.filter((o) => o.team === 'friend').length
     if (c.affinity >= 100 && friends < MAX_FRIENDS) {
       c.team = 'friend'
+      this.giveNick(c)
       this.burst(c.x, this.ground(c) + this.size(c), c.z, 'heart', 6, 1.5)
       this.say(`${this.nm(c)}が なかまに なった！`)
       this.stat('friends')
@@ -368,7 +369,7 @@ export function updateCreature(this: World, c: Creature, dt: number) {
             this.delta('たいりょく', c.hp - before.hp),
             info ? `${CARE_NAME[info.care]}+2` : '',
           ].filter(Boolean).join(' ')
-          this.say(`${sp.name}は ${info ? info.name : this.stage.food.name}を たべた！ ${up}`)
+          this.say(`${this.nm(c)}は ${info ? info.name : this.stage.food.name}を たべた！ ${up}`)
           this.onSfx('eat')
           this.stat('meals')
           this.earn(1)
@@ -407,7 +408,7 @@ export function updateCreature(this: World, c: Creature, dt: number) {
       if (((c.t <= 0 && this.night < 0.5) || c.energy >= 100) && !stormy) {
         if (c === this.pet && c.sleepFrom) {
           const up = [this.delta('げんき', c.energy - c.sleepFrom.e), this.delta('たいりょく', c.hp - c.sleepFrom.h)].filter(Boolean).join(' ')
-          this.say(`${sp.name}が めをさました！ ${up || 'すっきり'}`)
+          this.say(`${this.nm(c)}が めをさました！ ${up || 'すっきり'}`)
           this.stat('sleeps')
         }
         c.sleepFrom = null
@@ -430,7 +431,7 @@ export function updateCreature(this: World, c: Creature, dt: number) {
         if (c.team === 'pet') {
           const m0 = this.stats.mood
           this.stats.mood = Math.min(100, this.stats.mood + 6)
-          this.say(`${sp.name}は たくさん あそんだ！ ${this.delta('きげん', this.stats.mood - m0)} こころ+1`)
+          this.say(`${this.nm(c)}は たくさん あそんだ！ ${this.delta('きげん', this.stats.mood - m0)} こころ+1`)
           this.stat('plays')
         }
         break
@@ -535,7 +536,7 @@ export function updateCreature(this: World, c: Creature, dt: number) {
             this.layWall(ring, 2)
             this.addCare(c, 'guard', 1)
             this.gainXp(c, 2)
-            if (c === this.pet) this.say(`${sp.name}は へいを つんだ まもり+1`)
+            if (c === this.pet) this.say(`${this.nm(c)}は へいを つんだ まもり+1`)
             this.setState(c, 'happy', 0.8)
           }
           this.setState(c, 'work', 1.3)
@@ -588,9 +589,9 @@ export function updateCreature(this: World, c: Creature, dt: number) {
             this.gainXp(c, 2)
             if (c === this.pet && h.castle) {
               const d = this.castleData[this.stageIndex]
-              if (d) this.say(`${sp.name}は しろに しざいを はこんだ（つぎの へや ${d.mats}/${roomNeed(d.rooms + 1)}） まもり+1`)
+              if (d) this.say(`${this.nm(c)}は しろに しざいを はこんだ（つぎの へや ${d.mats}/${roomNeed(d.rooms + 1)}） まもり+1`)
             } else if (c === this.pet && h.level < 4)
-              this.say(`${sp.name}は しざいを はこんだ（いえ ${h.mats}/${HOUSE_STEPS[Math.min(4, h.level + 1)]}${h.mats - m0 > 1 ? ' どうぐで 2ばい' : ''}） まもり+1`)
+              this.say(`${this.nm(c)}は しざいを はこんだ（いえ ${h.mats}/${HOUSE_STEPS[Math.min(4, h.level + 1)]}${h.mats - m0 > 1 ? ' どうぐで 2ばい' : ''}） まもり+1`)
           }
           this.setState(c, 'happy', 0.8)
         }
@@ -704,10 +705,10 @@ export function updateCreature(this: World, c: Creature, dt: number) {
           if (at.water) {
             at.water.grow = Math.min(1, at.water.grow + 0.25)
             this.burst(at.water.x, this.ground(c) + 0.6, at.water.z, 'heart', 2, 1)
-            this.say(`${sp.name}は なえに みずを やった`)
+            this.say(`${this.nm(c)}は なえに みずを やった`)
           } else if (this.items.filter((it) => it.stage === this.stageIndex && it.kind === at.kind).length < ITEM_SPEC[at.kind].max) {
             this.placeItem(at.kind, { x: at.x, z: at.z })
-            this.say(`${sp.name}は ${at.kind === 'sapling' ? 'なえを うえた' : 'はなだんを つくった'}`)
+            this.say(`${this.nm(c)}は ${at.kind === 'sapling' ? 'なえを うえた' : 'はなだんを つくった'}`)
           }
           this.addCare(c, 'spirit', 1)
           this.gainXp(c, 2)
@@ -841,7 +842,7 @@ export function updateCreature(this: World, c: Creature, dt: number) {
         if (c === this.pet) {
           const m0 = this.stats.mood
           this.stats.mood = Math.min(100, this.stats.mood + 4)
-          this.say(`${sp.name}は あそびばで あそんだ！ ${this.delta('きげん', this.stats.mood - m0)} こころ+1`)
+          this.say(`${this.nm(c)}は あそびばで あそんだ！ ${this.delta('きげん', this.stats.mood - m0)} こころ+1`)
         }
         this.setState(c, 'happy', 0.8)
         break
@@ -1226,7 +1227,7 @@ export function setView(this: World, v: 'top' | 'behind' | 'eye') {
     this.camera.position.set(p.x - Math.sin(this.camYaw) * 2.8, this.ground(p) + 1.5, p.z - Math.cos(this.camYaw) * 2.8)
     this.look.set(p.x, this.ground(p) + 0.6, p.z)
   }
-  this.say(v === 'top' ? 'してん：みおろし' : v === 'behind' ? `してん：${p.sp.name}の うしろ` : `してん：${p.sp.name}の めせん`)
+  this.say(v === 'top' ? 'してん：みおろし' : v === 'behind' ? `してん：${this.nm(p)}の うしろ` : `してん：${this.nm(p)}の めせん`)
 }
 
 /**
@@ -1268,7 +1269,7 @@ export function tap(this: World, u: number, v: number): boolean {
     this.onSfx('cancel')
     return true
   }
-  if (y < 24 || y > RES.h - 24) {
+  if (!this.hudLite && (y < 24 || y > RES.h - 24)) {
     const i = (y < 24 ? 0 : 4) + Math.min(3, Math.floor(x / 80))
     this.cursor = i
     this.run(i)
