@@ -617,6 +617,20 @@ export function updateCreature(this: World, c: Creature, dt: number) {
       }
       break
     }
+    case 'siege': {
+      // 城攻め：敵の 城の かべを たたく（けずる 量は updateWar が 1 秒ごとに 数える）
+      const fs = this.stage.foeStart
+      anim = c.jy > 0 ? 'attack' : 'idle'
+      if (fs) c.anim.facing = fs.x > c.x ? 1 : -1
+      if (c.cd <= 0) {
+        c.cd = 0.55 + Math.random() * 0.3
+        c.vy = 2.2
+        if (fs) this.burst(c.x + (fs.x - c.x) * 0.35, this.ground(c) + 0.6, c.z + (fs.z - c.z) * 0.35, Math.random() < 0.6 ? 'spark' : 'cube', 3, 1.8)
+        if (Math.hypot(c.x - this.look.x, c.z - this.look.z) < 12) this.onSfx('hit')
+      }
+      if (c.t <= 0 || !fs) this.setState(c, 'idle', 0.2)
+      break
+    }
     case 'campaign': {
       // 戦争の 部隊：拠点へ いそぐ（とちゅうの 敵は think が 見つける）
       anim = 'walk'

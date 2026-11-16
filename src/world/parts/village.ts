@@ -1354,6 +1354,15 @@ export function mountKeep(this: World) {
     })
   }
   this.keepMesh = this.foeKeepMesh = null
+  // 味方の 町に なった 昔の 敵の 城（戦争の 決着）
+  for (const m of this.freedMeshes) {
+    this.scene.remove(m)
+    m.traverse((o) => {
+      ;(o as THREE.Mesh).geometry?.dispose()
+      disposeMat((o as THREE.Mesh).material)
+    })
+  }
+  this.freedMeshes = this.stage.tiles ? this.freed.map((f) => this.mountKeepAt(f, f.era as Era, f.rooms)) : []
   const fs = this.stage.foeStart
   if (fs && (this.foeRooms[this.stageIndex] ?? 0) > 0) this.foeKeepMesh = this.mountKeepAt(fs, this.foeEra(), this.foeRooms[this.stageIndex] ?? 0)
   const st = this.stage.start
@@ -1418,7 +1427,7 @@ export function mountWalls(this: World) {
   const ctx = this.eraCtx()
   const all = new THREE.Group()
   const h = this.stage.heightAt
-  for (const rings of [this.townWalls[this.stageIndex] ?? [], this.foeWalls[this.stageIndex] ?? []]) rings.forEach((ring, ri) => {
+  for (const rings of [this.townWalls[this.stageIndex] ?? [], this.foeWalls[this.stageIndex] ?? [], ...(this.stage.tiles ? this.freed.map((f) => f.rings) : [])]) rings.forEach((ring, ri) => {
     const inner = ri < rings.length - 1
     const wear: Wear = inner ? (ring.age > 2400 ? 2 : ring.age > 600 ? 1 : 0) : 0
     const era = Math.min(9, Math.max(2, ring.era)) as Era
