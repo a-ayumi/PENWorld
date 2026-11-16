@@ -12,14 +12,15 @@ import { swayify } from './fxprops'
 export type TreeKind = 'round' | 'bloom' | 'conifer' | 'bush'
 
 /** 色の組（暗い → 明るい の 3 色 + 花の色）。ステージごとに かえられる */
-export interface FloraPalette { leaf: [string, string, string]; flower?: [string, string]; bark?: string }
+export interface FloraPalette { leaf: [string, string, string] | [string, string, string, string]; flower?: [string, string]; bark?: string }
 export const FLORA: Record<string, FloraPalette> = {
-  round: { leaf: ['#235426', '#3a8034', '#5fa840'] },
-  roundB: { leaf: ['#2f5a22', '#55862c', '#84ae40'] },
+  // 2026-11-16：下は 深い 青緑の かげ・上は 日の あたる 黄みどり（4 色め）
+  round: { leaf: ['#1c3e36', '#2f6a34', '#5b9a3a', '#a8b848'] },
+  roundB: { leaf: ['#24432c', '#477a2c', '#7aa63a', '#c4bc4c'] },
   bloom: { leaf: ['#3f6038', '#62865a', '#8fae86'], flower: ['#cdb8ea', '#f2e8ff'] },
   bloomPink: { leaf: ['#3f6038', '#62865a', '#8fae86'], flower: ['#f0b0c4', '#fff0f2'] },
-  conifer: { leaf: ['#143c2c', '#1f583a', '#307648'] },
-  bush: { leaf: ['#2f552c', '#4c7a36', '#73994a'], flower: ['#e86a5a', '#ffd86a'] },
+  conifer: { leaf: ['#123a32', '#1d5640', '#2f7448', '#6a9a4a'] },
+  bush: { leaf: ['#1f4232', '#3c6e34', '#6a9a40', '#a8b44a'], flower: ['#e86a5a', '#ffd86a'] },
   // ほかのステージ（計画 E5）
   frost: { leaf: ['#1c4a4a', '#2c6c66', '#e4eef8'] }, // 雪を かぶった 針葉樹
   cotton: { leaf: ['#aebcd8', '#dbe5f4', '#ffffff'] }, // わたゆきの木
@@ -32,7 +33,7 @@ export const FLORA: Record<string, FloraPalette> = {
 let leafMat: THREE.Material | null = null
 let barkMat: THREE.Material | null = null
 const mats = () => {
-  leafMat ??= psx(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), { snow: true })
+  leafMat ??= psx(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), { snow: true, clump: true })
   barkMat ??= psx(new THREE.MeshLambertMaterial({ color: '#5a4030', flatShading: true }), { snow: false })
   return { leafMat, barkMat }
 }
@@ -41,8 +42,10 @@ const mats = () => {
 class Builder {
   pos: number[] = []
   col: number[] = []
-  /** g を 置いて、面ごとに pick(面の向きの y, 面のまんなかの y) の色をぬる */
-  add(g: THREE.BufferGeometry, m: THREE.Matrix4, pick: (ny: number, y: number) => THREE.Color) {
+  /** 葉の かたまりの ゆれ（位相・大きさ。0 = ゆれない） */
+  clump: number[] = []
+  /** g を 置いて、面ごとに pick(面の向きの y, 面のまんなかの y) の色をぬる。cl = かたまりの [位相, 大きさ] */
+  add(g: THREE.BufferGeometry, m: THREE.Matrix4, pick: (ny: number, y: number) => THREE.Color, cl: [number, number] = [0, 0]) {
     const geo = (g.index ? g.toNonIndexed() : g).applyMatrix4(m)
     const p = geo.attributes.position
     const a = new THREE.Vector3()
@@ -57,6 +60,7 @@ class Builder {
       for (const v of [a, b, c]) {
         this.pos.push(v.x, v.y, v.z)
         this.col.push(k.r, k.g, k.b)
+        this.clump.push(cl[0], cl[1])
       }
     }
     geo.dispose()
@@ -66,6 +70,7 @@ class Builder {
     const g = new THREE.BufferGeometry()
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3))
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3))
+    g.setAttribute('aClump', new THREE.Float32BufferAttribute(this.clump, 2))
     g.computeVertexNormals()
     return g
   }
@@ -87,6 +92,8 @@ export function tree(kind: TreeKind, seed: number, pal: FloraPalette = FLORA[kin
   const shade = (y0: number, y1: number) => (ny: number, y: number) => {
     const t = ny * 0.55 + ((y - y0) / Math.max(0.01, y1 - y0) - 0.5) * 0.6 + (r() - 0.5) * 0.35
     if (fl.length && ny > 0.1 && r() < (kind === 'bush' ? 0.16 : 0.34)) return fl[r() < 0.3 ? 1 : 0]
+    // 4 色の 組は 上を むいた 高い 面に 日の あたる 色
+    if (cols.length > 3 && t > 0.62 && ny > 0.45) return cols[3]
     return cols[t > 0.42 ? 2 : t > -0.08 ? 1 : 0]
   }
   if (kind === 'conifer') {
@@ -98,7 +105,7 @@ export function tree(kind: TreeKind, seed: number, pal: FloraPalette = FLORA[kin
       const hh = 1.15 - t * 0.2
       const y = 0.75 + t * (h - 1.5)
       M.makeRotationY(r() * 6).setPosition((r() - 0.5) * 0.08, y + hh / 2, (r() - 0.5) * 0.08)
-      B.add(new THREE.ConeGeometry(rad, hh, 7, 1), M, shade(y, y + hh))
+      B.add(new THREE.ConeGeometry(rad, hh, 7, 1), M, shade(y, y + hh), [r() * 4, 0.4 + t * 0.6])
     }
     const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.2, 1.0, 6), barkMat)
     trunk.position.y = 0.5
@@ -108,13 +115,13 @@ export function tree(kind: TreeKind, seed: number, pal: FloraPalette = FLORA[kin
       const rad = 0.22 + r() * 0.14
       const a = (i / 3) * 6.28 + r()
       M.makeRotationY(r() * 6).setPosition(Math.cos(a) * 0.2, rad * 0.75, Math.sin(a) * 0.2)
-      B.add(new THREE.IcosahedronGeometry(rad, 1), M, shade(0, 0.55))
+      B.add(new THREE.IcosahedronGeometry(rad, 1), M, shade(0, 0.55), [r() * 4, 0.6])
     }
   } else {
     // まるい木：まんなかの大きな かたまり + まわりと上に 小さな かたまり
     const cy = 1.75
     M.makeRotationY(r() * 6).setPosition(0, cy, 0)
-    B.add(new THREE.IcosahedronGeometry(0.72, 1), M, shade(cy - 0.9, cy + 1.0))
+    B.add(new THREE.IcosahedronGeometry(0.72, 1), M, shade(cy - 0.9, cy + 1.0), [r() * 4, 0.35])
     const n = 5 + Math.floor(r() * 3)
     for (let i = 0; i < n; i++) {
       const a = (i / n) * 6.28 + r() * 0.6
@@ -122,15 +129,16 @@ export function tree(kind: TreeKind, seed: number, pal: FloraPalette = FLORA[kin
       const d = 0.5 + r() * 0.2
       const y = cy - 0.25 + r() * 0.55
       M.makeRotationY(r() * 6).setPosition(Math.cos(a) * d, y, Math.sin(a) * d)
-      B.add(new THREE.IcosahedronGeometry(rad, 1), M, shade(cy - 0.9, cy + 1.0))
+      B.add(new THREE.IcosahedronGeometry(rad, 1), M, shade(cy - 0.9, cy + 1.0), [r() * 4, 1])
     }
     M.makeRotationY(r() * 6).setPosition((r() - 0.5) * 0.3, cy + 0.6, (r() - 0.5) * 0.3)
-    B.add(new THREE.IcosahedronGeometry(0.46, 1), M, shade(cy - 0.9, cy + 1.0))
+    B.add(new THREE.IcosahedronGeometry(0.46, 1), M, shade(cy - 0.9, cy + 1.0), [r() * 4, 1])
     const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.2, 1.3, 6), barkMat)
     trunk.position.y = 0.65
     g.add(trunk)
   }
   g.add(new THREE.Mesh(B.build(), leafMat))
-  swayify(g, kind === 'bush' ? 0.5 : kind === 'conifer' ? 0.7 : 1)
+  // 木ぜんたいの なめらかな ゆれは ひかえめに（葉の かたまりの 1 ドットの ゆれが 主役）
+  swayify(g, kind === 'bush' ? 0.2 : kind === 'conifer' ? 0.3 : 0.35)
   return g
 }

@@ -54,6 +54,8 @@ export interface FxOpt {
   snow?: boolean
   /** 生き物（2026-11-16）：頂点スナップと 光の 段を かけず、なめらかな 陰に 毛の つぶを こく のせる（見本の 羊の ような ふわっと した 体） */
   soft?: boolean
+  /** 木の 葉の かたまり（2026-11-16）：かたまりごとに 1 ドットずつ カクッと ゆれる。風下へ じゅんばんに（頂点の 属性 aClump = 位相・大きさ） */
+  clump?: boolean
 }
 
 /** どのシェーダーにも入れる共通部品（hash / noise / 波紋 / きらめき） */
@@ -79,6 +81,25 @@ export const FX_PARS = /* glsl */ `
  * 風のゆれ（頂点）。aFx = (ゆれの重み 0〜1, 位相, 上下のゆれの大きさ)。
  * 重みは高さに比例（根もとは動かず、先ほど大きくゆれる）。風は World で共通の向き・強さ。
  */
+/**
+ * 葉の かたまりの ゆれ（ドット絵の 木の 作り方）：かたまりごとに「0 → 1 → 1 → 0 ドット」と カクッと うごく ループ。
+ * 位相は かたまり + 風の 向きの 位置で ずれるので、風下へ じゅんばんに うごいて 見える。1 ドット ≒ 0.05 マス（風が つよいと 2 ドット）
+ */
+const CLUMP_BODY = /* glsl */ `
+  {
+    if (uHigh > 0.5 && aClump.y > 0.0) {
+      vec3 wp0 = (modelMatrix * vec4(position, 1.0)).xyz;
+      float cp = aClump.x - dot(wp0.xz, uWindDir) * 0.55;
+      float st = floor(mod(uTime * (1.6 + uWind * 2.2) + cp, 4.0));
+      float on = (st == 1.0 || st == 2.0) ? 1.0 : 0.0;
+      float up = st == 1.0 ? 1.0 : 0.0;
+      float px = 0.05 * (1.0 + step(0.55, uWind)) * aClump.y;
+      vec3 d = vec3(uWindDir.x * on * px, up * px * 0.8, uWindDir.y * on * px);
+      transformed += (vec4(d, 0.0) * modelMatrix).xyz / dot(modelMatrix[0].xyz, modelMatrix[0].xyz);
+    }
+  }`
+const CLUMP_VERT = '#include <begin_vertex>' + CLUMP_BODY
+
 const SWAY_VERT = /* glsl */ `
   #include <begin_vertex>
   {
@@ -156,8 +177,10 @@ export function fxPatch(shader: { uniforms: Record<string, THREE.IUniform>; vert
   let v = shader.vertexShader
   let f = shader.fragmentShader
   const needPos = !!(o.ground || o.snow)
-  v = 'uniform float uTime; uniform float uHigh; uniform float uWind; uniform vec2 uWindDir;\n' + (o.sway ? 'attribute vec3 aFx;\n' : '') + (needPos ? 'varying vec3 vFxPos;\n' : '') + v
+  v = 'uniform float uTime; uniform float uHigh; uniform float uWind; uniform vec2 uWindDir;\n' + (o.sway ? 'attribute vec3 aFx;\n' : '') + (o.clump ? 'attribute vec2 aClump;\n' : '') + (needPos ? 'varying vec3 vFxPos;\n' : '') + v
   if (o.sway) v = v.replace('#include <begin_vertex>', SWAY_VERT)
+  // ゆれの 処理の 頭（#include <begin_vertex> の すぐ あと）に 入る
+  if (o.clump) v = v.replace('#include <begin_vertex>', CLUMP_VERT)
   if (needPos) v = v.replace('#include <project_vertex>', '#include <project_vertex>\n  vFxPos = (modelMatrix * vec4(transformed, 1.0)).xyz;')
   if (needPos) {
     const p = fragmentPatch(o)
