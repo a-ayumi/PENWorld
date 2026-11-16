@@ -82,19 +82,50 @@ export const FX_PARS = /* glsl */ `
  * 重みは高さに比例（根もとは動かず、先ほど大きくゆれる）。風は World で共通の向き・強さ。
  */
 /**
- * 葉の かたまりの ゆれ（ドット絵の 木の 作り方）：かたまりごとに「0 → 1 → 1 → 0 ドット」と カクッと うごく ループ。
- * 位相は かたまり + 風の 向きの 位置で ずれるので、風下へ じゅんばんに うごいて 見える。1 ドット ≒ 0.05 マス（風が つよいと 2 ドット）
+ * 葉の かたまりの ゆれ（ドット絵の 木の 作り方。参考：SpriteCook「pixel art trees move in the wind」の 考え方）：
+ * - 幹は うごかさない。かたまりが まるい ドット単位で「とまる → 上 → 右上 → 右 → もどる」の ループ
+ * - ループの 位相は 風の 向きに そった 位置で きまる（波が 木から 木へ わたる。1 周 1.54 秒・山と 山の あいだ 69 ドット）
+ * - 風は 地図を よこぎる いくつかの 突風（gust）。突風の 外は 0（しずかな 間が ある = ずっと ゆれると ぶるぶる 見える）
+ *   突風の 中は 2〜3 ドットに ひろがり、木ぜんたいが 風下へ かたむく
+ * - ポーズを かえるのは 1 秒に 10 回（毎フレーム かえると ふるえて 見える）
+ * - かたまりの 大きさ aClump.y：まんなか 0.35 〜 そと 1（まんなかほど うごかない）
+ * 1 ドット ≒ 0.05 マス（箱庭 320 で ふつうの ズーム）。天気の 風 uWind で 突風が つよく なる
  */
 const CLUMP_BODY = /* glsl */ `
   {
     if (uHigh > 0.5 && aClump.y > 0.0) {
+      const float PX = 0.05;
       vec3 wp0 = (modelMatrix * vec4(position, 1.0)).xyz;
-      float cp = aClump.x - dot(wp0.xz, uWindDir) * 0.55;
-      float st = floor(mod(uTime * (1.6 + uWind * 2.2) + cp, 4.0));
-      float on = (st == 1.0 || st == 2.0) ? 1.0 : 0.0;
-      float up = st == 1.0 ? 1.0 : 0.0;
-      float px = 0.05 * (1.0 + step(0.55, uWind)) * aClump.y;
-      vec3 d = vec3(uWindDir.x * on * px, up * px * 0.8, uWindDir.y * on * px);
+      vec3 foot = modelMatrix[3].xyz;
+      vec2 wd = normalize(uWindDir + vec2(1e-4));
+      float tq = floor(uTime * 10.0) / 10.0;
+      // 風に そった 位置（ドット）
+      float along = dot(wp0.xz, wd) / PX;
+      float alongF = dot(foot.xz, wd) / PX;
+      // 突風：3 つの 帯が 風下へ ながれる（20 秒の くりかえし）。spread を ひろげた 方が そよ風
+      float gust = 0.0;
+      float breeze = 0.0;
+      float gF = 0.0;
+      for (int k = 0; k < 3; k++) {
+        float fk = float(k);
+        float sp = 52.0 + fk * 6.0;
+        float path = sp * 20.0;
+        float len = 30.0 + fk * 7.0;
+        float st = (0.7 + 0.25 * fk) * (0.6 + uWind * 0.9);
+        float off = fk * 6.7;
+        float d = mod(along - sp * (tq - off) + path * 0.5, path) - path * 0.5;
+        float dF = mod(alongF - sp * (tq - 0.4 - off) + path * 0.5, path) - path * 0.5;
+        gust += st * exp(-(d / len) * (d / len));
+        breeze += st * exp(-(d / (len * 2.2)) * (d / (len * 2.2)));
+        gF += st * exp(-(dF / len) * (dF / len));
+      }
+      breeze = min(1.6 * breeze, 1.0);
+      float w = aClump.y;
+      float a = 6.2832 * (tq / 1.54 - along / 69.0) + aClump.x * 0.6;
+      float lean = gF * (aClump.y > 0.5 ? 1.6 : 1.0);
+      float dx = lean * w + w * (0.9 * breeze + 1.3 * gust) * (0.5 - 0.5 * cos(a));
+      float dy = w * (0.75 * breeze + 0.5 * gust) * max(sin(a), 0.0);
+      vec3 d = vec3(wd.x, 0.0, wd.y) * floor(dx + 0.5) * PX + vec3(0.0, floor(dy + 0.5) * PX, 0.0);
       transformed += (vec4(d, 0.0) * modelMatrix).xyz / dot(modelMatrix[0].xyz, modelMatrix[0].xyz);
     }
   }`

@@ -105,7 +105,8 @@ export function tree(kind: TreeKind, seed: number, pal: FloraPalette = FLORA[kin
       const hh = 1.15 - t * 0.2
       const y = 0.75 + t * (h - 1.5)
       M.makeRotationY(r() * 6).setPosition((r() - 0.5) * 0.08, y + hh / 2, (r() - 0.5) * 0.08)
-      B.add(new THREE.ConeGeometry(rad, hh, 7, 1), M, shade(y, y + hh), [r() * 4, 0.4 + t * 0.6])
+      // 針葉樹：上の 段ほど 大きく（幹が しなる かわり）
+      B.add(new THREE.ConeGeometry(rad, hh, 7, 1), M, shade(y, y + hh), [r() * 4, 0.3 + t * t * 0.9])
     }
     const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.2, 1.0, 6), barkMat)
     trunk.position.y = 0.5
@@ -115,7 +116,7 @@ export function tree(kind: TreeKind, seed: number, pal: FloraPalette = FLORA[kin
       const rad = 0.22 + r() * 0.14
       const a = (i / 3) * 6.28 + r()
       M.makeRotationY(r() * 6).setPosition(Math.cos(a) * 0.2, rad * 0.75, Math.sin(a) * 0.2)
-      B.add(new THREE.IcosahedronGeometry(rad, 1), M, shade(0, 0.55), [r() * 4, 0.6])
+      B.add(new THREE.IcosahedronGeometry(rad, 1), M, shade(0, 0.55), [r() * 4, 0.55 + r() * 0.2])
     }
   } else {
     // まるい木：まんなかの大きな かたまり + まわりと上に 小さな かたまり
@@ -139,6 +140,7 @@ export function tree(kind: TreeKind, seed: number, pal: FloraPalette = FLORA[kin
   }
   g.add(new THREE.Mesh(B.build(), leafMat))
   // 木ぜんたいの なめらかな ゆれは ひかえめに（葉の かたまりの 1 ドットの ゆれが 主役）
-  swayify(g, kind === 'bush' ? 0.2 : kind === 'conifer' ? 0.3 : 0.35)
+  // 幹は うごかさない（ゆれは 葉の かたまりの ドットの うごき と 突風の かたむき だけ）
+  swayify(g, 0)
   return g
 }
