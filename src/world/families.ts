@@ -179,6 +179,9 @@ EVOLVE.kibaru = { power: 'garufu', guard: 'garufu', spirit: 'garufu' }
 EVOLVE.fuwan = { power: 'garufu', guard: 'garufu', spirit: 'garufu' }
 EVOLVE.garufu = { power: 'rouga', guard: 'rouga', spirit: 'rouga' }
 EVOLVE.mamoru = { power: 'rouga', guard: 'rouga', spirit: 'rouga' }
+// ねこ・モンスターも 1 本道（2026-11-16：3D）：ミミコ → ツメル → トラヒメ → ネコマタ / ガブコ → オニコ → オガラン → ヤマタン（ほかは 古い セーブだけ）
+for (const [a, b] of [['mimiko', 'tsumeru'], ['tsumeru', 'torahime'], ['yoruna', 'torahime'], ['torahime', 'nekomata'], ['tsukineko', 'nekomata'],
+  ['gabuko', 'oniko'], ['oniko', 'ogaran'], ['nurari', 'ogaran'], ['ogaran', 'yamatan'], ['bakeran', 'yamatan']]) EVOLVE[a] = { power: b, guard: b, spirit: b }
 // みず系のおわり：ヒレル / フワリ → シオリュウ か ホシクジラ
 EVOLVE.hireru = { power: 'shioryu', guard: 'shioryu', spirit: 'hoshikujira' }
 EVOLVE.fuwari = { power: 'hoshikujira', guard: 'shioryu', spirit: 'hoshikujira' }
