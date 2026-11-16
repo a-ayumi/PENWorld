@@ -42,7 +42,7 @@ export function psx<T extends THREE.Material>(m: T, fx?: FxOpt): T {
           `{ vec4 p = gl_Position; p.xy = floor(p.xy / p.w * uSnap + 0.5) / uSnap * p.w; gl_Position = p; }
           #include <logdepthbuf_vertex>`,
         )
-    if (o.sway || o.ground || o.snow) fxPatch(shader, o)
+    if (o.sway || o.ground || o.snow || o.clump) fxPatch(shader, o)
     // ドットの つぶ（2026-11-16）：光を うける 面に、世界の 位置で きまる 明暗の 点を のせる（手で 描いた ドット絵の 模様のように）。
     // 1 つぶ ≒ 箱庭の 1〜2 ドット。uGrain = 0 の 間は 何も しない
     if (shader.fragmentShader.includes('#include <lights_fragment_end>') && shader.vertexShader.includes('#include <project_vertex>') && shader.fragmentShader.includes('#include <color_fragment>')) {
@@ -81,7 +81,7 @@ export function psx<T extends THREE.Material>(m: T, fx?: FxOpt): T {
         )
     }
   }
-  m.customProgramCacheKey = () => 'psx' + (o.sway ? 'w' : '') + (o.ground ? 'g' : '') + (o.snow ? 's' : '') + (o.soft ? 'f' : '')
+  m.customProgramCacheKey = () => 'psx' + (o.sway ? 'w' : '') + (o.ground ? 'g' : '') + (o.snow ? 's' : '') + (o.soft ? 'f' : '') + (o.clump ? 'c' : '')
   return m
 }
 
