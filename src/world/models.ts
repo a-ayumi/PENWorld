@@ -28,12 +28,12 @@ class Kit {
   /** 角ばった 低ポリ（面ごとに 色が かわる。建物と 同じ 見え方） */
   flat = false
   mat(color: string, emissive = 0) {
-    const m = psx(new THREE.MeshLambertMaterial({ color, emissive: emissive ? color : '#000000', emissiveIntensity: emissive, flatShading: this.flat }))
+    const m = psx(new THREE.MeshLambertMaterial({ color, emissive: emissive ? color : '#000000', emissiveIntensity: emissive, flatShading: this.flat }), { soft: !this.flat })
     this.mats.push(m)
     return m
   }
   /** 角ばった 玉（低ポリの 体・頭） */
-  ico(r: number, color: string, pos: [number, number, number], scale: [number, number, number] = [1, 1, 1], emissive = 0, detail = 2) {
+  ico(r: number, color: string, pos: [number, number, number], scale: [number, number, number] = [1, 1, 1], emissive = 0, detail = 3) {
     const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r, detail), this.mat(color, emissive))
     m.position.set(...pos)
     m.scale.set(...scale)

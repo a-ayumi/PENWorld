@@ -52,6 +52,8 @@ export interface FxOpt {
   ground?: boolean
   /** 上を向いた面に雪が積もる */
   snow?: boolean
+  /** 生き物（2026-11-16）：頂点スナップと 光の 段を かけず、なめらかな 陰に 毛の つぶを こく のせる（見本の 羊の ような ふわっと した 体） */
+  soft?: boolean
 }
 
 /** どのシェーダーにも入れる共通部品（hash / noise / 波紋 / きらめき） */

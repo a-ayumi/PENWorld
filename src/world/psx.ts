@@ -34,13 +34,14 @@ export function psx<T extends THREE.Material>(m: T, fx?: FxOpt): T {
   m.userData.fx = o
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uSnap = snap
-    shader.vertexShader =
-      'uniform vec2 uSnap;\n' +
-      shader.vertexShader.replace(
-        '#include <logdepthbuf_vertex>',
-        `{ vec4 p = gl_Position; p.xy = floor(p.xy / p.w * uSnap + 0.5) / uSnap * p.w; gl_Position = p; }
-        #include <logdepthbuf_vertex>`,
-      )
+    if (!o.soft)
+      shader.vertexShader =
+        'uniform vec2 uSnap;\n' +
+        shader.vertexShader.replace(
+          '#include <logdepthbuf_vertex>',
+          `{ vec4 p = gl_Position; p.xy = floor(p.xy / p.w * uSnap + 0.5) / uSnap * p.w; gl_Position = p; }
+          #include <logdepthbuf_vertex>`,
+        )
     if (o.sway || o.ground || o.snow) fxPatch(shader, o)
     // ドットの つぶ（2026-11-16）：光を うける 面に、世界の 位置で きまる 明暗の 点を のせる（手で 描いた ドット絵の 模様のように）。
     // 1 つぶ ≒ 箱庭の 1〜2 ドット。uGrain = 0 の 間は 何も しない
@@ -53,14 +54,14 @@ export function psx<T extends THREE.Material>(m: T, fx?: FxOpt): T {
           '#include <color_fragment>',
           `#include <color_fragment>
           if (uGrain > 0.0) {
-            vec3 gc = floor(vGrainP / 0.07);
+            vec3 gc = floor(vGrainP / ${o.soft ? '0.045' : '0.07'});
             float gn = fract(sin(dot(gc, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
             float gm = fract(sin(dot(floor(vGrainP / 0.21), vec3(7.13, 157.1, 113.7))) * 24634.6345);
-            diffuseColor.rgb *= 1.0 + (step(0.8, gn) * 0.13 - step(gn, 0.22) * 0.14 + (gm - 0.5) * 0.1) * uGrain;
+            diffuseColor.rgb *= 1.0 + (step(0.8, gn) * 0.13 - step(gn, 0.22) * 0.14 + (gm - 0.5) * 0.1) * uGrain * ${o.soft ? '1.5' : '1.0'};
           }`,
         )
     }
-    if (shader.fragmentShader.includes('#include <lights_fragment_end>')) {
+    if (!o.soft && shader.fragmentShader.includes('#include <lights_fragment_end>')) {
       shader.uniforms.uToon = toonU.uToon
       shader.uniforms.uSunLum = toonU.uSunLum
       shader.fragmentShader =
@@ -80,7 +81,7 @@ export function psx<T extends THREE.Material>(m: T, fx?: FxOpt): T {
         )
     }
   }
-  m.customProgramCacheKey = () => 'psx' + (o.sway ? 'w' : '') + (o.ground ? 'g' : '') + (o.snow ? 's' : '')
+  m.customProgramCacheKey = () => 'psx' + (o.sway ? 'w' : '') + (o.ground ? 'g' : '') + (o.snow ? 's' : '') + (o.soft ? 'f' : '')
   return m
 }
 
