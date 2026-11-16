@@ -1,6 +1,8 @@
 /** World.ts から分けた「events」のメソッド。this は World（World.ts のクラスのつなぎの行から呼ばれる） */
 /** 中身：できごと：敵軍・天気・ひみつ・もくひょう・ミッション・うんだめし・季節・資材の 出現 */
 import * as THREE from 'three'
+import { BUILD_SCALE } from '../eras'
+import { keepRadius } from './village'
 import { RES } from '../psx'
 import { SpriteAnim, iconSheet } from '../sprites'
 import { EGG_COLORS, FAMILY_NAME, armyBoss, armyMember, familyOf, type Care, type EggKind, type SpeciesId } from '../monsters'
@@ -479,6 +481,56 @@ export function callArmy(this: World, n?: number, boss = false) {
   this.say(boss ? 'だいぐんぜいが ちかづいている…！ きたと ひがしから くるぞ' : lh ? 'とうだいが てきぐんを みつけた！ そなえよう' : 'てきぐんが ちかづいている…！ そなえよう')
   this.onSfx('alarm')
   this.shake = Math.max(this.shake, 0.3)
+  this.rallyAllies()
+}
+
+/** 敵軍が 来る 向きの 集まり場所（城の 前・敵の 城の 方） */
+export function rallyPoint(this: World) {
+  const c = this.townCenter()
+  const f = this.stage.foeStart ?? { x: c.x, z: c.z - 10 }
+  const len = Math.hypot(f.x - c.x, f.z - c.z) || 1
+  const r = (this.stage.start ? keepRadius(this.townEra(), this.castleRooms()) : 3) + 3
+  return { x: c.x + ((f.x - c.x) / len) * r, z: c.z + ((f.z - c.z) / len) * r }
+}
+
+/** 敵襲：おとなの なかまは 作業を やめて 集まる（攻めてきたら 近くの 敵へ）。こどもは 城（家）に かくれる */
+export function rallyAllies(this: World) {
+  if (!this.army) return
+  const rp = this.rallyPoint()
+  for (const c of this.creatures) {
+    if (!this.ally(c) || !this.alive(c) || c.state === 'fight' || c.retired) continue
+    this.dropCarry(c, true)
+    if (c.res) c.res.taken = null
+    c.res = null
+    c.site = null
+    c.wallRing = null
+    if (c.inside) {
+      c.inside = false
+      c.anim.sprite.visible = true
+      c.shadow.visible = true
+    }
+    if (c.grow > 0) {
+      const home = this.homeOf(c)
+      const door = home?.castle ? this.castleSpot(c) : null
+      if (home) {
+        c.tx = door ? door.x : home.x
+        c.tz = door ? door.z : home.z + 1.25 * BUILD_SCALE
+        c.inside = true
+        this.setState(c, 'rest', 12)
+      }
+      continue
+    }
+    const foe = this.army.phase === 'on' ? this.nearest(c, (o) => o.army, 40) : null
+    if (foe) {
+      c.foe = foe
+      this.setState(c, 'hunt', 10)
+    } else {
+      c.tx = rp.x + (Math.random() - 0.5) * 3
+      c.tz = rp.z + (Math.random() - 0.5) * 3
+      this.setState(c, 'wander', 12)
+    }
+  }
+  this.mark(rp.x, rp.z, 3)
 }
 
 export function launchArmy(this: World, a: Army) {
@@ -518,6 +570,7 @@ export function launchArmy(this: World, a: Army) {
   this.say(`てきぐん ${a.n}たいが せめてきた！${bossName ? ` ボス ${bossName}もいる！` : ''}`)
   this.onSfx(bossName ? 'boss' : 'boom')
   this.shake = Math.max(this.shake, 0.4)
+  this.rallyAllies()
 }
 
 export function updateArmy(this: World, dt: number) {

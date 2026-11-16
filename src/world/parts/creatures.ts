@@ -347,12 +347,20 @@ export function think(this: World, c: Creature) {
     return this.setState(c, 'march', 8)
   }
   // 敵軍が攻めてきたら、ペットと仲間は迎えうつ
-  if (this.army?.phase === 'on' && !wild && c.team !== 'wild' && c.grow === 0 && c.hp > c.maxHp * 0.4 && c.energy > 15) {
-    const foe = this.nearest(c, (o) => o.army, 10)
+  // 敵襲：みんなで 集まって たたかう（よわっている 子は いやし技が ある 子に まかせる）
+  if (this.army && !wild && c.team !== 'wild' && c.grow === 0 && c.hp > c.maxHp * 0.25) {
+    const foe = this.army.phase === 'on' ? this.nearest(c, (o) => o.army, 40) : null
     if (foe) {
       c.foe = foe
-      return this.setState(c, 'hunt', 8)
+      return this.setState(c, 'hunt', 10)
     }
+    const rp = this.rallyPoint()
+    if (Math.hypot(rp.x - c.x, rp.z - c.z) > 3) {
+      c.tx = rp.x + (Math.random() - 0.5) * 3
+      c.tz = rp.z + (Math.random() - 0.5) * 3
+      return this.setState(c, 'wander', 8)
+    }
+    return this.setState(c, 'idle', 1.5)
   }
   // 家をこわしたがる敵（ゴウガン）・ひのこの日の敵は家をねらう
   if (wild && c.energy > 25 && this.peaceT <= 0 && !this.calm && (c.sp.habit === 'raid' || (this.weather === 'ember' && Math.random() < 0.3) || Math.random() < 0.08)) {
@@ -1280,14 +1288,18 @@ export function camState(this: World) {
 
 /** おまかせ：次に見に行く場所 */
 export function pickAutoSpot(this: World) {
-  const recent = this.marks.filter((m) => this.time - m.t < 90)
+  // 町から 遠すぎる できごと（よその 地方の ひっこし・敵の 城）は、大きな できごと（重み 3 から）だけ 見に行く
+  const t = this.townCenter()
+  const near = (m: { x: number; z: number }) => Math.hypot(m.x - t.x, m.z - t.z) < 28
+  const recent = this.marks.filter((m) => this.time - m.t < 90 && (near(m) || m.w >= 3) && Math.hypot(m.x - this.freeLook.x, m.z - this.freeLook.z) > 2)
   if (recent.length) {
     const m = recent.reduce((a, b) => (b.w * 2 + (b.t - this.time) / 30 > a.w * 2 + (a.t - this.time) / 30 ? b : a))
     this.marks.splice(this.marks.indexOf(m), 1)
     return { x: m.x, z: m.z }
   }
   // できごとが無ければ：仲間・家・建物のどれかを のんびり見てまわる
-  const spots: { x: number; z: number }[] = this.creatures.filter((c) => this.ally(c) && !c.inside).map((c) => ({ x: c.x, z: c.z }))
+  const spots: { x: number; z: number }[] = this.creatures.filter((c) => this.ally(c) && !c.inside && near(c)).map((c) => ({ x: c.x, z: c.z }))
+  if (this.stage.start) spots.push(this.stage.start)
   for (const h of this.houses) if (h.stage === this.stageIndex) spots.push({ x: h.x, z: h.z })
   for (const b of this.structs) if (b.stage === this.stageIndex) spots.push({ x: b.x, z: b.z })
   return spots.length ? spots[Math.floor(Math.random() * spots.length)] : { x: 0, z: 0 }
