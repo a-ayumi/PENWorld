@@ -33,7 +33,7 @@ class Kit {
     return m
   }
   /** 角ばった 玉（低ポリの 体・頭） */
-  ico(r: number, color: string, pos: [number, number, number], scale: [number, number, number] = [1, 1, 1], emissive = 0, detail = 1) {
+  ico(r: number, color: string, pos: [number, number, number], scale: [number, number, number] = [1, 1, 1], emissive = 0, detail = 2) {
     const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r, detail), this.mat(color, emissive))
     m.position.set(...pos)
     m.scale.set(...scale)
@@ -96,7 +96,8 @@ interface Dog {
   crystal?: string; plate?: string
 }
 function dogRig(k: Kit, d: Dog): Omit<Rig, 'root' | 'mats'> {
-  k.flat = true
+  // なめらかな 面（ドット化と トゥーンの 段で ドット絵らしい 陰に なる。角ばった 面だと 3D の 模型に 見えた）
+  k.flat = false
   const body = new THREE.Group()
   const y0 = d.leg + 0.18
   // 体（むね → おしり）
@@ -161,7 +162,7 @@ function dogRig(k: Kit, d: Dog): Omit<Rig, 'root' | 'mats'> {
 
 /** 赤ちゃん：顔だけの まるい つぶに たれ耳（体は ない） */
 function pupBlob(k: Kit): Omit<Rig, 'root' | 'mats'> {
-  k.flat = true
+  k.flat = false
   const body = new THREE.Group()
   body.add(k.ico(0.4, '#d9a46a', [0, 0.42, 0], [1.05, 0.95, 1]))
   body.add(k.ico(0.16, '#f6dcb8', [0, 0.32, 0.32], [1.3, 0.85, 0.8]))

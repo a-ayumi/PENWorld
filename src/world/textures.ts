@@ -35,6 +35,41 @@ function speckle(g: CanvasRenderingContext2D, s: number, rnd: () => number, pale
     }
 }
 
+/** こい / うすい 色の かたまり（ドット絵の 地面の むら）：あらい 格子の 値を まぜて 1 ドットずつ ぬる */
+function clumps(g: CanvasRenderingContext2D, s: number, rnd: () => number, palette: string[]) {
+  const n = 8
+  const v: number[] = []
+  for (let i = 0; i < n * n; i++) v.push(rnd())
+  const at = (x: number, y: number) => v[((y % n) + n) % n * n + (((x % n) + n) % n)]
+  for (let y = 0; y < s; y++)
+    for (let x = 0; x < s; x++) {
+      const fx = (x / s) * n
+      const fy = (y / s) * n
+      const ix = Math.floor(fx)
+      const iy = Math.floor(fy)
+      const tx = fx - ix
+      const ty = fy - iy
+      const a = at(ix, iy) * (1 - tx) + at(ix + 1, iy) * tx
+      const b = at(ix, iy + 1) * (1 - tx) + at(ix + 1, iy + 1) * tx
+      const k = a * (1 - ty) + b * ty + (rnd() - 0.5) * 0.35
+      g.fillStyle = palette[Math.max(0, Math.min(palette.length - 1, Math.floor(k * palette.length)))]
+      g.fillRect(x, y, 1, 1)
+    }
+}
+
+/** 草の 穂（たて 2〜3 ドットの 線。下が こく 上が うすい） */
+function tufts(g: CanvasRenderingContext2D, s: number, rnd: () => number, cols: [string, string] | string[], n: number) {
+  for (let i = 0; i < n; i++) {
+    const x = Math.floor(rnd() * s)
+    const y = Math.floor(rnd() * s)
+    g.fillStyle = cols[0]
+    g.fillRect(x, y, 1, 2)
+    g.fillRect(x + 2, y + 1, 1, 2)
+    g.fillStyle = cols[1]
+    g.fillRect(x + 1, y - 1, 1, 2)
+  }
+}
+
 /** 地面に薄く走るデジタルの格子 */
 function grid(g: CanvasRenderingContext2D, s: number, color: string) {
   g.fillStyle = color
@@ -43,21 +78,21 @@ function grid(g: CanvasRenderingContext2D, s: number, color: string) {
 }
 
 export const Tex = {
+  // 2026-11-16：ドット絵の 草地（昔の デジタルの 格子線は やめた）。こい / うすい かたまり + 草の 穂 + 小さな 花
   grass: () =>
     make((g, s, r) => {
-      speckle(g, s, r, ['#4f9a34', '#5fae3e', '#5fae3e', '#6cc04a', '#7fd05a'])
-      for (let i = 0; i < 10; i++) {
-        g.fillStyle = ['#ffffff', '#ffd23f', '#ff8fb1'][i % 3]
-        g.fillRect(Math.floor(r() * 31) * 2, Math.floor(r() * 31) * 2, 2, 2)
+      clumps(g, s, r, ['#4a8a30', '#55993a', '#5fa843', '#6ab64c'])
+      tufts(g, s, r, ['#3d7a28', '#7cc458'], 26)
+      for (let i = 0; i < 6; i++) {
+        g.fillStyle = ['#f4ecd8', '#ffd23f', '#ff9fb8'][i % 3]
+        g.fillRect(Math.floor(r() * 32) * 2, Math.floor(r() * 32) * 2, 1, 1)
       }
-      grid(g, s, 'rgba(210,255,170,0.35)')
     }, 64, 3, [6, 6]),
   sand: () =>
     make((g, s, r) => {
-      speckle(g, s, r, ['#e9a15b', '#f0b16c', '#f0b16c', '#dc8f4c', '#f6c27f'])
-      g.fillStyle = 'rgba(160,80,40,0.35)'
-      for (let y = 6; y < s; y += 12) for (let x = 0; x < s; x += 2) g.fillRect(x, y + Math.round(Math.sin(x * 0.2) * 2), 2, 2)
-      grid(g, s, 'rgba(255,240,200,0.4)')
+      clumps(g, s, r, ['#dc8f4c', '#e9a15b', '#f0b16c', '#f6c27f'])
+      g.fillStyle = 'rgba(160,80,40,0.3)'
+      for (let y = 6; y < s; y += 12) for (let x = 0; x < s; x += 1) g.fillRect(x, y + Math.round(Math.sin(x * 0.2) * 2), 1, 1)
     }, 64, 5, [6, 6]),
   snow: () =>
     make((g, s, r) => {
