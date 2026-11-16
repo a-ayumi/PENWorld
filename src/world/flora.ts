@@ -9,6 +9,8 @@ import { swayify } from './fxprops'
  *
  * kind：round = まるい木 / bloom = 花の咲く木 / conifer = 針葉樹 / bush = しげみ（花つき）
  */
+/** 木 ぜんたいの 大きさ（1 = 2026-11-16 までの 大きさ） */
+export const TREE_SCALE = 0.72
 export type TreeKind = 'round' | 'bloom' | 'conifer' | 'bush'
 
 /** 色の組（暗い → 明るい の 3 色 + 花の色）。ステージごとに かえられる */
@@ -180,12 +182,23 @@ export function tree(kind: TreeKind, seed: number, pal: FloraPalette = FLORA[kin
   // 木ぜんたいの なめらかな ゆれは ひかえめに（葉の かたまりの 1 ドットの ゆれが 主役）
   // 幹は うごかさない（ゆれは 葉の かたまりの ドットの うごき と 突風の かたむき だけ）
   swayify(g, 0)
-  return g
+  // 2026-11-17：木は ぜんたいに 小さめ（町や キャラに 対して 大きすぎた）。呼ぶ 側の scale は 外の 箱に かかる
+  g.scale.setScalar(TREE_SCALE)
+  g.userData.tree = false
+  const outer = new THREE.Group()
+  outer.userData.tree = true
+  outer.add(g)
+  // 呼ぶ 側が 足す 物（木の実 など）は 木の 寸法で 置いて ある ので、中の 箱に 入れて いっしょに 小さく する
+  outer.add = (...o: THREE.Object3D[]) => {
+    g.add(...o)
+    return outer
+  }
+  return outer
 }
 
 /** 木の 葉の かたまり だけ（幹なし）。置き物の「なえ」が そだった 木などに（2026-11-17：森の 木と 同じ 見え方に） */
 export function leaves(kind: TreeKind, seed: number): THREE.Mesh {
-  const t = tree(kind, seed)
+  const t = tree(kind, seed).children[0]
   const m = t.children.find((c) => (c as THREE.Mesh).isMesh && (c as THREE.Mesh).material === leafMat) as THREE.Mesh
   t.remove(m)
   for (const c of t.children) (c as THREE.Mesh).geometry?.dispose()
