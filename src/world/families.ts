@@ -173,6 +173,12 @@ for (const { ids } of CHAINS) {
     EVOLVE[b3] = { power: t4, guard: t4, spirit: t4 }
   }
 }
+// いぬは 1 本道（2026-11-16：3D の ためし）：ワンコ → キバル → ガルフ → ロウガ（フワン・マモールは 古い セーブだけ）
+EVOLVE.wanko = { power: 'kibaru', guard: 'kibaru', spirit: 'kibaru' }
+EVOLVE.kibaru = { power: 'garufu', guard: 'garufu', spirit: 'garufu' }
+EVOLVE.fuwan = { power: 'garufu', guard: 'garufu', spirit: 'garufu' }
+EVOLVE.garufu = { power: 'rouga', guard: 'rouga', spirit: 'rouga' }
+EVOLVE.mamoru = { power: 'rouga', guard: 'rouga', spirit: 'rouga' }
 // みず系のおわり：ヒレル / フワリ → シオリュウ か ホシクジラ
 EVOLVE.hireru = { power: 'shioryu', guard: 'shioryu', spirit: 'hoshikujira' }
 EVOLVE.fuwari = { power: 'hoshikujira', guard: 'shioryu', spirit: 'hoshikujira' }
