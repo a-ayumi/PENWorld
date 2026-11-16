@@ -25,9 +25,18 @@ const SCALE = 0.78
 
 class Kit {
   readonly mats: THREE.MeshLambertMaterial[] = []
+  /** 角ばった 低ポリ（面ごとに 色が かわる。建物と 同じ 見え方） */
+  flat = false
   mat(color: string, emissive = 0) {
-    const m = psx(new THREE.MeshLambertMaterial({ color, emissive: emissive ? color : '#000000', emissiveIntensity: emissive }))
+    const m = psx(new THREE.MeshLambertMaterial({ color, emissive: emissive ? color : '#000000', emissiveIntensity: emissive, flatShading: this.flat }))
     this.mats.push(m)
+    return m
+  }
+  /** 角ばった 玉（低ポリの 体・頭） */
+  ico(r: number, color: string, pos: [number, number, number], scale: [number, number, number] = [1, 1, 1], emissive = 0, detail = 1) {
+    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r, detail), this.mat(color, emissive))
+    m.position.set(...pos)
+    m.scale.set(...scale)
     return m
   }
   /** 球（分割数多めでなめらかに） */
@@ -71,9 +80,120 @@ class Kit {
   }
 }
 
+
+// ---------------------------------------------------------------------
+/**
+ * いぬの 系統（2026-11-16：キャラを 3D に する ためしの 1 本道 ワンコ → キバル → ガルフ → ロウガ）。
+ * 建物と 同じ 角ばった 低ポリ（`Kit.flat`）で、ドット化しても 形が 読める 太い つくり。正面 = +z・足もと = y 0・高さ 約 1
+ */
+interface Dog {
+  fur: string; dark: string; light: string; nose?: string
+  /** 体の 長さ・あしの 長さ・頭の 大きさ */
+  len: number; leg: number; head: number
+  ear: 'flop' | 'point'; snout: number
+  collar?: string; scarf?: string; mane?: string; fang?: boolean
+  /** 完成期の かざり：せなかの けっしょう・かたの よろい・ひたいの けっしょう */
+  crystal?: string; plate?: string
+}
+function dogRig(k: Kit, d: Dog): Omit<Rig, 'root' | 'mats'> {
+  k.flat = true
+  const body = new THREE.Group()
+  const y0 = d.leg + 0.18
+  // 体（むね → おしり）
+  body.add(k.ico(0.3, d.fur, [0, y0, 0], [0.95, 0.82, d.len]))
+  body.add(k.ico(0.24, d.light, [0, y0 - 0.08, 0.06], [0.85, 0.7, d.len * 0.9]))
+  if (d.mane) body.add(k.ico(0.26, d.mane, [0, y0 + 0.06, 0.28 * d.len], [1.05, 1, 0.75]))
+  // 頭
+  const head = new THREE.Group()
+  head.position.set(0, y0 + 0.28, 0.36 * d.len + 0.05)
+  const H = d.head
+  head.add(k.ico(0.27 * H, d.fur, [0, 0, 0], [1, 0.95, 1]))
+  head.add(k.ico(0.13 * H, d.light, [0, -0.07 * H, 0.22 * H], [1.05, 0.8, d.snout]))
+  head.add(k.ico(0.05 * H, d.nose ?? '#2a1e1a', [0, -0.02 * H, (0.22 + 0.12 * d.snout) * H], [1.2, 0.9, 1]))
+  const eyes = [k.eye(-0.12 * H, 0.06 * H, 0.21 * H, 0.055 * H), k.eye(0.12 * H, 0.06 * H, 0.21 * H, 0.055 * H)]
+  head.add(...eyes)
+  if (d.fang) for (const x of [-0.05, 0.05]) head.add(k.cone(0.02 * H, 0.07 * H, '#ffffff', [x * H, -0.16 * H, 0.28 * H], [Math.PI, 0, 0], 4))
+  const ears: THREE.Object3D[] = []
+  for (const s of [-1, 1]) {
+    const e = d.ear === 'flop'
+      ? k.pivot(s * 0.2 * H, 0.16 * H, 0, k.ico(0.11 * H, d.dark, [s * 0.06 * H, -0.12 * H, 0], [0.55, 1.2, 0.85]))
+      : k.pivot(s * 0.14 * H, 0.2 * H, -0.02, k.cone(0.09 * H, 0.24 * H, d.dark, [0, 0.1 * H, 0], [0, 0, 0], 4))
+    e.rotation.z = d.ear === 'flop' ? s * 0.5 : s * -0.2
+    ears.push(e)
+    head.add(e)
+  }
+  if (d.crystal) head.add(k.cone(0.05, 0.22, d.crystal, [0, 0.3 * H, 0.06], [0.3, 0, 0], 4, 0.5))
+  body.add(head)
+  // くびわ / スカーフ
+  if (d.collar) {
+    const c = k.cyl(0.16, 0.19, 0.06, d.collar, [0, y0 + 0.16, 0.3 * d.len], [0.6, 0, 0])
+    body.add(c)
+    body.add(k.ico(0.04, '#ffd23f', [0, y0 + 0.06, 0.38 * d.len + 0.04], [1, 1, 1], 0.3, 0))
+  }
+  if (d.scarf) {
+    body.add(k.cyl(0.18, 0.21, 0.08, d.scarf, [0, y0 + 0.17, 0.3 * d.len], [0.6, 0, 0]))
+    body.add(k.box(0.08, 0.2, 0.04, d.scarf, [0.1, y0 + 0.02, 0.24 * d.len]))
+  }
+  // 完成期：せなかの けっしょう と かたの よろい
+  if (d.crystal) for (let i = 0; i < 4; i++) body.add(k.cone(0.05 + i * 0.008, 0.2 + (i % 2) * 0.08, d.crystal, [0, y0 + 0.24, (0.15 - i * 0.14) * d.len], [-0.4, 0, 0], 4, 0.45))
+  if (d.plate) for (const s of [-1, 1]) body.add(k.box(0.12, 0.16, 0.22, d.plate, [s * 0.25, y0 + 0.04, 0.22 * d.len]))
+  // しっぽ（付け根で ふる）
+  const tail = k.pivot(0, y0 + 0.1, -0.32 * d.len, k.cone(d.mane ? 0.11 : 0.07, 0.38, d.mane ? d.light : d.fur, [0, 0.13, -0.08], [-0.9, 0, 0], 5))
+  body.add(tail)
+  // 足：まえ ひだり・まえ みぎ・うしろ ひだり・うしろ みぎ（ななめが いっしょに うごく）
+  const legs: THREE.Object3D[] = []
+  for (const [x, z] of [[-0.14, 0.22], [0.14, 0.22], [-0.14, -0.22], [0.14, -0.22]]) {
+    const L = k.pivot(x, d.leg + 0.02, z * d.len,
+      k.cyl(0.06, 0.05, d.leg, d.fur, [0, -d.leg / 2, 0]),
+      k.ico(0.065, d.light, [0, -d.leg + 0.02, 0.02], [1, 0.7, 1.25], 0, 0))
+    legs.push(L)
+  }
+  return {
+    body, legs, arms: [], eyes,
+    extra: (t, a) => {
+      tail.rotation.x = a === 'sleep' ? 0.6 : -0.2 + Math.sin(t * (a === 'happy' || a === 'walk' ? 16 : 6)) * 0.12
+      tail.rotation.y = Math.sin(t * (a === 'happy' ? 18 : 7)) * (a === 'sleep' ? 0.05 : 0.45)
+      head.rotation.x = a === 'eat' ? 0.5 : a === 'sleep' ? 0.35 : Math.sin(t * 1.3) * 0.05
+      for (const [i, e] of ears.entries()) e.rotation.x = d.ear === 'flop' ? Math.sin(t * 9 + i) * (a === 'walk' ? 0.25 : 0.06) : 0
+    },
+  }
+}
+
+/** 赤ちゃん：顔だけの まるい つぶに たれ耳（体は ない） */
+function pupBlob(k: Kit): Omit<Rig, 'root' | 'mats'> {
+  k.flat = true
+  const body = new THREE.Group()
+  body.add(k.ico(0.4, '#d9a46a', [0, 0.42, 0], [1.05, 0.95, 1]))
+  body.add(k.ico(0.16, '#f6dcb8', [0, 0.32, 0.32], [1.3, 0.85, 0.8]))
+  body.add(k.ico(0.055, '#2a1e1a', [0, 0.38, 0.45], [1.2, 0.9, 1], 0, 0))
+  body.add(k.ico(0.12, '#7a4a22', [-0.2, 0.62, -0.12], [1, 0.6, 1], 0, 0))
+  const eyes = [k.eye(-0.15, 0.5, 0.33, 0.06), k.eye(0.15, 0.5, 0.33, 0.06)]
+  body.add(...eyes)
+  const ears = [-1, 1].map((s) => {
+    const e = k.pivot(s * 0.3, 0.68, 0.02, k.ico(0.13, '#9a6a3a', [s * 0.07, -0.14, 0], [0.55, 1.25, 0.9]))
+    e.rotation.z = s * 0.55
+    body.add(e)
+    return e
+  })
+  const tail = k.pivot(0, 0.42, -0.38, k.ico(0.08, '#d9a46a', [0, 0.06, -0.04], [0.8, 1.4, 0.8], 0, 0))
+  body.add(tail)
+  const legs = [[-0.2, 0.16], [0.2, 0.16], [-0.2, -0.16], [0.2, -0.16]].map(([x, z]) => k.pivot(x, 0.08, z, k.ico(0.09, '#f6dcb8', [0, -0.02, 0], [1, 0.7, 1.2], 0, 0)))
+  return {
+    body, legs, arms: [], eyes,
+    extra: (t, a) => {
+      tail.rotation.z = Math.sin(t * (a === 'happy' ? 20 : 8)) * 0.5
+      ears.forEach((e, i) => (e.rotation.x = Math.sin(t * 8 + i) * (a === 'walk' ? 0.3 : 0.05)))
+    },
+  }
+}
+
 // ---------------------------------------------------------------------
 /** 3D モデルがある種族（無い種族は World 側でドット絵にする） */
 const BUILD: Partial<Record<SpeciesId, (k: Kit) => Omit<Rig, "root" | "mats">>> = {
+  wanko: (k) => pupBlob(k),
+  kibaru: (k) => dogRig(k, { fur: '#8a6a4a', dark: '#523a24', light: '#d8b898', len: 1.15, leg: 0.3, head: 1.15, ear: 'flop', snout: 1.2, collar: '#d8483a', fang: true }),
+  garufu: (k) => dogRig(k, { fur: '#7a8aa8', dark: '#4a566e', light: '#dfe6f2', len: 1.45, leg: 0.4, head: 1, ear: 'point', snout: 1.7, scarf: '#c8403a', mane: '#eef2fa', fang: true }),
+  rouga: (k) => dogRig(k, { fur: '#e2e8f4', dark: '#8a9ac0', light: '#ffffff', len: 1.6, leg: 0.46, head: 1, ear: 'point', snout: 1.8, mane: '#9fdcef', fang: true, crystal: '#7fd1ff', plate: '#8fb4d8' }),
   mebu(k) {
     const body = new THREE.Group()
     body.add(k.sph(0.42, '#6fd26a', [0, 0.42, 0], [1.05, 0.9, 1]))
@@ -305,6 +425,8 @@ const BUILD: Partial<Record<SpeciesId, (k: Kit) => Omit<Rig, "root" | "mats">>> 
 }
 
 export const hasModel = (id: SpeciesId) => id in BUILD
+/** いつも 3D で 出す 種族（キャラを 3D に する ためし：いぬの 1 本道） */
+export const ALWAYS_3D = new Set<string>(['wanko', 'kibaru', 'garufu', 'rouga'])
 
 export class MonsterModel {
   /** World から位置・表示を操作するためのルート（SpriteAnim と同じ名前） */

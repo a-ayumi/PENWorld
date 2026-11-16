@@ -3,7 +3,7 @@
 import * as THREE from 'three'
 import { BUILD_SCALE } from '../eras'
 import { SpriteAnim, iconSheet } from '../sprites'
-import { MonsterModel, hasModel } from '../models'
+import { ALWAYS_3D, MonsterModel, hasModel } from '../models'
 import { BABY, FAMILY_NAME, SPECIES, STAGE_EGGS, SpriteMonster, XP_NEED, familyOf, newSeed, nextForm, variantOf, type Care, type EggKind, type MonsterView, type Species, type SpeciesId } from '../monsters'
 import { HALF } from '../stages'
 import { isSecretId } from '../secrets'
@@ -40,7 +40,7 @@ export function spawn(this: World, id: SpeciesId, team: Team, x: number, z: numb
 }
 
 export function makeView(this: World, id: SpeciesId, h: number, variant = 0): MonsterView {
-  return this.style === 'model' && hasModel(id) ? new MonsterModel(id, h) : new SpriteMonster(id, h, variant)
+  return (this.style === 'model' || ALWAYS_3D.has(id)) && hasModel(id) ? new MonsterModel(id, h) : new SpriteMonster(id, h, variant)
 }
 
 /** スプライトの種類（もよう 0〜7 + 色ちがい 8） */
