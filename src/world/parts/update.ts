@@ -127,6 +127,7 @@ export function update(this: World, dt: number) {
   this.updateEggs(dt)
   this.updateSettlers(dt)
   if (EXTRAS) this.updateWish(dt)
+  this.updateWar(dt)
   // ふみかためた 道：8 秒ごとに 形を 見なおし、30 秒ごとに 歩かない 所が 草に もどる
   this.pathT -= dt
   if (this.pathT <= 0) {
@@ -614,6 +615,13 @@ export function updateCreature(this: World, c: Creature, dt: number) {
       }
       break
     }
+    case 'campaign': {
+      // 戦争の 部隊：拠点へ いそぐ（とちゅうの 敵は think が 見つける）
+      anim = 'walk'
+      if (this.moveTo(c, c.tx, c.tz, sp.speed * 1.05, dt) < 0.6 || c.t <= 0) this.setState(c, 'idle', 0.3)
+      else if (Math.random() < dt * 0.5) this.think(c)
+      break
+    }
     case 'deliver': {
       // ごはんがかり：たべものを ひろって 頭に のせ、あいてに とどける（あいてが いなければ ごはんやへ）
       anim = 'walk'
@@ -957,7 +965,7 @@ export function updateCreature(this: World, c: Creature, dt: number) {
   if (c.pj > 0 && c.jy === 0) c.squash = 0.2
   c.pj = c.jy
   c.squash = Math.max(0, c.squash - dt * 1.6)
-  const walking = c.state === 'heal' || c.state === 'deliver' || c.state === 'plant' || c.state === 'wander' || c.state === 'hunt' || c.state === 'seek' || c.state === 'gather' || c.state === 'build' || c.state === 'raid' || c.state === 'march' || c.state === 'come' || c.state === 'assist' || c.state === 'rest'
+  const walking = c.state === 'campaign' || c.state === 'heal' || c.state === 'deliver' || c.state === 'plant' || c.state === 'wander' || c.state === 'hunt' || c.state === 'seek' || c.state === 'gather' || c.state === 'build' || c.state === 'raid' || c.state === 'march' || c.state === 'come' || c.state === 'assist' || c.state === 'rest'
   const wp = this.time * (7 + sp.speed * 2.2) + c.phase
   let sx = 1
   let sy = 1

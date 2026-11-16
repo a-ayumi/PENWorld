@@ -544,7 +544,7 @@ export function launchArmy(this: World, a: Army) {
     const id: SpeciesId = boss ? armyBoss(this.stageIndex, a.wave) : armyMember(this.stageIndex, a.wave)
     // 敵の 町が あれば、その 門から 出てくる（無ければ 北の はし）
     const fs = this.stage.foeStart
-    const gate = fs && this.foeHouses.some((h) => h.stage === this.stageIndex && h.level >= 3) ? (this.foeWalls[this.stageIndex] ?? []).slice(-1)[0] : undefined
+    const gate = fs && (this.foeRooms[this.stageIndex] ?? 0) >= 3 ? (this.foeWalls[this.stageIndex] ?? []).slice(-1)[0] : undefined
     let x = THREE.MathUtils.clamp((Math.random() * 2 - 1) * (HALF - 1), -HALF, HALF)
     let z = -HALF + 0.6 + Math.random() * 1.2
     if (fs) {

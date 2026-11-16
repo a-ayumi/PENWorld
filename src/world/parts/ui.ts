@@ -165,6 +165,8 @@ export function describe(this: World, p: Pick): { title: string; sub: string; li
       lines.push(`じだい：${ERA_NAME[this.townEra()]}・てん ${this.vScore.toFixed(1)}`)
       const cd = this.castleData[here] ?? { mats: 0, rooms: 0 }
       lines.push(`へや ${cd.rooms}・すむ子 ${allies.length}・へい ${rings.length}じゅう`)
+      const wl = this.warLine()
+      if (wl) lines.push(wl)
       if (EXTRAS) lines.push(`おふれ：${TOWN_PLAN_NAME[this.townPlan]}`, `　${TOWN_PLAN_DESC[this.townPlan]}`)
       if (cd.rooms < MAX_ROOMS) bars.push(['つぎの へや', cd.mats / roomNeed(cd.rooms + 1), '#c8955a'])
       const next = eraStepScore(this.vScore)

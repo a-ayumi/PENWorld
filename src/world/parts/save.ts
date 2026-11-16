@@ -36,6 +36,7 @@ export function save(this: World) {
     world: this.worldMode || undefined,
     townWalls: this.townWalls,
     castle: this.castleData,
+    outposts: Object.fromEntries(this.outposts.map((o) => [o.tile, o.owner])),
     foeRooms: this.foeRooms,
     foeHouses: this.foeHouses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, mats: h.mats, hp: Math.round(h.hp), era: h.era, age: Math.round(h.age) })),
     foeWalls: this.foeWalls,
@@ -192,6 +193,10 @@ export function load(this: World): boolean {
     if (d.foeRooms && typeof d.foeRooms === 'object')
       for (const [k, v] of Object.entries(d.foeRooms as Record<string, unknown>))
         if (Number.isInteger(+k) && +k >= 0 && +k < STAGES.length) this.foeRooms[+k] = Math.round(num(v as number, 0, MAX_ROOMS, 0))
+    // 戦争の 拠点の 持ち主（地方の 番号 → ally / foe）
+    this.savedOutposts = {}
+    if (d.outposts && typeof d.outposts === 'object')
+      for (const [k, v] of Object.entries(d.outposts as Record<string, unknown>)) if (Number.isInteger(+k) && +k >= 0 && +k < 9 && (v === 'ally' || v === 'foe')) this.savedOutposts[k] = v
     // 古い 1 まいの セーブを 大きな 世界から もどす 時も ステージ 0 から
     this.loadStage(this.worldMode ? 0 : Math.min(STAGES.length - 1, Math.round(num(d.stage, 0, STAGES.length - 1))))
     type Saved = { sp: SpeciesId; hp: number; maxHp: number; atk: number; hunger: number; energy: number; grow: number; xp?: number; care?: Record<Care, number>; bias?: Care; seed?: number; rare?: boolean; age?: number; life?: number }

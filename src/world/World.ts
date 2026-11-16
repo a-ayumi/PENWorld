@@ -30,6 +30,8 @@ import * as Ev from './parts/events'
 import * as Ui from './parts/ui'
 import * as Sv from './parts/save'
 import * as Up from './parts/update'
+import * as Wa from './parts/war'
+import type { Outpost } from './parts/war'
 
 /**
  * 箱庭の世界。モンスターが自分で考えて暮らす（歩く・食べる・眠る・遊ぶ・戦う・仲間になる・たまごを産む）。
@@ -43,7 +45,7 @@ export type Team = 'pet' | 'friend' | 'wild'
 export type State =
   | 'idle' | 'wander' | 'hunt' | 'fight' | 'assist' | 'seek' | 'eat' | 'sleep' | 'rest' | 'play'
   | 'happy' | 'faint' | 'dead' | 'train' | 'come' | 'gather' | 'build' | 'raid' | 'march' | 'work' | 'tend' | 'dance' | 'frolic'
-  | 'deliver' | 'plant' | 'heal'
+  | 'deliver' | 'plant' | 'heal' | 'campaign'
 
 export interface Creature {
   sp: Species; team: Team; anim: MonsterView; shadow: THREE.Mesh
@@ -104,6 +106,9 @@ export interface Creature {
   helpHouse?: House | null
   /** 城の 資材を つむ 場所（運ぶ あいだ おぼえておく） */
   castleAt?: { x: number; z: number } | null
+  /** 戦争の 部隊：むかう 拠点の 番号（-1 / 無し = ちがう）。squadFoe = 敵の 部隊 */
+  squad?: number
+  squadFoe?: boolean
   tendTo: Struct | null
   /** あそびば（frolic）の場所 / おまつり（dance）の輪の角度と半径 */
   spot: Struct | null
@@ -271,7 +276,7 @@ export const STATE_NAME: Record<string, string> = {
   idle: 'ぼんやり', wander: 'さんぽ', hunt: 'おいかけている', fight: 'たたかっている', seek: 'ごはんへ むかう', eat: 'たべている', sleep: 'ねむっている', rest: 'やすんでいる',
   play: 'あそんでいる', happy: 'うれしい', faint: 'きぜつ', dead: 'たおれた', train: 'トレーニング', come: 'よばれた', gather: 'しざいを ひろう', build: 'しざいを はこぶ',
   raid: 'こわしている', march: 'しんぐん中', work: 'トントン つくっている', tend: 'はたけの せわ', assist: 'たすけに むかう', dance: 'おまつりで おどっている', frolic: 'あそびばで あそんでいる',
-  deliver: 'ごはんを はこぶ', plant: 'うえに いく', heal: 'なおしに いく',
+  deliver: 'ごはんを はこぶ', plant: 'うえに いく', heal: 'なおしに いく', campaign: 'きょてんへ しゅつじん',
 }
 export const STRUCT_DESC: Record<StructKind, string> = {
   farm: 'たべものが みのる。はたけがかりが せわをする',
@@ -544,9 +549,14 @@ export class World {
   wallJob = Vi.wallJob
   wallSpot = Vi.wallSpot
   layWall = Vi.layWall
+  tileAt = Wa.tileAt
+  setupWar = Wa.setupWar
+  mountOutpost = Wa.mountOutpost
+  updateWar = Wa.updateWar
+  squadThink = Wa.squadThink
+  warLine = Wa.warLine
   settlerFamily = Cr.settlerFamily
-  /** 戦争で とった 地方の 系統（戦争の しくみが 入るまでは 無し） */
-  ownedFamilies?: () => EggKind[]
+  ownedFamilies = Wa.ownedFamilies
   rallyPoint = Ev.rallyPoint
   rallyAllies = Ev.rallyAllies
   castleRooms = Vi.castleRooms
@@ -1058,6 +1068,9 @@ export class World {
     for (const h of this.foeHouses) if (h.stage === i) this.mountHouse(h)
     for (const st of this.structs) if (st.stage === i) this.mountStruct(st)
     this.mountWalls()
+    // 戦争の 拠点（大きな 世界だけ。持ち主は セーブから）
+    this.setupWar(this.savedOutposts ?? undefined)
+    this.savedOutposts = null
     this.armyCd = 150
     this.calcVillage()
     this.villageSeen = this.vLv
@@ -1385,6 +1398,14 @@ export class World {
   /** みんなの 城：箱庭ごとの 部屋の 数と、つぎの 部屋に つんだ 資材（セーブする） */
   castleData: Record<number, { mats: number; rooms: number }> = {}
   castleH: House | null = null
+  /** 戦争（parts/war.ts）：拠点と 部隊の 時計 */
+  outposts: Outpost[] = []
+  warT = 0
+  allySquadT = 120
+  foeSquadT = 360
+  boonT = 60
+  /** 読みこんだ 拠点の 持ち主（loadStage で つかう） */
+  savedOutposts: Record<string, 'ally' | 'foe' | 'none'> | null = null
   /** 敵の 町の 城の 部屋の 数（箱庭ごと・セーブする） */
   foeRooms: Record<number, number> = {}
   foeWalls: Record<number, TownRing[]> = {}

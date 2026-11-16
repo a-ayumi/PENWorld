@@ -337,6 +337,8 @@ export function hasItem(this: World, kind: ItemKind) {
 export function think(this: World, c: Creature) {
   const wild = c.sp.temper === 'wild'
   const p = this.pet
+  // 戦争の 部隊（味方・敵）は 拠点へ
+  if (!this.army && this.squadThink(c)) return
   // 敵軍：近くの味方がいれば戦い、いなければ建物を目指して進む
   if (c.army) {
     const prey = this.nearest(c, (o) => this.ally(o) || o.sp.temper === 'calm', 3.2)
