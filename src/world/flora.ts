@@ -88,6 +88,7 @@ export function tree(kind: TreeKind, seed: number, pal: FloraPalette = FLORA[kin
   const B = new Builder()
   const M = new THREE.Matrix4()
   const g = new THREE.Group()
+  g.userData.tree = true
   // 面の色：上を向いた面・高い所ほど明るい。花の木は 上の面の一部が 花の色
   const shade = (y0: number, y1: number) => (ny: number, y: number) => {
     const t = ny * 0.55 + ((y - y0) / Math.max(0.01, y1 - y0) - 0.5) * 0.6 + (r() - 0.5) * 0.35

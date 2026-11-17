@@ -11,7 +11,16 @@ import * as THREE from 'three'
  */
 
 /** 共通の uniform（値は World.updateWeather が入れる） */
+const POND_BLANK = (() => {
+  const t = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1)
+  t.needsUpdate = true
+  return t
+})()
+
 export const fxU = {
+  /** 水べの 下ごしらえ（pond.ts の `bakePond()`）：岸からの 距離・木の 高さ。範囲は (x0, z0, 1 / 大きさ, 0) */
+  uPond: { value: POND_BLANK as THREE.Texture },
+  uPondBox: { value: new THREE.Vector4(0, 0, 1, 0) },
   /** 時間（秒） */
   uTime: { value: 0 },
   /** 画質 高 = 1 / 低 = 0 */
@@ -62,6 +71,10 @@ export interface FxOpt {
 export const FX_PARS = /* glsl */ `
   uniform float uTime; uniform float uHigh; uniform float uWind; uniform vec2 uWindDir; uniform vec2 uDrift;
   uniform float uWet; uniform float uRain; uniform float uSnow; uniform float uCloud; uniform float uGlint; uniform float uNight;
+  uniform sampler2D uPond; uniform vec4 uPondBox;
+  /** 岸からの 距離（マス・水の 中は ＋）と 水の 種類（a = 1 池や 川 / 0 海） */
+  vec4 fxPond(vec2 p) { return texture2D(uPond, (p - uPondBox.xy) * uPondBox.z); }
+  float fxPondSd(vec4 t) { return (t.r * 255.0 - 128.0) / 16.0; }
   float fxHash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
   float fxNoise(vec2 p) {
     vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -166,6 +179,11 @@ function fragmentPatch(o: FxOpt) {
         ${
           ground
             ? /* glsl */ `
+        {
+          // 水べの ぬれた 土（岸から 0.5 マス・すこし 暗く）
+          float psd = fxPondSd(fxPond(wp));
+          if (psd < 0.0 && psd > -0.5) diffuseColor.rgb *= 0.8;
+        }
         if (uWet > 0.01) {
           diffuseColor.rgb *= 1.0 - 0.3 * uWet;
           if (uHigh > 0.5) {
@@ -212,6 +230,12 @@ export function fxPatch(shader: { uniforms: Record<string, THREE.IUniform>; vert
   if (o.sway) v = v.replace('#include <begin_vertex>', SWAY_VERT)
   // ゆれの 処理の 頭（#include <begin_vertex> の すぐ あと）に 入る
   if (o.clump) v = v.replace('#include <begin_vertex>', CLUMP_VERT)
+  // 地面：水の 中の 頂点を すこし 下げる（荒い 三角が 水の 上に かぶって まっすぐな 岸に ならない ように）
+  if (o.ground)
+    v = 'uniform sampler2D uPond; uniform vec4 uPondBox;\n' + v.replace('#include <project_vertex>', `{ vec2 pw = (modelMatrix * vec4(transformed, 1.0)).xz;
+      float psd = (texture2D(uPond, (pw - uPondBox.xy) * uPondBox.z).r * 255.0 - 128.0) / 16.0;
+      transformed.y -= smoothstep(0.3, 0.8, psd) * 0.1; }
+#include <project_vertex>`)
   if (needPos) v = v.replace('#include <project_vertex>', '#include <project_vertex>\n  vFxPos = (modelMatrix * vec4(transformed, 1.0)).xyz;')
   if (needPos) {
     const p = fragmentPatch(o)
