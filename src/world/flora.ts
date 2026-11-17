@@ -10,7 +10,7 @@ import { swayify } from './fxprops'
  * kind：round = まるい木 / bloom = 花の咲く木 / conifer = 針葉樹 / bush = しげみ（花つき）
  */
 /** 木 ぜんたいの 大きさ（1 = 2026-11-16 までの 大きさ） */
-export const TREE_SCALE = 0.72
+export const TREE_SCALE = 0.58
 export type TreeKind = 'round' | 'bloom' | 'conifer' | 'bush'
 
 /** 色の組（暗い → 明るい の 3 色 + 花の色）。ステージごとに かえられる */

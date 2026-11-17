@@ -728,7 +728,9 @@ export function starMark(this: World, x: number, y: number) {
 /** ボスの大きな HP バー（画面の上のまんなか）。ボスが出ている間だけ */
 export function drawBossBar(this: World) {
   const boss = this.creatures.find((c) => c.sp.boss && this.alive(c))
-  if (!boss) return
+  // 城攻めの 間は 敵の 城の 体力（ボスが いれば ボスが 先）
+  const sb = boss ? null : this.siegeBar()
+  if (!boss && !sb) return
   const g = this.hudCtx
   const w = 208
   const x = Math.round((RES.w - w) / 2)
@@ -737,9 +739,14 @@ export function drawBossBar(this: World) {
   g.fillRect(x, y, w, 25)
   g.strokeStyle = '#ff9a3a'
   g.strokeRect(x + 0.5, y + 0.5, w - 1, 24)
-  this.text(`ボス ${this.nm(boss)}`, x + 8, y + 3, '#ffd0a0', 10)
-  this.text(`${Math.max(0, Math.ceil(boss.hp))}/${boss.maxHp}`, x + w - 8, y + 4, '#ffffff', 8, 'right')
-  const r = Math.max(0, Math.min(1, boss.hp / boss.maxHp))
+  if (boss) {
+    this.text(`ボス ${this.nm(boss)}`, x + 8, y + 3, '#ffd0a0', 10)
+    this.text(`${Math.max(0, Math.ceil(boss.hp))}/${boss.maxHp}`, x + w - 8, y + 4, '#ffffff', 8, 'right')
+  } else {
+    this.text('てきの しろ', x + 8, y + 3, '#ffd0a0', 10)
+    this.text(`${Math.ceil(sb!.k * 100)}%`, x + w - 8, y + 4, '#ffffff', 8, 'right')
+  }
+  const r = boss ? Math.max(0, Math.min(1, boss.hp / boss.maxHp)) : sb!.k
   g.fillStyle = '#10122a'
   g.fillRect(x + 6, y + 15, w - 12, 7)
   g.fillStyle = '#3a2030'
