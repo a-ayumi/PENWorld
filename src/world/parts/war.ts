@@ -125,7 +125,8 @@ export function updateWar(this: World, dt: number) {
   if ((this.allySquadT -= 1) <= 0) {
     this.allySquadT = 100 + Math.random() * 60
     const tg = targets(this, 'ally')[0]
-    const free = allies.filter((c) => c !== this.pet && c.grow === 0 && c.sp.tier >= 2 && c.hp > c.maxHp * 0.6 && (c.squad ?? -1) < 0)
+    // 2026-11-17：おなかと ねむけに 余裕の ある 子だけ（すぐ 帰って しまい、部隊が 10 秒で ばらけていた）
+    const free = allies.filter((c) => c !== this.pet && c.grow === 0 && c.sp.tier >= 2 && c.hp > c.maxHp * 0.6 && c.hunger > 30 && c.energy > 30 && (c.squad ?? -1) < 0)
     // 城攻め：敵の 城の となりの 拠点を もっていて、敵の 城が 育っている 時。ほかに とる 拠点が あっても 6 わりは 城へ
     if (siegeReady(this) && free.length >= 3 && !this.army && (!tg || Math.random() < 0.6)) {
       const n = Math.min(6, free.length - 1)
@@ -200,7 +201,8 @@ export function updateWar(this: World, dt: number) {
       this.stat('outposts')
       this.earn(20, op.x, op.z)
       // 部隊は 町へ かえる
-      for (const c of allies) if (c.squad === this.outposts.indexOf(op)) c.squad = -1
+      // 2026-11-17：とった 部隊は 1 分 ほど その 拠点に のこって まもる（すぐ 帰ると 敵に とりかえされて いた）
+      for (const c of allies) if (c.squad === this.outposts.indexOf(op)) c.garrison = this.time + 60
     } else this.say(before === 'ally' ? `${op.name}の きょてんを てきに とられた…` : `てきが ${op.name}の きょてんを とった`)
   }
   // めぐみ：60 秒ごとに 味方の 拠点 1 つにつき 資材 1 つと 食べ物 1 つを 町の そばに。敵の 拠点は 敵の 城を 育てる
@@ -223,12 +225,13 @@ export function squadThink(this: World, c: Creature): boolean {
   if (i === SIEGE || i === DEFEND) return siegeThink(this, c, i === DEFEND)
   const op = this.outposts[i]
   const mine: Side = c.squadFoe ? 'foe' : 'ally'
-  // とれた（味方の 部隊は 町へ かえる）・拠点が ない
-  if (!op || (mine === 'ally' && op.owner === 'ally')) {
+  // とれた（味方の 部隊は しばらく まもって から 町へ かえる）・拠点が ない
+  if (!op || (mine === 'ally' && op.owner === 'ally' && (c.garrison ?? 0) <= this.time)) {
     c.squad = -1
+    c.garrison = 0
     return false
   }
-  if (mine === 'ally' && (c.hp < c.maxHp * 0.3 || c.hunger < 15 || c.energy < 12)) {
+  if (mine === 'ally' && (c.hp < c.maxHp * 0.3 || c.hunger < 8 || c.energy < 6)) {
     c.squad = -1
     return false
   }
@@ -268,11 +271,14 @@ function siegeReady(w: World) {
   if (!fs || (w.foeRooms[w.stageIndex] ?? 0) < 3) return false
   const ft = w.tileAt(fs.x, fs.z)
   const mine = [...w.freed.map((f) => w.tileAt(f.x, f.z)), ...w.outposts.filter((o) => o.owner === 'ally').map((o) => o.tile)]
-  return mine.some((m) => adj(m, ft))
+  // となり（ななめも：まんなかの 丘は 敵の 城と かどで 接して いる）
+  return mine.some((m) => adj(m, ft) || (Math.abs((m % 3) - (ft % 3)) === 1 && Math.abs(Math.floor(m / 3) - Math.floor(ft / 3)) === 1))
 }
 
 /** 敵の 城の あたりの 半径 */
 const foeR = (w: World) => keepRadius(w.foeEra(), w.foeRooms[w.stageIndex] ?? 0)
+/** 城攻めで たたく 所の 半径：城壁が あれば いちばん 外の 城壁（中へは 入れない）、無ければ 城の かべ */
+const hitR = (w: World) => Math.max(foeR(w), ...(w.foeWalls[w.stageIndex] ?? []).filter((r) => r.built > 0).map((r) => r.r + 0.6))
 
 /** 1 秒ごと：城を たたいている 味方の 分だけ 城の 体力を けずる・敵は 守りを 出す・0 で 勝ち */
 function updateSiege(w: World, allies: Creature[], fs: { x: number; z: number }) {
@@ -280,21 +286,23 @@ function updateSiege(w: World, allies: Creature[], fs: { x: number; z: number })
   const hitters = squad.filter((c) => c.state === 'siege')
   if (!squad.length) {
     // だれも 攻めて いない 間は ゆっくり なおる
-    if (w.siegeHp !== null && (w.siegeHp += w.siegeMax * 0.004) >= w.siegeMax) w.siegeHp = null
+    // 2026-11-17：なおるのは ゆっくり（20 分ほどで もとどおり）。何回かの 攻撃で けずりきれる ように
+    if (w.siegeHp !== null && (w.siegeHp += w.siegeMax * 0.0008) >= w.siegeMax) w.siegeHp = null
     return
   }
   if (w.siegeHp === null) {
-    w.siegeMax = 350 + (w.foeRooms[w.stageIndex] ?? 0) * 110
+    w.siegeMax = 260 + (w.foeRooms[w.stageIndex] ?? 0) * 70
     w.siegeHp = w.siegeMax
     w.siegeSay = 4
     w.defendT = 6
   }
-  // 守り：攻められて いる 間、敵の 城から 12 秒ごとに 2 ひき（8 ひきまで）
-  const near7 = squad.some((c) => near(c, fs, foeR(w) + 9))
+  // 守り：攻められて いる 間、敵の 城から 守りを 出す
+  const near7 = squad.some((c) => near(c, fs, hitR(w) + 9))
   if (near7 && (w.defendT -= 1) <= 0) {
-    w.defendT = 12
+    // 2026-11-17：20 秒ごとに 1 匹・4 匹まで（多いと 小さな 部隊が 守りと たたかう だけで 城に とどかなかった）
+    w.defendT = 20
     const alive = w.creatures.filter((c) => c.squad === DEFEND && w.alive(c)).length
-    for (let k = 0; k < 2 && alive + k < 8; k++) {
+    for (let k = 0; k < 1 && alive + k < 4; k++) {
       const a = Math.random() * Math.PI * 2
       const p = w.freePos(0, fs.x + Math.cos(a) * (foeR(w) + 1.5), fs.z + Math.sin(a) * (foeR(w) + 1.5), 2)
       const c = w.spawn(armyMember(w.regionId(fs.x, fs.z), 1) as SpeciesId, 'wild', p.x, p.z)
@@ -339,7 +347,7 @@ function siegeThink(w: World, c: Creature, defend: boolean): boolean {
     return true
   }
   // 味方：弱ったら 帰る・城が 小さく なりすぎたら（部屋 3 未満）やめる
-  if (c.hp < c.maxHp * 0.3 || c.hunger < 15 || c.energy < 12 || (w.foeRooms[w.stageIndex] ?? 0) < 1) {
+  if (c.hp < c.maxHp * 0.3 || c.hunger < 8 || c.energy < 6 || (w.foeRooms[w.stageIndex] ?? 0) < 1) {
     c.squad = -1
     return false
   }
@@ -351,7 +359,7 @@ function siegeThink(w: World, c: Creature, defend: boolean): boolean {
   }
   // 城の かべの 手前（自分の いる 向き）まで 行って たたく
   const d = Math.hypot(c.x - fs.x, c.z - fs.z) || 1
-  const r = foeR(w) + 1.1
+  const r = hitR(w) + 1.1
   if (d > r + 1.4) {
     c.tx = fs.x + ((c.x - fs.x) / d) * r
     c.tz = fs.z + ((c.z - fs.z) / d) * r

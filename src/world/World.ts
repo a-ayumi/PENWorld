@@ -110,6 +110,8 @@ export interface Creature {
   /** 戦争の 部隊：むかう 拠点の 番号（-1 / 無し = ちがう）。squadFoe = 敵の 部隊 */
   squad?: number
   squadFoe?: boolean
+  /** 拠点を とった あと、この 時刻（World.time）まで その 拠点を まもる */
+  garrison?: number
   /** ニックネーム（なかまと ペット。セーブする） */
   nick?: string
   tendTo: Struct | null
@@ -221,7 +223,7 @@ export interface Army { phase: 'warn' | 'on'; t: number; left: Creature[]; n: nu
 export interface Card { title: string; sub: string; lines: string[]; color: string; at: number; t0: number }
 export type Weather = 'sun' | 'cloud' | 'rain' | 'snow' | 'ember'
 export type FoodKind = 'stage' | 'meat' | 'sweet' | 'nut'
-export interface Food { mesh: THREE.Group; x: number; z: number; y: number; vy: number; landed: boolean; taken: Creature | null; bite: number; kind: FoodKind }
+export interface Food { mesh: THREE.Group; x: number; z: number; y: number; vy: number; landed: boolean; taken: Creature | null; bite: number; kind: FoodKind; /** とりに 行って たどりつけなかった 回数（2 で かたづける） */ fail?: number }
 /** 村での役割（だいく・はたけがかり・みはり・おせわ（あそびば）・うりこ（いちば）・ごはんがかり（ごはんや）・いしく（城壁）） */
 export type Role = 'free' | 'builder' | 'farmer' | 'guard' | 'carer' | 'seller' | 'cook' | 'mason'
 export const ROLE_NAME: Record<Role, string> = { free: 'じゆう', builder: 'だいく', farmer: 'はたけがかり', guard: 'みはり', carer: 'おせわ', seller: 'うりこ', cook: 'ごはんがかり', mason: 'いしく' }
