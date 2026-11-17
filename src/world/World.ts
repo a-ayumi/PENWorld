@@ -1439,6 +1439,9 @@ export class World {
   foeGone = false
   /** 味方の 町に なった 昔の 敵の 町（城の 形と へいを のこす） */
   freed: Wa.Freed[] = []
+  /** 勝った あとの 花火の のこり 秒・2 つめの 町が 育つ 時計 */
+  victoryT = 0
+  freedT = 120
   freedMeshes: THREE.Group[] = []
   /** 読みこんだ 拠点の 持ち主（loadStage で つかう） */
   savedOutposts: Record<string, 'ally' | 'foe' | 'none'> | null = null
