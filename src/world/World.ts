@@ -7,7 +7,7 @@
  * 毎コマの 入り口は update()（parts/update.ts）と render()（parts/ui.ts）。
  */
 import * as THREE from 'three'
-import { OUT, RES } from './psx'
+import { OUT, RES, psx } from './psx'
 import { DioramaLook } from './diorama'
 import { NavGrid } from './nav'
 import { Paths } from './paths'
@@ -529,7 +529,8 @@ export class World {
   sharedLam(c: string) {
     let m = this.lamCache.get(c)
     if (!m) {
-      m = this.lam(c)
+      // 建物の 材質は ドットの 模様つき（かべの 段・屋根の かわら）
+      m = psx(new THREE.MeshLambertMaterial({ color: c, flatShading: true }), { build: true })
       m.userData.shared = true
       this.lamCache.set(c, m)
     }

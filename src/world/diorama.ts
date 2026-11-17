@@ -155,6 +155,7 @@ export class DioramaLook {
     toonU.uToon.value = 1
     // 2026-11-17：絵の 質感を 平らな 塗りに（細かい つぶは 出さない）
     toonU.uGrain.value = 0
+    toonU.uPat.value = 1
     toonU.uSunLum.value = Math.max(0.05, sun.intensity * (sun.color.r * 0.3 + sun.color.g * 0.59 + sun.color.b * 0.11))
 
     const prev = renderer.getRenderTarget()
@@ -186,6 +187,7 @@ export class DioramaLook {
 
     toonU.uToon.value = 0
     toonU.uGrain.value = 0
+    toonU.uPat.value = 0
     sun.intensity = sunI
     hemi.intensity = hemiI
     sun.position.copy(sunPos)
