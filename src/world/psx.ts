@@ -62,6 +62,28 @@ const PATTERN = /* glsl */ `
             diffuseColor.rgb *= mix(1.0, k, uPat);
           }`
 
+/**
+ * 木の 葉の 房（2026-11-17・見本の 町の 木は まるい 葉の 房が かさなった ドット絵）：
+ * 世界の 位置で きまる 3D の 点の 集まり（0.17 マス）で 葉を 房に わけ、房の 上は 明るく・下は すこし 暗く・房の さかいに かげの 線（1 ドット 以上）
+ */
+const LEAF = /* glsl */ `
+          if (uPat > 0.0) {
+            vec3 q = vGrainP / 0.2;
+            vec3 i0 = floor(q - 0.5);
+            float f1 = 9.0; float f2 = 9.0; vec3 b1 = vec3(0.0);
+            for (int x = 0; x < 2; x++) for (int y = 0; y < 2; y++) for (int z = 0; z < 2; z++) {
+              vec3 c = i0 + vec3(float(x), float(y), float(z));
+              vec3 o = fract(sin(vec3(dot(c, vec3(12.9, 78.2, 37.7)), dot(c, vec3(39.3, 11.1, 83.1)), dot(c, vec3(73.1, 52.2, 9.7)))) * 43758.5);
+              vec3 d = q - (c + o);
+              float dd = dot(d, d);
+              if (dd < f1) { f2 = f1; f1 = dd; b1 = d; } else if (dd < f2) f2 = dd;
+            }
+            float edge = sqrt(f2) - sqrt(f1);
+            float lw = max(0.12, length(fwidth(q)) * 0.9);
+            float k = edge < lw ? 0.7 : b1.y > 0.14 ? 1.2 : b1.y < -0.22 ? 0.84 : 1.0;
+            diffuseColor.rgb *= mix(1.0, k, uPat);
+          }`
+
 export function psx<T extends THREE.Material>(m: T, fx?: FxOpt): T {
   const o: FxOpt = fx ?? {}
   m.userData.fx = o
@@ -93,7 +115,8 @@ export function psx<T extends THREE.Material>(m: T, fx?: FxOpt): T {
             float gm = fract(sin(dot(floor(vGrainP / 0.21), vec3(7.13, 157.1, 113.7))) * 24634.6345);
             diffuseColor.rgb *= 1.0 + (step(0.8, gn) * 0.13 - step(gn, 0.22) * 0.14 + (gm - 0.5) * 0.1) * uGrain * ${o.soft ? '1.5' : '1.0'};
           }
-          ${o.build ? PATTERN : ''}`,
+          ${o.build ? PATTERN : ''}
+          ${o.leaf ? LEAF : ''}`,
         )
     }
     if (!o.soft && shader.fragmentShader.includes('#include <lights_fragment_end>')) {
@@ -116,7 +139,7 @@ export function psx<T extends THREE.Material>(m: T, fx?: FxOpt): T {
         )
     }
   }
-  m.customProgramCacheKey = () => 'psx' + (o.sway ? 'w' : '') + (o.ground ? 'g' : '') + (o.snow ? 's' : '') + (o.soft ? 'f' : '') + (o.clump ? 'c' : '') + (o.build ? 'b' : '')
+  m.customProgramCacheKey = () => 'psx' + (o.sway ? 'w' : '') + (o.ground ? 'g' : '') + (o.snow ? 's' : '') + (o.soft ? 'f' : '') + (o.clump ? 'c' : '') + (o.build ? 'b' : '') + (o.leaf ? 'l' : '')
   return m
 }
 

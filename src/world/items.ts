@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { psx } from './psx'
 import { Tex, rng } from './textures'
+import { leaves } from './flora'
 
 /**
  * 置き物（箱庭に置く物）の定義・説明・3D モデル・見た目のアニメ。
@@ -259,9 +260,11 @@ function sapling(k: Kit, g: THREE.Group, fruit: string) {
   k.box(0.12, 0.025, 0.025, '#e8cf9a', 0.1, 0.5, 0.02, young)
   const yCrown = new THREE.Group()
   yCrown.position.y = 0.85
-  k.ico(0.4, '#5cc25a', 0, 0.12, 0, yCrown)
-  k.ico(0.27, '#7fd05a', -0.08, 0.42, 0.03, yCrown)
-  k.ico(0.2, '#4faa4c', 0.26, 0.04, 0.1, yCrown)
+  // 2026-11-17：葉は 森の 木と 同じ（まるい 陰・葉の 房の 模様）
+  const yl = leaves('bush', 41)
+  yl.scale.setScalar(1.25)
+  yl.position.y = -0.2
+  yCrown.add(yl)
   young.add(yCrown)
   g.add(young)
   // 3) みのる木
@@ -276,10 +279,10 @@ function sapling(k: Kit, g: THREE.Group, fruit: string) {
   br.rotation.z = -0.9
   const tCrown = new THREE.Group()
   tCrown.position.y = 1.0
-  k.ico(0.8, '#4faa4c', 0, 0.38, 0, tCrown)
-  k.ico(0.52, '#5cc25a', 0.5, 0.1, 0.1, tCrown)
-  k.ico(0.5, '#6cd05a', -0.46, 0.2, -0.1, tCrown)
-  k.ico(0.4, '#7fd05a', 0.02, 0.98, 0, tCrown)
+  const tl = leaves('round', 43)
+  tl.scale.setScalar(1.05)
+  tl.position.y = 0.42 - 1.75 * 1.05
+  tCrown.add(tl)
   tree.add(tCrown)
   const fm = k.lam(fruit)
   for (let i = 0; i < 4; i++) {
