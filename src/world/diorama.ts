@@ -153,7 +153,8 @@ export class DioramaLook {
     sun.intensity = sunI * SUN_GAIN
     hemi.intensity = hemiI * HEMI_GAIN
     toonU.uToon.value = 1
-    toonU.uGrain.value = 1
+    // 2026-11-17：絵の 質感を 平らな 塗りに（細かい つぶは 出さない）
+    toonU.uGrain.value = 0
     toonU.uSunLum.value = Math.max(0.05, sun.intensity * (sun.color.r * 0.3 + sun.color.g * 0.59 + sun.color.b * 0.11))
 
     const prev = renderer.getRenderTarget()
@@ -282,7 +283,10 @@ function makeDioramaPost(scene: THREE.Texture, depth: THREE.DepthTexture, hud: T
           // 輪郭：まわりにずっと手前の物があれば（＝自分は奥側のふち）暗く
           float e = persp > 0.5 ? 0.012 + d * 0.06 : 0.0035;
           float n = min(min(D(vec2(1.0, 0.0)), D(vec2(-1.0, 0.0))), min(D(vec2(0.0, 1.0)), D(vec2(0.0, -1.0))));
-          if (n < d - e) c = c * vec3(0.52, 0.47, 0.45);
+          // 2026-11-17：手で 描いた ような こげ茶の 線（物の まわり）と、面の 折れ目の うすい 線（屋根の 棟・かべと 屋根の さかい）
+          float crease = persp > 0.5 ? 1.0 : abs(D(vec2(1.0, 0.0)) + D(vec2(-1.0, 0.0)) - 2.0 * d) + abs(D(vec2(0.0, 1.0)) + D(vec2(0.0, -1.0)) - 2.0 * d);
+          if (n < d - e) c = mix(c * 0.35, vec3(0.17, 0.11, 0.08), 0.55);
+          else if (persp < 0.5 && crease > e * 0.22) c = mix(c, c * vec3(0.55, 0.47, 0.42), 0.75);
           // ふちの光：左上の隣が ずっと奥なら（＝自分は手前の物の左上のふち）、暖かく明るく
           else if (D(vec2(-1.0, 1.0)) > d + e) c = c * 1.07 + vec3(0.03, 0.02, 0.0);
           // 遠くは空の色へ少しかすむ（奥行き = 平行投影なので d がそのまま距離）
@@ -303,7 +307,9 @@ function makeDioramaPost(scene: THREE.Texture, depth: THREE.DepthTexture, hud: T
         c = mix(c, c * vec3(0.55, 0.62, 0.95), night * 0.5);
         // 色数をしぼる（1 チャンネル 20 段）+ 4×4 ディザ
         float L = 16.0;
-        c = floor(clamp(c, 0.0, 1.0) * L + bayer4(px)) / L;
+        // 網点は 使わない（平らな 塗り）。bayer4 は のこす
+        c *= 1.045; // 網点と つぶの 明るい 点が なくなった ぶん
+        c = floor(clamp(c, 0.0, 1.0) * L + 0.5 + 0.0 * bayer4(px)) / L;
         if (glitch > 0.0) c = mix(c, vec3(0.05, 0.1, 0.2), smoothstep(0.85, 1.0, glitch));
         c = mix(c, vec3(1.0), flash);
         vec4 h = texture2D(tHud, vUv);

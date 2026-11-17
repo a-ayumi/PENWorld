@@ -131,7 +131,13 @@ function terrain(
       // 高い所の急な面と 山の上のほうは 岩はだ
       g = 1
       c = rockC[Math.floor(y / 0.5) % 2]
-    } else c = ny < 0.72 ? strata[Math.floor(y / 0.32) % 3] : a.clone().lerp(b, 0.35 + r() * 0.3)
+    } else {
+      // 2026-11-17：草地の 色は 場所で きまる 大きな やわらかい むら（三角ごとに ちがう 色だと かけらの 筋に 見えた）
+      const cx = (fp.getX(f) + fp.getX(f + 1) + fp.getX(f + 2)) / 3
+      const cz = (fp.getZ(f) + fp.getZ(f + 1) + fp.getZ(f + 2)) / 3
+      const m = 0.5 + 0.17 * (Math.sin(cx * 0.19 + cz * 0.11) + Math.sin(cz * 0.23 - cx * 0.09 + 1.3))
+      c = ny < 0.72 ? strata[Math.floor(y / 0.32) % 3] : a.clone().lerp(b, m)
+    }
     const B = buckets[g]
     for (let k = f; k < f + 3; k++) {
       B.p.push(fp.getX(k), fp.getY(k), fp.getZ(k))
