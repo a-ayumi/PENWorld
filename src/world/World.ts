@@ -46,7 +46,7 @@ export type Team = 'pet' | 'friend' | 'wild'
 export type State =
   | 'idle' | 'wander' | 'hunt' | 'fight' | 'assist' | 'seek' | 'eat' | 'sleep' | 'rest' | 'play'
   | 'happy' | 'faint' | 'dead' | 'train' | 'come' | 'gather' | 'build' | 'raid' | 'march' | 'work' | 'tend' | 'dance' | 'frolic'
-  | 'deliver' | 'plant' | 'heal' | 'campaign'
+  | 'deliver' | 'plant' | 'heal' | 'campaign' | 'siege'
 
 export interface Creature {
   sp: Species; team: Team; anim: MonsterView; shadow: THREE.Mesh
@@ -564,6 +564,10 @@ export class World {
   warLine = Wa.warLine
   settlerFamily = Cr.settlerFamily
   ownedFamilies = Wa.ownedFamilies
+  conquer = Wa.conquer
+  newFoe = Wa.newFoe
+  applyWarSave = Wa.applyWarSave
+  siegeBar = Wa.siegeBar
   rallyPoint = Ev.rallyPoint
   rallyAllies = Ev.rallyAllies
   castleRooms = Vi.castleRooms
@@ -1083,6 +1087,8 @@ export class World {
     }
     for (const h of this.foeHouses) if (h.stage === i) this.mountHouse(h)
     for (const st of this.structs) if (st.stage === i) this.mountStruct(st)
+    // 戦争の 決着の あと：敵の 城の 場所を セーブの とおりに（mountWalls が 敵の 城を 置く 前に）
+    this.applyWarSave()
     this.mountWalls()
     // 戦争の 拠点（大きな 世界だけ。持ち主は セーブから）
     this.setupWar(this.savedOutposts ?? undefined)
@@ -1420,6 +1426,18 @@ export class World {
   allySquadT = 120
   foeSquadT = 360
   boonT = 60
+  /** 戦争の 決着（2026-11-17）：城攻めの 敵の 城の 体力（null = 攻めていない）・守りを 出す 時計・勝った あとの 平和の のこり 秒 */
+  siegeHp: number | null = null
+  siegeMax = 1
+  defendT = 0
+  siegeSay = 4
+  warPeace = 0
+  /** 敵の 城の 場所（null = 地図の はじめの 場所）。foeGone = いまは 敵の 町が 無い（平和） */
+  foeBase: { x: number; z: number } | null = null
+  foeGone = false
+  /** 味方の 町に なった 昔の 敵の 町（城の 形と へいを のこす） */
+  freed: Wa.Freed[] = []
+  freedMeshes: THREE.Group[] = []
   /** 読みこんだ 拠点の 持ち主（loadStage で つかう） */
   savedOutposts: Record<string, 'ally' | 'foe' | 'none'> | null = null
   /** 敵の 町の 城の 部屋の 数（箱庭ごと・セーブする） */

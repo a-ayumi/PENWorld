@@ -37,6 +37,7 @@ export function save(this: World) {
     townWalls: this.townWalls,
     castle: this.castleData,
     outposts: Object.fromEntries(this.outposts.map((o) => [o.tile, o.owner])),
+    war: { siege: this.siegeHp === null ? undefined : Math.round(this.siegeHp), max: Math.round(this.siegeMax), peace: Math.round(this.warPeace), gone: this.foeGone || undefined, base: this.foeBase ?? undefined, freed: this.freed },
     foeRooms: this.foeRooms,
     foeHouses: this.foeHouses.map((h) => ({ stage: h.stage, x: h.x, z: h.z, mats: h.mats, hp: Math.round(h.hp), era: h.era, age: Math.round(h.age) })),
     foeWalls: this.foeWalls,
@@ -197,6 +198,20 @@ export function load(this: World): boolean {
     this.savedOutposts = {}
     if (d.outposts && typeof d.outposts === 'object')
       for (const [k, v] of Object.entries(d.outposts as Record<string, unknown>)) if (Number.isInteger(+k) && +k >= 0 && +k < 9 && (v === 'ally' || v === 'foe')) this.savedOutposts[k] = v
+    // 戦争の 決着：城攻めの 体力・平和の のこり・新しい 敵の 城の 場所・味方の 町に なった 昔の 敵の 町
+    {
+      const wr = (d.war && typeof d.war === 'object' ? d.war : {}) as Record<string, unknown>
+      const pt = (v: unknown) => (v && typeof v === 'object' ? { x: num((v as { x: number }).x, -HALF, HALF, 0), z: num((v as { z: number }).z, -HALF, HALF, 0) } : null)
+      this.siegeMax = num(wr.max as number, 1, 5000, 1)
+      this.siegeHp = typeof wr.siege === 'number' ? num(wr.siege, 0, this.siegeMax, this.siegeMax) : null
+      this.warPeace = num(wr.peace as number, 0, 7200, 0)
+      this.foeGone = wr.gone === true
+      this.foeBase = this.foeGone ? null : pt(wr.base)
+      this.freed = (Array.isArray(wr.freed) ? (wr.freed as Record<string, unknown>[]) : []).slice(0, 4).filter((f) => f && typeof f === 'object').map((f) => ({
+        ...pt(f)!, era: Math.round(num(f.era as number, 1, 9, 2)), rooms: Math.round(num(f.rooms as number, 0, MAX_ROOMS, 0)),
+        rings: ringsOf({ 0: f.rings })[0] ?? [],
+      }))
+    }
     // 古い 1 まいの セーブを 大きな 世界から もどす 時も ステージ 0 から
     this.loadStage(this.worldMode ? 0 : Math.min(STAGES.length - 1, Math.round(num(d.stage, 0, STAGES.length - 1))))
     type Saved = { sp: SpeciesId; hp: number; maxHp: number; atk: number; hunger: number; energy: number; grow: number; xp?: number; care?: Record<Care, number>; bias?: Care; seed?: number; rare?: boolean; age?: number; life?: number; nick?: unknown }
