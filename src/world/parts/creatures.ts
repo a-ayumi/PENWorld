@@ -350,6 +350,23 @@ export function hasItem(this: World, kind: ItemKind) {
   return this.items.some((it) => it.kind === kind && it.stage === this.stageIndex)
 }
 
+/** いちばん 近い 落ちている 食べ物（遠ければ ごはんやの ためてある 分）を とりに いく。true = 行く */
+function seekFood(w: World, c: Creature) {
+  const f = w.foods
+    .filter((f) => f.landed && !f.taken)
+    .sort((a, b) => Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z))[0]
+  // 落ちている 物が 遠ければ、ごはんやに ためてある 分を もらいに 行く
+  const dn = w.doneStruct('diner', c.x, c.z)
+  const fd = f ? Math.hypot(f.x - c.x, f.z - c.z) : 99
+  const g = dn && (dn.stock ?? 0) > 0 && Math.hypot(dn.x - c.x, dn.z - c.z) < Math.min(20, fd - 2) ? w.dinerServe(dn) : f
+  if (!g) return false
+  g.taken = c
+  c.food = g
+  c.inside = false
+  w.setState(c, 'seek', 12)
+  return true
+}
+
 /** 何をするか決める（お腹・眠気・性格・まわりの状況・置き物から） */
 export function think(this: World, c: Creature) {
   const wild = c.sp.temper === 'wild'
@@ -427,6 +444,8 @@ export function think(this: World, c: Creature) {
       return this.setState(c, 'hunt', 8)
     }
   }
+  // 2026-11-17：とても おなかが すいて いたら、休む より 先に 食べに いく（夜や 雨が つづくと 腹ぺこの まま 城で 休みつづけた）
+  if (c.hunger < 25 && !wild && seekFood(this, c)) return
   // 雨・ひのこ・夜は自分の家に入って休む
   const home = this.homeOf(c)
   if (!wild && home && home.level >= 2 && (this.weather === 'rain' || this.weather === 'ember' || this.night > 0.5) && Math.random() < 0.7) {
@@ -451,20 +470,7 @@ export function think(this: World, c: Creature) {
       return this.setState(c, 'hunt', 6)
     }
   }
-  if (c.hunger < 45 && !wild) {
-    const f = this.foods
-      .filter((f) => f.landed && !f.taken)
-      .sort((a, b) => Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z))[0]
-    // 落ちている 物が 遠ければ、ごはんやに ためてある 分を もらいに 行く
-    const dn = this.doneStruct('diner', c.x, c.z)
-    const fd = f ? Math.hypot(f.x - c.x, f.z - c.z) : 99
-    const g = dn && (dn.stock ?? 0) > 0 && Math.hypot(dn.x - c.x, dn.z - c.z) < Math.min(20, fd - 2) ? this.dinerServe(dn) : f
-    if (g) {
-      g.taken = c
-      c.food = g
-      return this.setState(c, 'seek', 12)
-    }
-  }
+  if (c.hunger < 45 && !wild && seekFood(this, c)) return
   if (c.energy < 20 || (this.night > 0.5 && Math.random() < 0.5)) {
     // たき火があればそのそばで眠る
     const fire = this.item('fire')

@@ -72,7 +72,8 @@ export function update(this: World, dt: number) {
       const gy = this.stage.heightAt(f.x, f.z) + 0.16
       if (f.y <= gy) {
         f.y = gy
-        if (Math.abs(f.vy) > 2) f.vy = -f.vy * 0.35
+        // はねる しきい値は 1 歩ぶんの 重力を 足す（留守の 早送り = 1 歩 0.5 秒 では いつまでも はねて 着地 しなかった）
+        if (Math.abs(f.vy) > 2 + 14 * dt * 1.2) f.vy = -f.vy * 0.35
         else {
           f.vy = 0
           f.landed = true
@@ -329,6 +330,8 @@ export function updateCreature(this: World, c: Creature, dt: number) {
       if (!f || !this.foods.includes(f) || c.t <= 0) {
         if (f) f.taken = null
         c.food = null
+        // 時間ぎれ = たどりつけなかった。2 回 だめなら かたづける（同じ 食べ物を めざしつづけて 倒れていた）
+        if (f && this.foods.includes(f) && c.t <= 0 && (f.fail = (f.fail ?? 0) + 1) >= 2) this.removeFood(f)
         this.setState(c, 'idle', 0.5)
         break
       }

@@ -55,6 +55,12 @@ export function dropFood(this: World, x?: number, z?: number, from = 2.5, kind: 
   }
   x = THREE.MathUtils.clamp(x, -HALF, HALF)
   z = THREE.MathUtils.clamp(z, -HALF, HALF)
+  // 2026-11-17：城・へい・建物の 中や 歩いて 行けない 所に 落ちたら、近くの 空いた 所へ（城の かべぎわに 落ちて とれなかった）
+  if (this.obstacles().some((o) => Math.hypot(o.x - x!, o.z - z!) < o.r + 0.3) || (this.nav && !this.nav.standable(x, z, false))) {
+    const p = this.freePos(0, x, z, 4)
+    x = p.x
+    z = p.z
+  }
   const mesh = this.makeFoodMesh(kind)
   const y = this.stage.heightAt(x, z) + from
   mesh.position.set(x, y, z)
@@ -2226,11 +2232,18 @@ export function dinerServe(this: World, dn: Struct): Food | null {
 
 /** はこんでいる 子が いなくなった たべものを 地面に もどす（1 秒ごと） */
 export function releaseFoods(this: World) {
-  for (const f of this.foods) {
+  for (const f of [...this.foods]) {
     const c = f.taken
     if (!c) continue
     const ok = this.alive(c) && ((c.food === f && (c.state === 'seek' || c.state === 'eat')) || (c.meal === f && c.state === 'deliver'))
     if (ok) continue
+    // 2026-11-17：とりに 行って たどりつけなかった（崖の 上・川の むこう など）。2 回 だめなら かたづける
+    // （腹ぺこの 子が 同じ 行けない 食べ物を めざしつづけて 倒れていた）
+    if (this.alive(c) && c.food === f && Math.hypot(c.x - f.x, c.z - f.z) > 0.8 && (f.fail = (f.fail ?? 0) + 1) >= 2) {
+      c.food = null
+      this.removeFood(f)
+      continue
+    }
     f.taken = null
     if (c.meal === f) c.meal = null
     f.landed = false
