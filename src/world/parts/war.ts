@@ -116,6 +116,7 @@ export function updateWar(this: World, dt: number) {
   if (this.warT > 0) return
   this.warT = 1
   const allies = this.creatures.filter((c) => this.ally(c) && this.alive(c))
+  updateFreed(this, allies)
   const fs0 = this.stage.foeStart
   // 平和：敵の 町が 無い 間。時間が たつと べつの 地方に 新しい 敵の 町
   if (!fs0) {
@@ -209,6 +210,15 @@ export function updateWar(this: World, dt: number) {
   if ((this.boonT -= 1) <= 0) {
     this.boonT = 60
     const t = this.townCenter()
+    // 味方の 町に なった 昔の 敵の 町：部屋の 多さで 資材・食べ物・コイン（拠点 より 多い）
+    for (const f of this.freed) {
+      const n = 1 + Math.floor(f.rooms / 6)
+      for (let k = 0; k < n; k++) {
+        this.spawnResource(t.x + (Math.random() - 0.5) * 10, t.z + (Math.random() - 0.5) * 10, undefined, true)
+        this.dropFood(t.x + (Math.random() - 0.5) * 8, t.z + (Math.random() - 0.5) * 8)
+      }
+      this.coins += 2 + n
+    }
     for (const op of this.outposts) {
       if (op.owner === 'ally') {
         this.spawnResource(t.x + (Math.random() - 0.5) * 10, t.z + (Math.random() - 0.5) * 10, undefined, true)
@@ -221,7 +231,7 @@ export function updateWar(this: World, dt: number) {
 /** 部隊の 子の 考え（think の 頭から）：とちゅうの 敵と たたかい、拠点まで 行って まもる。true = 行動を きめた */
 export function squadThink(this: World, c: Creature): boolean {
   const i = c.squad ?? -1
-  if (i < 0) return false
+  if (i < 0) return visitFreed(this, c)
   if (i === SIEGE || i === DEFEND) return siegeThink(this, c, i === DEFEND)
   const op = this.outposts[i]
   const mine: Side = c.squadFoe ? 'foe' : 'ally'
@@ -405,6 +415,13 @@ export function conquer(this: World) {
   }
   this.mountWalls()
   this.say('てきの しろを おとした！ せんそうに かった！ てきの まちは みかたの まちに なった')
+  // 見せ場：落とした 城の 上に 花火と 輪・「しょうり！」、味方の 町は おまつり
+  this.victoryT = 9
+  this.ring(fs.x, fs.z, '#ffd23f', 6, 1.4)
+  this.popups.push({ pos: new THREE.Vector3(fs.x, this.stage.heightAt(fs.x, fs.z) + 6.5, fs.z), text: 'しょうり！', color: '#ffd23f', t: 0, big: true })
+  this.festivalCd = 0
+  this.festival = null
+  this.startFestival()
   this.mark(fs.x, fs.z, 5)
   this.onSfx('victory')
   this.earn(150, fs.x, fs.z)
@@ -449,4 +466,54 @@ export function applyWarSave(this: World) {
 export function siegeBar(this: World) {
   const fs = this.stage.foeStart
   return this.siegeHp !== null && fs ? { k: Math.max(0, this.siegeHp / this.siegeMax), x: fs.x, z: fs.z, h: 5 } : null
+}
+
+/** 勝った あとの 花火（1 秒ごと）と、2 つめの 町が 育つ（2 分ごとに 1 部屋・味方の 町の 時代に 追いつく） */
+function updateFreed(w: World, allies: Creature[]) {
+  if (w.victoryT > 0) {
+    w.victoryT -= 1
+    const f = w.freed[w.freed.length - 1]
+    if (f) {
+      for (let k = 0; k < 4; k++) {
+        // 城の 屋根より 上で 上げる（城の 中に うまって 見えなかった）
+        const x = f.x + (Math.random() - 0.5) * 10
+        const z = f.z + (Math.random() - 0.5) * 10
+        const y = w.stage.heightAt(f.x, f.z) + 7 + Math.random() * 2.5
+        w.burst(x, y, z, (['spark', 'heart', 'coin', 'spark'] as const)[k], 18, 4.2, 2.5)
+      }
+      if (Math.random() < 0.5) w.onSfx('coin')
+    }
+  }
+  if (!w.freed.length || (w.freedT -= 1) > 0) return
+  w.freedT = 120
+  // 住む子が いる（見回りに 来ている）ほど 早く 育つ
+  const era = w.townEra()
+  let changed = false
+  for (const f of w.freed) {
+    const here = allies.filter((c) => near(c, f, 14)).length
+    if (f.rooms < 16 && (here > 0 || Math.random() < 0.7)) {
+      f.rooms++
+      changed = true
+    }
+    if (f.era < era) {
+      f.era = era
+      for (const r of f.rings) r.era = Math.max(r.era, era)
+      changed = true
+      w.say('みかたに なった まちも あたらしい じだいに なった')
+    }
+  }
+  if (changed) w.mountWalls()
+}
+
+/** ひまな おとなは ときどき 2 つめの 町へ 見回りに 行く（町に 人の けはいが 出る） */
+function visitFreed(w: World, c: Creature): boolean {
+  if (!w.freed.length || !w.ally(c) || c === w.pet || c.grow > 0 || c.hunger < 55 || c.energy < 50 || c.inside || Math.random() > 0.02) return false
+  const f = w.freed[Math.floor(Math.random() * w.freed.length)]
+  const a = Math.random() * Math.PI * 2
+  const r = keepRadius(f.era, f.rooms) + 2 + Math.random() * 3
+  const p = w.freePos(0, f.x + Math.cos(a) * r, f.z + Math.sin(a) * r, 2)
+  c.tx = p.x
+  c.tz = p.z
+  w.setState(c, 'campaign', 60)
+  return true
 }
